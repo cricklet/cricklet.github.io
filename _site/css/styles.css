@@ -7,12 +7,12 @@
 body {
   padding:50px;
   font:14px/1.5 Lato, "Helvetica Neue", Helvetica, Arial, sans-serif;
-  color:#777;
+  color:#3a3a3a;
   font-weight:300;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  color:#222;
+  color:#111;
   margin:0 0 20px;
 }
 
@@ -29,11 +29,11 @@ h1 {
 }
 
 h2 {
-  color:#393939;
+  color:#1a1a1a;
 }
 
 h3, h4, h5, h6 {
-  color:#494949;
+  color:#353535;
 }
 
 a {
@@ -44,7 +44,7 @@ a {
 
 a small {
   font-size:11px;
-  color:#777;
+  color:#3a3a3a;
   margin-top:-0.6em;
   display:block;
 }
@@ -63,7 +63,7 @@ blockquote {
 
 code, pre {
   font-family:Monaco, Bitstream Vera Sans Mono, Lucida Console, Terminal;
-  color:#333;
+  color:#151515;
   font-size:12px;
 }
 
@@ -87,12 +87,12 @@ th, td {
 }
 
 dt {
-  color:#444;
+  color:#333;
   font-weight:700;
 }
 
 th {
-  color:#444;
+  color:#333;
 }
 
 img {
@@ -136,7 +136,7 @@ header li {
 header ul a {
   line-height:1;
   font-size:11px;
-  color:#999;
+  color:#444;
   display:block;
   text-align:center;
   padding-top:6px;
@@ -144,7 +144,7 @@ header ul a {
 }
 
 strong {
-  color:#222;
+  color:#111;
   font-weight:700;
 }
 
@@ -161,7 +161,7 @@ header ul li + li + li {
 header ul a strong {
   font-size:14px;
   display:block;
-  color:#222;
+  color:#111;
 }
 
 section {
@@ -255,6 +255,6 @@ footer {
   body {
     padding:0.4in;
     font-size:12pt;
-    color:#444;
+    color:#333;
   }
 }
