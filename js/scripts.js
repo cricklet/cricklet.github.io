@@ -1,3 +1,11 @@
+$(document).ready(function () {
+  $('img').each(function () {
+    var $img = $(this),
+    href = $img.attr('src');
+    $img.wrap('<a href="' + href + '"></a>');
+  });
+});
+
 var metas = document.getElementsByTagName('meta');
 var i;
 if (navigator.userAgent.match(/iPhone/i)) {
@@ -26,10 +34,10 @@ for (var i = 0; i < children.length; i ++) {
 	var child = children[i];
 	var href = child.getAttribute('href');
 	if (href == null) continue;
-	
+
 	while (href.charAt(0) === '/')
 		href = href.substring(1);
-	
+
 	console.log(path, href, path.valueOf() === href.valueOf());
 	if (path.valueOf() === href.valueOf()) {
 		child.setAttribute('class', 'bold');
