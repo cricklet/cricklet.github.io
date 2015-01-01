@@ -3,212 +3,201 @@ layout: default
 title: Projects
 ---
 
-<h2>Realtime Hatched Renderer (2014)</h2>
+<div class="project project-cpp project-gamedev project-graphics">
+  <h2>Realtime Hatched Renderer (2014)</h2>
 
-<p>This is a renderer I built as a final project for COS 526, a graduate level course on graphics. It renders a scene soft shadows using variance shadow mapping [<a href="http://www.punkuser.net/vsm/">Donnelly 2006</a>], hemisphere based screen-space ambient occlusion, and real-time hatching [<a href="http://gfx.cs.princeton.edu/proj/hatching/">Praun 2001</a>].</p>
+  <p>This is a renderer I built as a final project for COS 526, a graduate level course on graphics. It renders a scene soft shadows using variance shadow mapping [<a href="http://www.punkuser.net/vsm/">Donnelly 2006</a>], hemisphere based screen-space ambient occlusion, and real-time hatching [<a href="http://gfx.cs.princeton.edu/proj/hatching/">Praun 2001</a>].</p>
 
-<p>I built the renderer completely from scratch in modern C++: I use <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization">RAII</a> to handle OpenGL resources, lambda closures to cleanly setup different shader pipelines, shared_ptr for memory management, etc.</p>
+  <p>I built the renderer completely from scratch in modern C++: I use <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization">RAII</a> to handle OpenGL resources, lambda closures to cleanly setup different shader pipelines, shared_ptr for memory management, etc.</p>
 
-<img src="images/hatching.png" style="width:100%; height:auto" />
-<p>(ssao, real-time hatching, variance shadow maps, diffuse lighting)</p>
+  <img src="images/hatching.png" style="width:100%; height:auto" />
+  <p>(ssao, real-time hatching, variance shadow maps, diffuse lighting)</p>
+</div>
 
-<br/>
-<br/>
+<div class="project project-cpp project-graphics">
+  <h2>Path Tracer (2014)</h2>
 
-<h2>Path Tracer (2014)</h2>
+  <p>This is a path tracer I built for COS 526, a graduate level course on graphics. It handles caustics, reflections, refractions, and general indirect lighting. You can see the <a href="https://github.com/cricklet/COS-526-Path-Tracer/blob/master/src/render.cpp">source-code on GitHub</a>.</p>
 
-<p>This is a path tracer I built for COS 526, a graduate level course on graphics. It handles caustics, reflections, refractions, and general indirect lighting. You can see the <a href="https://github.com/cricklet/COS-526-Path-Tracer/blob/master/src/render.cpp">source-code on GitHub</a>.</p>
+  <img src="images/cornell.jpg" style="width:50%; height:auto" />
+</div>
 
-<img src="images/cornell.jpg" style="width:50%; height:auto" />
+<div class="project project-cpp project-gamedev project-graphics">
+  <h2>Imperfect Shadow Maps (2011)</h2>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <p>Fall of 2011, I worked on an algorithm for computing radiosity utilizing imperfect shadow maps inspired by <a href="http://resources.mpi-inf.mpg.de/ImperfectShadowMaps/ISM.pdf">Ritschel 2008</a>. This method involves splatting a point representation of the scene to generate a shadow map. Multiple imperfect shadow maps can be generated in a single rendering pass. In my implementation, however, due to the complexity of the shaders, realtime rendering is not achieved.</p>
 
-<h2>Imperfect Shadow Maps (2011)</h2>
+  <img src="images/ism1.png" style="width:30%; height:auto;" /><img src="images/ism2.png" style="width:30%; height:auto;" /><br/>
 
-<p>Fall of 2011, I worked on an algorithm for computing radiosity utilizing imperfect shadow maps inspired by <a href="http://resources.mpi-inf.mpg.de/ImperfectShadowMaps/ISM.pdf">Ritschel 2008</a>. This method involves splatting a point representation of the scene to generate a shadow map. Multiple imperfect shadow maps can be generated in a single rendering pass. In my implementation, however, due to the complexity of the shaders, realtime rendering is not achieved.</p>
+  <img src="images/sm.png" style="width:30%; height:auto;" /><img src="images/ism.png" style="width:30%; height:auto;" /><br/>
+  <p>(standard shadow maps, imperfect shadow maps)</p>
+</div>
 
-<img src="images/ism1.png" style="width:30%; height:auto;" /><img src="images/ism2.png" style="width:30%; height:auto;" /><br/>
+<div class="project project-startup project-java project-android project-python">
+  <h2 id="rex">Rex: Explore the App World (2012-2013)</h2>
 
-<img src="images/sm.png" style="width:30%; height:auto;" /><img src="images/ism.png" style="width:30%; height:auto;" /><br/>
-<p>(standard shadow maps, imperfect shadow maps)</p>
+  <p>I co-founded <a href="http://www.rackspace.com/blog/explore-the-android-app-world-with-rex/">Rex</a> (originally called Mapsaurus) with Danny Guo, Evan Leichter, and Alice Zheng in early 2012. We participated in TigerLabs University Accelerator in summer 2012, raised a small angel round in late 2012, and shut down the company in late 2013. In addition to general project management and investor relations, I worked on our Python backend, Javascript/HTML5 frontend, and owned our Android frontend.</p>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <p>Our goal was to build the easiest way to discover new Android apps. Rex provided personalized app recommendations and a unique, visual interface for exploring related apps. ~60,000 people downloaded our app.</p>
 
-<h2 id="rex">Rex: Explore the App World (2012-2013)</h2>
+  <iframe width="500" height="280" src="//www.youtube.com/embed/XIGk7DrTavI" frameborder="0" allowfullscreen></iframe>
+</div>
 
-<p>I co-founded <a href="http://www.rackspace.com/blog/explore-the-android-app-world-with-rex/">Rex</a> (which we originally named Mapsaurus) with Danny Guo, Evan Leichter, and Alice Zheng through the TigerLabs Undergraduate Accelerator in 2012. Right before the academic year of 2012-13, Alice and I decided to commit to the project, raise funds, and see if we could turn it into a business.</p>
+<div class="project project-startup project-java project-android">
+  <h2>PanesLibrary (2013)</h2>
 
-<p>Our goal was to build the easiest way to discover new Android apps. Rex provided personalized app recommendations and a unique, visual interface for exploring related apps. ~60,000 people downloaded our app.</p>
+  <p><a href="https://github.com/cricklet/Android-PanesLibrary">PanesLibrary</a> is an open-source library that makes it ridiculously easy to make native Android apps with flexible multi-pane tablet layouts. On the phone, the app appears as a conventional app with a sliding menu and a content pane where fragments are stacked on top of each other. On the tablet, the menu and all other fragments appear in dynamically added panes of varying sizes.</p>
 
-<iframe width="500" height="280" src="//www.youtube.com/embed/XIGk7DrTavI" frameborder="0" allowfullscreen></iframe>
+  <p>It's been starred >300 times, forked >100 times, and used in production!</p>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <iframe width="500" height="280" src="//www.youtube.com/embed/UA-lAGVXoLU" frameborder="0" allowfullscreen></iframe>
+</div>
 
-<h2>PanesLibrary (2013)</h2>
+<div class="project project-java project-android">
+  <h2>AutoWallpaper (2013)</h2>
 
-<p><a href="https://github.com/cricklet/Android-PanesLibrary">PanesLibrary</a> is an open-source library that makes it ridiculously easy to make native Android apps with flexible multi-pane tablet layouts. On the phone, the app appears as a conventional app with a sliding menu and a content pane where fragments are stacked on top of each other. On the tablet, the menu and all other fragments appear in dynamically added panes of varying sizes.</p>
+  <p><a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free">AutoWallpaper</a> updates the wallpaper of your phone with the top images from Reddit multiple times a day. It's been downloaded >10,000 times.</p>
 
-<p>It's been starred >300 times, forked >100 times, and used in production!</p>
+  <a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free"><img src="images/auto-wallpapers-promo.jpg" style="width=100%; height=auto;" /></a>
+</div>
 
-<iframe width="500" height="280" src="//www.youtube.com/embed/UA-lAGVXoLU" frameborder="0" allowfullscreen></iframe>
+<div class="project project-javascript project-gamedev">
+  <h2>Rest In Peace (2014)</h2>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <p>The ghosts of the dead haunt one dimension and the dead come back to life in the other!</p>
 
-<h2>AutoWallpaper (2013)</h2>
+  <p>I built RIP in 48 hours for the 30th Ludum Dare competition. It's coded from scratch in Javascript using HTML5 &lt;canvas/&gt;.</p>
 
-<p><a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free">AutoWallpaper</a> updates the wallpaper of your phone with the top images from Reddit multiple times a day. It's been downloaded >10,000 times.</p>
+  <p>You can play it <a href="https://dl.dropboxusercontent.com/u/43674030/ludlum/index.html">in your browser</a> or checkout the <a href="https://github.com/cricklet/ld48-rip">sourcecode on GitHub</a>!</p>
 
-<a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free"><img src="images/auto-wallpapers-promo.jpg" style="width=100%; height=auto;" /></a>
+  <br/>
+  <img src="images/rip.gif" style="width:100%; height:auto;" />
+</div>
 
+<div class="project project-javascript project-ruby">
+  <h2>Codecademy (2013-2014)</h2>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <p>I worked at Codecademy for 10 months through their engineering fellowship program. I worked as a full-stack engineer in Javascript + Rails.</p>
 
-<h2>Rest In Peace (2014)</h2>
+  <p>I owned, developed, and wrote tests for the <a href="images/cc-widgets.png">inline code + preview widgets</a>. I also rapidly developed prototypes for an <a href="images/cc-debugger.png">annotated debugger</a>, a <a href="images/cc-quiz.png">quiz game</a>, <a href="images/cc-fix.png">bugfix challenge</a>, etc.</p>
 
-<p>The ghosts of the dead haunt one dimension and the dead come back to life in the other!</p>
+  <img src="images/cc-debugger.png" style="width:75%; height:auto" />
+  <p>(debugger prototype)</p>
+</div>
 
-<p>I built RIP in 48 hours for the 30th Ludum Dare competition. It's coded from scratch in Javascript using HTML5 &lt;canvas/&gt;.</p>
+<div class="project project-cpp project-gamedev">
+  <h2 id="429">Wolfenstein AI (2012)</h2>
 
-<p>You can play it <a href="https://dl.dropboxusercontent.com/u/43674030/ludlum/index.html">in your browser</a> or checkout the <a href="https://github.com/cricklet/ld48-rip">sourcecode on GitHub</a>!</p>
+  <p>For our computer vision final project, Kynan Rilee, Robert Timpe, and I built an AI that plays (and beats) the first level of Wolfenstein 3D. It analyzes the pixels on the screen and spoofs keyboard events to play the game.</p>
 
-<p></p>
+  <p>My part of the project was figuring out how to localize the player. I used a particle filter that took, as input, randomly sampled depth measurements. These depths were determined by judging the height of the visible wall.</p>
 
-<img src="images/rip.gif" style="width:100%; height:auto;" />
+  <iframe width="560" height="315" src="//www.youtube.com/embed/npSKMvjztR8" frameborder="0" allowfullscreen></iframe>
+</div>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+<div class="project project-gamedev">
+  <h2>Escape! (2014)</h2>
 
-<h2 id="429">Wolfenstein AI (2012)</h2>
+  <p>This is a classic stealth game set in a pastel colored world inhabited by Death.</p>
 
-<p>For our computer vision final project, Kynan Rilee, Robert Timpe, and I built an AI that plays (and beats) the first level of Wolfenstein 3D. It analyzes the pixels on the screen and spoofs keyboard events to play the game.</p>
+  <p>I built Escape over a week for the Insanity Jam competition. It's coded in C# using Unity3D.</p>
 
-<p>My part of the project was figuring out how to localize the player. I used a particle filter that took, as input, randomly sampled depth measurements. These depths were determined by judging the height of the visible wall.</p>
+  <p>Play it here: <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeWeb/Escape.html">Unity Web Player</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeLinux.zip">Linux</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeWindows.zip">Windows</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/Escape.app.zip">Mac</a></p>
 
-<iframe width="560" height="315" src="//www.youtube.com/embed/npSKMvjztR8" frameborder="0" allowfullscreen></iframe>
+  <img src="images/escape.png" style="width:80%; height:auto;" />
+</div>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+<div class="project">
+  <h2>Haskell Ray Tracer (2014)</h2>
 
-<h2>Escape! (2014)</h2>
+  <p>I built <a href="https://github.com/cricklet/Haskell-Raytracer">a simple ray-tracer</a> to learn Haskell. I plan to extend the code as I learn more Haskell.</p>
 
-<p>This is a classic stealth game set in a pastel colored world inhabited by Death.</p>
+  <img src="images/rayhaskell.png" />
+</div>
 
-<p>I built Escape over a week for the Insanity Jam competition. It's coded in C# using Unity3D.</p>
+<div class="project project-gamedev project-java project-android">
+  <h2>Dead Arcade (2011)</h2>
 
-<p>Play it here: <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeWeb/Escape.html">Unity Web Player</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeLinux.zip">Linux</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeWindows.zip">Windows</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/Escape.app.zip">Mac</a></p>
+  <p>Summer of 2011, Justin Kruskal (coder), Melinda B (artist), and I built <a href="https://play.google.com/store/apps/details?id=game.zombie">Dead Arcade</a>, an Android game based on the original Mario Bros arcade game. The game engine we built relies on an entity/component model and renders with OpenGL.</p>
 
-<img src="images/escape.png" style="width:80%; height:auto;" />
+  <p>Until <a href="http://www.rexapp.com">Rex</a>, this was my biggest project. It was the first time I'd worked with another programmer for a significant period of time and the first time I actually polished and published something. Since publishing it late 2011 (polishing it took <i>a lot</i> of time), it's been downloaded 23,000 times.</p>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <img src="images/dead-arcade-promo.png" style="width:100%; height:auto;" />
+</div>
 
-<h2>Haskell Ray Tracer (2014)</h2>
+<div class="project project-gamedev project-java">
+  <h2 id="zrts">Facebook Princeton Hackathon (2011)</h2>
 
-<p>I built <a href="https://github.com/cricklet/Haskell-Raytracer">a simple ray-tracer</a> to learn Haskell. I plan to extend the code as I learn more Haskell.</p>
+  <p>I built this game from scratch in 24 hours for the Facebook Princeton Hackathon (2nd place!). It's a tower-defense real-time-strategy game. The AI relies mostly on gradient descent and a grid data structure.</p>
 
-<img src="images/rayhaskell.png" />
+  <p>Checkout the <a href="https://github.com/cricklet/ZRTS-24hr-hackathon">sourcecode on GitHub</a>.</p>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <iframe width="500" height="300" src="//www.youtube.com/embed/jENzAbhT4WY" frameborder="0" allowfullscreen></iframe>
+</div>
 
-<h2>Dead Arcade (2011)</h2>
+<div class="project project-gamedev project-cpp">
+  <h2 id="426">Zombie Shooter (2011)</h2>
 
-<p>Summer of 2011, Justin Kruskal (coder), Melinda B (artist), and I built <a href="https://play.google.com/store/apps/details?id=game.zombie">Dead Arcade</a>, an Android game based on the original Mario Bros arcade game. The game engine we built relies on an entity/component model and renders with OpenGL.</p>
+  <p>For our graphics final project, Kynan Rilee and I built a top-down zombie shooter from scratch in C++ using OpenGL. It includes billiard ball physics, baked lighting, point/spot/directional light, simple object avoidance, boid AI, and more!</p>
 
-<p>Until <a href="http://www.rexapp.com">Rex</a>, this was my biggest project. It was the first time I'd worked with another programmer for a significant period of time and the first time I actually polished and published something. Since publishing it late 2011 (polishing it took <i>a lot</i> of time), it's been downloaded 23,000 times.</p>
+  <iframe width="500" height="300" src="//www.youtube.com/embed/ln7qcOiLzNY" frameborder="0" allowfullscreen></iframe>
+</div>
 
-<img src="images/dead-arcade-promo.png" style="width:100%; height:auto;" />
+<div class="project project-java project-gamedev">
+  <h2 id="2dengine">2D Java Game Engine (2010-2011)</h2>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <p>This game engine was built to be as flexible as possible. Unfortunately, at the time I didn't know much about common <a href="http://en.wikipedia.org/wiki/Design_Patterns">design patterns</a> and I had just discovered Java generics.</p>
 
-<h2 id="zrts">Facebook Princeton Hackathon (2011)</h2>
+  <p>Still, the game engine was pretty simple and flexible. I was able to build a single-screen Mario Bros platform in just a couple of days and an Asteroids-style shooter in an afternoon. I dropped the project, however, after struggling for a few weeks to build an RTS using the engine.</p>
 
-<p>I built this game from scratch in 24 hours for the Facebook Princeton Hackathon (2nd place!). It's a tower-defense real-time-strategy game. The AI relies mostly on gradient descent and a grid data structure.</p>
+  <p>Checkout the <a href="https://github.com/cricklet/2D-Game-Engine-2011">sourcecode on GitHub</a>.</p>
 
-<p>Checkout the <a href="https://github.com/cricklet/ZRTS-24hr-hackathon">sourcecode on GitHub</a>.</p>
+  <iframe width="500" height="300" src="//www.youtube.com/embed/G8LXEY0m5IM" frameborder="0" allowfullscreen></iframe>
+</div>
 
-<iframe width="500" height="300" src="//www.youtube.com/embed/jENzAbhT4WY" frameborder="0" allowfullscreen></iframe>
+<div class="project project-gamedev project-java">
+  <h2 id="oldjava">2D Java Games (2005-2009)</h2>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <p>In high school and early college, I made a bunch of simple Java games from scratch. These games are how I learned the basics of programming and began to grok principles like modular design, inheritance, thread-safe programming, and more. I consider these games a huge part of my education. It's by suffering through my own over-engineered or poorly designed game that I learned the value of simplicity.</p>
 
-<h2 id="426">Zombie Shooter (2011)</h2>
+  <img style="width:33%; height:auto; float:left" src="images/grav.png">
+  <img style="width:33%; height:auto; float:left" src="images/grav2.png">
+  <img style="width:33%; height:auto; float:left" src="images/sdi.png">
+  <br style="clear:both;"/>
+</div>
 
-<p>For our graphics final project, Kynan Rilee and I built a top-down zombie shooter from scratch in C++ using OpenGL. It includes billiard ball physics, baked lighting, point/spot/directional light, simple object avoidance, boid AI, and more!</p>
+<div class="project project-gamedev project-java">
+  <h2 id="wsource">Wolfenstein: Source (2009)</h2>
 
-<iframe width="500" height="300" src="//www.youtube.com/embed/ln7qcOiLzNY" frameborder="0" allowfullscreen></iframe>
+  <p><a href="http://www.moddb.com/mods/wolf4d">Wolfenstein: Source</a> is a Half Life 2 mod I made in high school. The goal was to convert the classic Wolfenstein 3D video game to the Source engine. I built a Java program that would process Wolfenstein 3D maps and generate Half Life 2 levels. While the first level was playable, I never finished the project.</p>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+  <img style="width:50%; height:auto; float:left" alt="Wolfenstein: Source" src="images/ws1.bmp">
+  <img style="width:50%; height:auto; float:left" alt="Wolfenstein 3d" src="images/w3d1.bmp">
+  <br style="clear:both;"/>
+</div>
 
-<h2 id="2dengine">2D Java Game Engine (2010-2011)</h2>
+<div class="project project-gamedev project-cpp">
+  <h2 id="yoda">Yoda Life (2005)</h2>
 
-<p>This game engine was built to be as flexible as possible. Unfortunately, at the time I didn't know much about common <a href="http://en.wikipedia.org/wiki/Design_Patterns">design patterns</a> and I had just discovered Java generics.</p>
+  <p><a href="http://www.moddb.com/mods/yodalife">Yoda Life</a> is a Half Life mod I made freshman year of high school. It's Half Life, except every character is Yoda and all the weapons are from Star Wars.</p>
 
-<p>Still, the game engine was pretty simple and flexible. I was able to build a single-screen Mario Bros platform in just a couple of days and an Asteroids-style shooter in an afternoon. I dropped the project, however, after struggling for a few weeks to build an RTS using the engine.</p>
+  <iframe width="320px" height="240px" src="http://www.moddb.com/media/iframe/87789" frameborder="0" scrolling="no" allowfullscreen ></iframe>
+</div>
 
-<p>Checkout the <a href="https://github.com/cricklet/2D-Game-Engine-2011">sourcecode on GitHub</a>.</p>
+<div class="project project-python">
+  <h2>Hackerrank (2012)</h2>
+  <p>A couple years ago, I spent some time working on problems on HackerRank. You can see my <a href="https://www.hackerrank.com/kenrick_rilee">profile here</a>.</p>
+  <p>My favorite challenge was a travelling salesman problem for which I built an iterative ant-colony optimization algorithm. It got 7th place out of 1169 submissions.</p>
+</div>
 
-<iframe width="500" height="300" src="//www.youtube.com/embed/G8LXEY0m5IM" frameborder="0" allowfullscreen></iframe>
+<div class="project project-python">
+  <h2>FML-style website (2012)</h2>
+  <p>I made an FML-style website for my roommate (and future co-founder) where people could vote on things he did and didn't do. The website was a hit with my friends, garnering dozens of submissions and over 200 votes over the week that I ran it.</p>
+</div>
 
-<p style="clear:both"/>
-<br/>
-<br/>
+<div class="project project-javascript">
+  <h2>Settlers of Catan (2011)</h2>
+  <p>For my COS 333 (Advanced Programming Techniques) final project, I built the front-end for a Settlers of Catan style boardgame in Javascript. I made versions using SVG and Canvas.</p>
+</div>
 
-<h2 id="oldjava">2D Java Games (2005-2009)</h2>
-
-<p>In high school and early college, I made a bunch of simple Java games from scratch. These games are how I learned the basics of programming and began to grok principles like modular design, inheritance, thread-safe programming, and more. I consider these games a huge part of my education. It's by suffering through my own over-engineered or poorly designed game that I learned the value of simplicity.</p>
-
-<img style="width:33%; height:auto; float:left" src="images/grav.png">
-<img style="width:33%; height:auto; float:left" src="images/grav2.png">
-<img style="width:33%; height:auto; float:left" src="images/sdi.png">
-
-<p style="clear:both"/>
-<br/>
-<br/>
-
-<h2 id="wsource">Wolfenstein: Source (2009)</h2>
-
-<p><a href="http://www.moddb.com/mods/wolf4d">Wolfenstein: Source</a> is a Half Life 2 mod I made in high school. The goal was to convert the classic Wolfenstein 3D video game to the Source engine. I built a Java program that would process Wolfenstein 3D maps and generate Half Life 2 levels. While the first level was playable, I never finished the project.</p>
-
-<img style="width:50%; height:auto; float:left" alt="Wolfenstein: Source" src="images/ws1.bmp">
-<img style="width:50%; height:auto; float:left" alt="Wolfenstein 3d" src="images/w3d1.bmp">
-
-<p style="clear:both"/>
-<br/>
-<br/>
-
-<h2 id="yoda">Yoda Life (2005)</h2>
-
-<p><a href="http://www.moddb.com/mods/yodalife">Yoda Life</a> is a Half Life mod I made freshman year of high school. It's Half Life, except every character is Yoda and all the weapons are from Star Wars.</p>
-
-<iframe width="320px" height="240px" src="http://www.moddb.com/media/iframe/87789" frameborder="0" scrolling="no" allowfullscreen ></iframe>
-
-<p style="clear:both"/>
-<br/>
-<br/>
-
-<h2>Miscellaneous</h2>
-
-<p><strong>Bubble Spinner AI</strong>: I built an AI that would play Bubble Spinner for me because I didn't have the patience to play it myself. I used C & OpenCV.</p>
-<p><strong>FML-style website</strong>: I made an fmylife-style website for my roommate (and future co-founder) where people could vote on things he did and didn't do. The website had dozens of submissions and over 200 votes over the week that I ran it. Unfortunately, I have no screenshots of the website.</p>
-<p><strong>Settlers of Catan</strong>: I made the front-end for a Settlers of Catan style boardgame. I made versions using SVG and Canvas.</p>
-<p><strong>Hackerrank</strong>: My favorite challenge was a travelling salesman problem for which I built an iterative ant-colony optimization algorithm. It got 7th place out of 1169 submissions.</p>
+<script src="js/projects.js"></script>
