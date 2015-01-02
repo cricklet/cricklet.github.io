@@ -26,7 +26,7 @@ $(document).ready(function () {
   updateProjects();
 
   window.addEventListener("hashchange", function () {
-    updateLinks();
+    updateLinks(); // in scripts.js (yeah yeah yeah, global scope)
     updateProjects();
   }, false);
 });
