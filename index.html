@@ -3,6 +3,19 @@ layout: default
 title: Projects
 ---
 
+<div class="project project-javascript">
+	<h2>blue-ot.js - collaborative text editing</h2>
+
+	<p>This is an implementation/demo of collaborative text editing via operational transforms. It's mostly inspired by Daniel Spiewak's <a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">description of operational transform</a>.</p>
+
+	<p>Initially, I implemented the seminal (though, unfortunately, incorrect) <a href="https://www.lri.fr/~mbl/ENS/CSCW/2012/papers/Ellis-SIGMOD89.pdf">Concurrency Control in Groupware Systems</a> from 1989. You can see that unsuccessful implementation in my <a href="https://github.com/cricklet/blue.js/commit/749d94b6122dfb90130523bb14a1f734e7de54c4">git history</a>.</p>
+
+	<p>This implementation includes transformation/composition of operations, generation of operations based on text changes, and application of operations to text. In addition, it includes all the logic necessary for handling communication and conflict resolution between multiple clients over an out-of-order high-latency network.</p>
+	
+	<img src="blue.gif" style="width:100%; height:auto;" />
+	
+</div>
+
 
 <div class="project project-cpp project-gamedev project-graphics">
   <h2>Real-time Hatched Renderer</h2>
