@@ -136,23 +136,91 @@
 				<br/>
 				<br/>
 				<div class="explanation">
+					<h4>TLDR</h4>
+					
 					<p>
-						This is an implementation/demo of collaborative text editing via operational transforms,
-						based significantly on
-						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">Daniel Spiewak's description</a>
-						of the algorithm. OT is one of the core technologies behind Google Docs.
+						Implementing realtime collaborative editing with operational transforms was fun.
+						However, the difficulty of the solution is pushing me towards learning
+						about alternate solutions like CRDTs and WOOT.
 					</p>
-
 					<p>
-						Other algorithms for realtime collaboartive systems include
-						<a href="https://code.google.com/p/google-diff-match-patch/">Diff-Patch-Match</a>,
-						<a href="https://hal.inria.fr/inria-00071240/document">WOOT</a>, and
-						<a href="https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type">CRDT</a>.
-						I'm particularly interested in learning more about WOOT &amp; CRDT.
+						I'm excited about applying realtime collaboration to domains <i>other</i> than
+						text, so the relative complexity of OT is a serious detractor.
 					</p>
 
 					<br/>
-					<h2><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/ot/text_operations.js">js/ot/text_operations.js</a></h2>
+					<h2>Why operational transforms?</h2>
+
+					<p>
+						Operational transform (OT) is one of the core technologies enabling
+						realtime collaborative text editing in Google Docs. It is the most
+						well-known and implemented solution to realtime collaboration.
+					</p>
+
+					<p>
+						For a deep description of how operational transforms work, check out
+						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">Daniel Spiewak's description</a>
+						of the algorithm.
+					</p>
+
+					<p>
+						In addition to enabling smooth real-time interaction, OT makes it possible
+						for apps to seamlessly operate in high-latency or even offline situations.
+						Actions that a user takes while the app is offline (for example,
+						inserting some text) can be optimistically applied and later synchronized
+						with the server -- all with the guaruntee of eventual consistency.
+					</p>
+
+					<p>
+						Perhaps the most exciting benefit is the fact that OT is essentially
+						a version control system. Continuous integration and tools like
+						<span class="code">git</span> have revolutionized the software
+						industry. Realtime collaborative systems can bring those
+						same kinds of benifits to other domains.
+					</p>
+
+					<br/>
+					<h2>Difficulties</h2>
+
+					<p>
+						<div style="padding-left: 3em; padding-right: 3em">
+							"Unfortunately,	implementing OT sucks. The algorithms are really hard and time
+							consuming to implement correctly.
+							Wave took 2 years to write and if we rewrote it today,
+							it would take almost as long to write a second time."
+							<br/>
+							<div style="text-align: right">Joseph Gentle, a developer on Google Wave</div>
+						</div>
+					</p>
+
+					<p>
+						While OT isn't prohibitively difficult to implement for
+						a simple text system (allowing inserts &amp; deletes),
+						it can get complicated fast: you have to model your domain
+						in terms of operations (i.e. insert or delete) and
+						describe in very precise terms how each kind of operation
+						affects related operations.	Implementation is further
+						complicated by the fact that ordering matters so much.
+					</p>
+
+					<p>
+						Other algorithms like
+						<a href="https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type">Conflict Free Replicated Data Type</a> (CRDT)
+						and <a href="https://hal.inria.fr/inria-00071240/document">WithOut Operational Transform</a> (WOOT)
+						aim to alleviate these complications while retaining overal the benefit
+						of collaborative realtime systems. CRDTs, in particular,
+						rely on operations which are necessarily commutative, dramatically
+						simplifying the ordering of operations.
+						<a href="http://marijnhaverbeke.nl/blog/collaborative-editing.html">Another method</a>
+						involves the use of a position map, which describes how the positions in a document
+						change from one state to another.
+					</p>
+
+					<br/>
+					<h2>Implementation</h2>
+
+					<br/>
+					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/ot/text_operations.js">js/ot/text_operations.js</a></h3>
 
 					<p>
 						In OT, a document is represented as a series of operations
@@ -163,7 +231,7 @@
 						When conflicting operations arise, each operation is transformed in a
 						method similar to <span class="code">git merge</span>: a new operation
 						is created which can be applied directly to a client's state without
-						that client needing to change it's history.
+						that client needing to change its history.
 						In contrast, <a href="">other algorithms</a> act more like <span class="code">git rebase</span>.
 					</p>
 
@@ -175,7 +243,7 @@
 					</p>
 
 					<br/>
-					<h2><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/ot/orchestrator.js">js/ot/orchestrator.js</a></h2>
+					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/ot/orchestrator.js">js/ot/orchestrator.js</a></h3>
 
 					<p>
 						The most complicated part of the algorithm (and the most difficult
@@ -199,7 +267,7 @@
 					</p>
 
 					<p>
-						In a hand-wavey way, the client only sends it's operations
+						In a hand-wavey way, the client only sends its operations
 						to the server after it has finished synchronizing with
 						the server's state. This allows the server to be relatively dumb
 						and moves most computation onto the clients.
@@ -210,51 +278,6 @@
 						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">
 							Daniel Spedwak's write-up is fantastic
 						</a>.
-					</p>
-
-					<h2>//</h2>
-
-					<p>
-						In addition to smooth real-time interaction,
-						OT allows for intuitive offline access, seamless interactions in
-						high-latency situations, and the possibility for version
-						control for all sorts of domains.
-					</p>
-
-					<p>
-						Part of what excites me about OT is that it has been used
-						to implement collaborative, realtime systems in domains outside of
-						document editing (for example, by
-						<a href="https://realtime-cube.appspot.com/">Google's Realtime API</a>).
-					</p>
-
-					<p>
-						OT isn't prohibitively difficult to implement for a
-					 	simple text system, especially with only two kinds of
-						operations (insert &amp; delete). However, it gets
-						complicated pretty fast: transformations
-						need to be described for every possible pair of operations
-						and the operations must be applied/transformed in
-						very specific orders.
-					</p>
-
-					<p>
-						Other interesting algorithms &amp; implementations:
-						<ul>
-							<li>
-								<a href="https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type">CRDTs</a>
-								rely on commutative operations (rather than in-order operations).
-							</li>
-							<li>
-								<a href="http://marijnhaverbeke.nl/blog/collaborative-editing.html">Marijn Haverbeke's</a>
-								implementation of collaborative editing avoids OT by using
-								a position map describing how the positions in a document
-								change from one time to another.
-							</li>
-							<li><a href="https://github.com/leahsteinberg/co">Leah Steinberg</a>
-								implements collaborative text editing via WOOT.
-							</li>
-						</ul>
 					</p>
 
 
