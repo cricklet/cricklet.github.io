@@ -169,7 +169,7 @@
 	  var $text = $client.find('.text');
 	  var $randomize = $client.find('.randomize');
 	
-	  ellipsize($client);
+	  animateEllipses($client);
 	
 	  var shouldRandomize = createBoundObject(function () {
 	    return {
@@ -184,24 +184,36 @@
 	
 	function createBoundDelay($delay) {
 	  var delay = createBoundObject(function () {
+	    // generate the delay object based on $delay's value
 	    return {
 	      minDelay: Math.max(0, parseInt($delay.val()) - 500),
 	      maxDelay: parseInt($delay.val())
 	    };
 	  }, function (f) {
 	    return $delay.change(f);
-	  }, {
+	  }, // update the delay object when $delay changes
+	  {
 	    validate: function validate(obj) {
 	      return obj.minDelay <= obj.maxDelay;
-	    },
+	    }, // if min delay doesn't make sense
 	    reset: function reset(obj) {
 	      return $delay.val(obj.maxDelay);
-	    }
+	    } // reset $delay to the previous value
 	  });
 	  return delay;
 	}
 	
 	function createBoundObject(generate, listener, validator) {
+	  // This lil function generates an object who's values are automatically
+	  // updated & validated.
+	
+	  // In general, this is used with DOM elements:
+	
+	  // createBoundObject(() => {prop: $el.val()},
+	  //                   (f) => $el.change(f),
+	  //                   { validate: o => o.prop < 10, reset: o => $el.val(o.prop)})
+	  // This creates an object {prop: ?} which always matches the value of $el.
+	
 	  var object = generate();
 	  listener(function () {
 	    var newObject = generate();
@@ -284,7 +296,7 @@
 	  }))();
 	}
 	
-	function ellipsize($el) {
+	function animateEllipses($el) {
 	  var _this2 = this;
 	
 	  var $ellipses = $el.find('.ellipses');
@@ -333,8 +345,9 @@
 	  var inferrer = new _text_operations.SimpleTextInferrer();
 	  var orchestrator = new _orchestrator.Orchestrator(transformer, applier);
 	
-	  // client containers
 	  var $computers = $('#computers');
+	
+	  // client container
 	  var clients = [];
 	
 	  // server
@@ -348,15 +361,17 @@
 	  $computers.prepend($server);
 	
 	  var server = (0, _orchestrator.generateServer)({ cursor: { start: 0, end: 0 }, text: '' });
-	  (0, _observe.observeObject)(server, function (_, key) {// added
-	  }, function (_, key) {// deleted
-	  }, function (_, key) {
+	  (0, _observe.observeObject)(server, function (_, key) {}, // added
+	  function (_, key) {}, // deleted
+	  function (_, key) {
 	    // changed
 	    $serverText.val(server.state.text);
 	  });
 	
 	  // propogator between server & clients
-	  var propogator = (0, _orchestrator.generateAsyncPropogator)(orchestrator, server, clients, console.log, delay);
+	  // this is basically the network that broadcasts client & server requests
+	  var logger = function logger() {}; // console.log
+	  var propogator = (0, _orchestrator.generateAsyncPropogator)(orchestrator, server, clients, logger, delay);
 	
 	  var clientId = 1;
 	  function addClient() {
@@ -9413,7 +9428,7 @@
 	
 	function observeEach(objects, map) {
 	  observeArray(objects, function (o) {
-	    return map(o);
+	    map(o);
 	  }, function (o) {});
 	  var _iteratorNormalCompletion3 = true;
 	  var _didIteratorError3 = false;
@@ -9780,6 +9795,19 @@
 	      };
 	    }
 	  }, {
+	    key: '_flushFullBuffer',
+	    value: function _flushFullBuffer(bufferOp) {
+	      // new request, new prebuffer
+	      if (bufferOp == null) {
+	        return [undefined, undefined];
+	      }
+	
+	      return [{
+	        kind: 'ClientRequest',
+	        operation: bufferOp
+	      }, bufferOp];
+	    }
+	  }, {
 	    key: '_flushBuffer',
 	    value: function _flushBuffer(bufferOp, bufferParent) {
 	      // new request, new prebuffer
@@ -9787,12 +9815,7 @@
 	        return [undefined, undefined];
 	      }
 	
-	      var fullBufferOp = (0, _utils.merge)(bufferOp, { parentState: bufferParent });
-	
-	      return [{
-	        kind: 'ClientRequest',
-	        operation: fullBufferOp
-	      }, fullBufferOp];
+	      return this._flushFullBuffer((0, _utils.merge)(bufferOp, { parentState: bufferParent }));
 	    }
 	  }, {
 	    key: '_clientHandleRequest',
@@ -9892,11 +9915,11 @@
 	  }, {
 	    key: 'clientApplySetup',
 	    value: function clientApplySetup(client, setupRequest) {
-	      // this client has already been updated, ignore
-	      if (client.nextIndex !== -1) return [];
-	
 	      // we're about to fast-forward the client
 	      client.nextIndex = setupRequest.nextIndex;
+	
+	      // we're about to setup!
+	      client.isSetup = true;
 	
 	      // only keep requests that happen after this fast-forwarded point
 	      client.requestQueue = (0, _from2.default)((0, _wu.filter)(function (r) {
@@ -9941,16 +9964,16 @@
 	      if (client.buffer == null) {
 	        client.buffer = op;
 	      } else {
-	        client.buffer = this._composeChilded([client.buffer, op]);
+	        client.buffer = this._composeFull([client.buffer, op]);
 	      }
 	
 	      // if no prebuffer, then broadcast the buffer!
-	      if (client.prebuffer == null) {
+	      if (client.prebuffer == null && client.isSetup === true) {
 	        // flush the buffer!
-	        var _flushBuffer4 = this._flushBuffer(client.buffer, parentState),
-	            _flushBuffer5 = (0, _slicedToArray3.default)(_flushBuffer4, 2),
-	            _request2 = _flushBuffer5[0],
-	            fullBuffer = _flushBuffer5[1];
+	        var _flushFullBuffer2 = this._flushFullBuffer(client.buffer),
+	            _flushFullBuffer3 = (0, _slicedToArray3.default)(_flushFullBuffer2, 2),
+	            _request2 = _flushFullBuffer3[0],
+	            fullBuffer = _flushFullBuffer3[1];
 	
 	        // prebuffer is now the buffer
 	
@@ -9985,7 +10008,8 @@
 	    bridge: undefined, // server ops are transformed against this
 	
 	    requestQueue: [],
-	    nextIndex: -1
+	    nextIndex: -1,
+	    isSetup: false
 	  };
 	}
 	
@@ -10027,8 +10051,8 @@
 	        while (1) {
 	          switch (_context3.prev = _context3.next) {
 	            case 0:
-	              logger('\n\nPROPOGATING SERVER REQUEST', serverRequest.operation.operationId, serverRequest.operation, '\n');
-	
+	              // propogate server updates to the clients
+	              logger('\n\nPropogating server request: ', serverRequest.operation.operationId, serverRequest.operation, '\n');
 	              clientPromises = clients.map(function () {
 	                var _ref3 = (0, _asyncToGenerator3.default)(_regenerator2.default.mark(function _callee2(client) {
 	                  var clientRequests, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, clientRequest;
@@ -10136,7 +10160,8 @@
 	        while (1) {
 	          switch (_context4.prev = _context4.next) {
 	            case 0:
-	              logger('\n\nPROPOGATING CLIENT REQUEST', clientRequest.operation.operationId, clientRequest.operation, '\n');
+	              // propogate client updates to the server
+	              logger('\n\nPropogating client request', clientRequest.operation.operationId, clientRequest.operation, '\n');
 	
 	              serverRequest = orchestrator.serverRemoteOperation(server, clientRequest);
 	              _context4.next = 4;
@@ -10167,77 +10192,82 @@
 	        while (1) {
 	          switch (_context5.prev = _context5.next) {
 	            case 0:
+	              // when a client joins the network, it asks the server for the initial state
 	              setup = orchestrator.serverGenerateSetup(server);
 	              _context5.next = 3;
 	              return asyncDelay();
 	
 	            case 3:
+	              _context5.next = 5;
+	              return asyncDelay();
+	
+	            case 5:
 	              clientRequests = orchestrator.clientApplySetup(client, setup);
 	              _iteratorNormalCompletion2 = true;
 	              _didIteratorError2 = false;
 	              _iteratorError2 = undefined;
-	              _context5.prev = 7;
+	              _context5.prev = 9;
 	              _iterator2 = (0, _getIterator3.default)(clientRequests);
 	
-	            case 9:
+	            case 11:
 	              if (_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done) {
-	                _context5.next = 18;
+	                _context5.next = 20;
 	                break;
 	              }
 	
 	              clientRequest = _step2.value;
-	              _context5.next = 13;
+	              _context5.next = 15;
 	              return asyncDelay();
 	
-	            case 13:
-	              _context5.next = 15;
+	            case 15:
+	              _context5.next = 17;
 	              return asyncPropogateFromClient(clientRequest);
 	
-	            case 15:
+	            case 17:
 	              _iteratorNormalCompletion2 = true;
-	              _context5.next = 9;
-	              break;
-	
-	            case 18:
-	              _context5.next = 24;
+	              _context5.next = 11;
 	              break;
 	
 	            case 20:
-	              _context5.prev = 20;
-	              _context5.t0 = _context5['catch'](7);
+	              _context5.next = 26;
+	              break;
+	
+	            case 22:
+	              _context5.prev = 22;
+	              _context5.t0 = _context5['catch'](9);
 	              _didIteratorError2 = true;
 	              _iteratorError2 = _context5.t0;
 	
-	            case 24:
-	              _context5.prev = 24;
-	              _context5.prev = 25;
+	            case 26:
+	              _context5.prev = 26;
+	              _context5.prev = 27;
 	
 	              if (!_iteratorNormalCompletion2 && _iterator2.return) {
 	                _iterator2.return();
 	              }
 	
-	            case 27:
-	              _context5.prev = 27;
+	            case 29:
+	              _context5.prev = 29;
 	
 	              if (!_didIteratorError2) {
-	                _context5.next = 30;
+	                _context5.next = 32;
 	                break;
 	              }
 	
 	              throw _iteratorError2;
 	
-	            case 30:
-	              return _context5.finish(27);
-	
-	            case 31:
-	              return _context5.finish(24);
-	
 	            case 32:
+	              return _context5.finish(29);
+	
+	            case 33:
+	              return _context5.finish(26);
+	
+	            case 34:
 	            case 'end':
 	              return _context5.stop();
 	          }
 	        }
-	      }, _callee5, this, [[7, 20, 24, 32], [25,, 27, 31]]);
+	      }, _callee5, this, [[9, 22, 26, 34], [27,, 29, 33]]);
 	    }));
 	
 	    return function asyncSetupClient(_x4) {
@@ -10273,11 +10303,12 @@
 	                  for (var _iterator3 = (0, _getIterator3.default)(clients), _step3; !(_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done); _iteratorNormalCompletion3 = true) {
 	                    var c = _step3.value;
 	
-	                    logger("CLIENT", c.uid);
+	                    logger("Client", c.uid);
 	                    logger('   prebuffer', c.prebuffer);
 	                    logger('   buffer', c.buffer);
-	                    logger('   state', c.state.text);
+	                    logger('   state', c.state);
 	                    logger('   next index', c.nextIndex);
+	                    logger('\n');
 	                  }
 	                } catch (err) {
 	                  _didIteratorError3 = true;
@@ -10296,8 +10327,9 @@
 	              };
 	
 	              printServer = function printServer() {
-	                logger("SERVER");
+	                logger("Server");
 	                logger('   next index', server.log.length);
+	                logger('\n');
 	              };
 	
 	              printClients();
@@ -10326,6 +10358,8 @@
 	}
 	
 	function generatePropogator(orchestrator, server, clients) {
+	  // This setups a fake network between a server & multiple clients.
+	
 	  function propogateFromServer(serverRequest) {
 	    if (serverRequest == null) {
 	      return;
@@ -10390,6 +10424,40 @@
 	    }
 	    propogateFromServer(orchestrator.serverRemoteOperation(server, request));
 	  }
+	
+	  function setupClient(client) {
+	    // when a client joins the network, it asks the server for the initial state
+	    var setup = orchestrator.serverGenerateSetup(server);
+	    var clientRequests = orchestrator.clientApplySetup(client, setup);
+	    var _iteratorNormalCompletion6 = true;
+	    var _didIteratorError6 = false;
+	    var _iteratorError6 = undefined;
+	
+	    try {
+	      for (var _iterator6 = (0, _getIterator3.default)(clientRequests), _step6; !(_iteratorNormalCompletion6 = (_step6 = _iterator6.next()).done); _iteratorNormalCompletion6 = true) {
+	        var clientRequest = _step6.value;
+	
+	        propogateFromClient(clientRequest);
+	      }
+	    } catch (err) {
+	      _didIteratorError6 = true;
+	      _iteratorError6 = err;
+	    } finally {
+	      try {
+	        if (!_iteratorNormalCompletion6 && _iterator6.return) {
+	          _iterator6.return();
+	        }
+	      } finally {
+	        if (_didIteratorError6) {
+	          throw _iteratorError6;
+	        }
+	      }
+	    }
+	  }
+	
+	  (0, _observe.observeEach)(clients, function (client) {
+	    return setupClient(client);
+	  });
 	
 	  return propogateFromClient;
 	}
