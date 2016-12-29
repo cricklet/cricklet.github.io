@@ -249,6 +249,19 @@
 					</p>
 
 					<p>
+						In general, the solution here is to make everything as easy as possible
+						for the server. The client optimistically applies local operations and
+						buffers them. It flushes that buffer (to the server) only after it's
+						been synchronized with the state of the server.
+						This way, the client only ever sends operations which are easy for
+						the server to understand.
+						For a more complete explanation,
+						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">
+							Daniel Spedwak's write-up is fantastic
+						</a>.
+					</p>
+
+					<p>
 						All this, combined with the strictly in-order nature of operations,
 						leads to a complicated, finicky system to write.
 						Luckily, once this portion of the algorithm is written, it's very
@@ -281,12 +294,6 @@ export type Server&lt;O,S&gt; = {
   history: Array&lt;FullOperation&lt;O&gt;&gt;
 }</code></pre>
 
-					<p>
-						For a more complete explanation,
-						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">
-							Daniel Spedwak's write-up is fantastic
-						</a>.
-					</p>
 
 					<br/>
 					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/entry.js">js/ot/entry.js</a></h3>
