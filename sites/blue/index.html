@@ -1,6 +1,10 @@
 <html>
 	<head>
 		<title>Operational Transform</title>
+
+		<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.9.0/highlight.min.js"></script>
+		<script>hljs.initHighlightingOnLoad();</script>
+
 		<script type="text/javascript" src="node_modules/object.observe/dist/object-observe.js" charset="utf-8"></script>
 		<script type="text/javascript" src="node_modules/array.observe/array-observe.js" charset="utf-8"></script>
 		<script type="text/javascript" src="./js/libs/jquery.js" charset="utf-8"></script>
@@ -260,6 +264,35 @@
 						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">
 							Daniel Spedwak's write-up is fantastic
 						</a>.
+					</p>
+
+					<br/>
+					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/entry.js">js/ot/entry.js</a></h3>
+					<p>
+						This demo runs entirely in the browser: the network is simulated.
+						Requests from the clients &amp; servers are manually broadcasted (with random delay)
+						with simple function calls.
+						Simulating the system in this way makes the demo &amp; testing dramatically easier.
+					</p>
+
+					<pre><code class="javascript">async function asyncBroadcastServerRequest (serverRequest: ServerRequest<O>) {
+  // take the request from the server, send it to each client
+  let clientPromises: Promise<*>[] = clients.map(async (client) => {
+    await asyncDelay()
+
+    // take the responses from each client, send them back to the server
+    let clientResponse = orchestrator.clientProcessRemoteRequest(client, serverRequest)
+    for (let clientResponse of clientResponse) {
+      await asyncDelay()
+      await asyncBroadcastClientResponse(clientResponse)
+    }
+  })
+
+  await Promise.all(clientPromises)
+}</code></pre>
+
+					<p>
+						Porting this simulated system onto an actual <span class="code">node.js</span> server would be relatively simple.
 					</p>
 
 
