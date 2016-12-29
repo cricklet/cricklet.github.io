@@ -251,7 +251,7 @@
 					<p>
 						In general, the solution here is to make everything as easy as possible
 						for the server. The client optimistically applies local operations and
-						buffers them. It flushes that buffer (to the server) only after it's
+						buffers them. It then flushes that buffer (to the server) only after it's
 						been synchronized with the state of the server.
 						This way, the client only ever sends operations which are easy for
 						the server to understand.
