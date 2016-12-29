@@ -232,32 +232,54 @@
 					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/ot/orchestrator.js">js/ot/orchestrator.js</a></h3>
 
 					<p>
-						The most complicated part of the algorithm (and the most difficult
-						part to test) is the orchestration of the clients and servers.
-						When a client and a server have multiple operations out of sync,
-						how are the operations transmitted &amp; and how are they applied?
+						The most complicated part of OT (and the most difficult
+						part to test) is the orchestration/communication between the clients and servers.
+						What should they communicate and how much state does each need
+						to track?
 					</p>
 
 					<p>
 						Part of the difficulty is that the client and server
-						do not have full knowledge of each other. It would be too
-						costly for the server to track the history and state of each
-						individual client.
-					</p>
-
-					<p>
-						In addition, each client/server has a different history of operations.
+						do not have full knowledge of each other; it would incredibly
+						expensive for the server to track the history &amp; state of each client.
+						In addition, the clients/servers do not share the same history.
 						Because OT acts like a <span class="code">git merge</span> rather
 						than a <span class="code">git rebase</span>, operation
 						histories are never re-written and thus can diverge wildly.
 					</p>
 
 					<p>
-						In a hand-wavey way, the client only sends its operations
-						to the server after it has finished synchronizing with
-						the server's state. This allows the server to be relatively dumb
-						and moves most computation onto the clients.
+						All this, combined with the strictly in-order nature of operations,
+						leads to a complicated, finicky system to write.
+						Luckily, once this portion of the algorithm is written, it's very
+						generic.
 					</p>
+
+<pre><code class="javascript">
+export type Client&lt;O,S&gt; = {
+  uid: SiteUid,
+  state: S,
+
+  // The client ops not yet sent to the server.
+  buffer: ?ChildedOperation&lt;O&gt;,
+
+  // The client op which has been sent to the server, but not yet ACKd.
+  prebuffer: ?ParentedOperation&lt;O&gt;,
+
+  // The prebuffer + buffer form a 'bridge' between the server state
+  // and the client state.
+
+  requestQueue: Array&lt;ServerRequest&lt;O&gt;&gt;,
+
+  ...
+}
+
+export type Server&lt;O,S&gt; = {
+  uid: SiteUid,
+
+  state: S,
+  history: Array&lt;FullOperation&lt;O&gt;&gt;
+}</code></pre>
 
 					<p>
 						For a more complete explanation,
@@ -275,9 +297,9 @@
 						Simulating the system in this way makes the demo &amp; testing dramatically easier.
 					</p>
 
-					<pre><code class="javascript">async function asyncBroadcastServerRequest (serverRequest: ServerRequest<O>) {
+					<pre><code class="javascript">async function asyncBroadcastServerRequest (serverRequest: ServerRequest&lt;O&gt;) {
   // take the request from the server, send it to each client
-  let clientPromises: Promise<*>[] = clients.map(async (client) => {
+  let clientPromises: Promise&lt;*&gt;[] = clients.map(async (client) => {
     await asyncDelay()
 
     // take the responses from each client, send them back to the server
