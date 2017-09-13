@@ -1,0 +1,104 @@
+<html>
+	<head>
+		<title>Operational Transform</title>
+
+		<script type="text/javascript" src="./js/libs/jquery.js" charset="utf-8"></script>
+
+		<style>
+			@import url(https://fonts.googleapis.com/css?family=Lato:300italic,700italic,300,700);
+
+			body {
+			  padding:50px;
+			  font:14px/1.5 Lato, "Helvetica Neue", Helvetica, Arial, sans-serif;
+			  color:#3a3a3a;
+			  font-weight:300;
+			}
+
+			.demo {
+				width: auto;
+				max-width: 740px;
+				margin-right: auto;
+				margin-left: auto;
+
+				display: -webkit-flex;
+				display: flex;
+
+				-webkit-flex-direction: row;
+				flex-direction: row;
+			}
+
+			.text-align-right {
+				text-align: right;
+			}
+
+			#clients-section {
+				-webkit-flex: 2;
+				flex: 2;
+			}
+
+			#server-section {
+				-webkit-flex: 1;
+				flex: 1;
+			}
+
+			.computers {
+		    display: -webkit-flex;
+		    display: flex;
+
+				-webkit-flex-direction: row;
+				flex-direction: row;
+				-webkit-flex-wrap: wrap;
+				flex-wrap: wrap;
+			}
+			.computers > * + * {
+				margin-right: 8px;
+			}
+			.computers > :first-child {
+				margin-right: 8px;
+			}
+			.computer textarea {
+				width: 100%;
+			}
+			.computer {
+				-webkit-flex: 1;
+				flex: 1;
+
+				-webkit-flex-grow: 1;
+				flex-grow: 1;
+
+				min-width: 180px;
+				margin-bottom: 0.4em;
+			}
+			#server-log {
+				height: 200px;
+				overflow: scroll;
+			}
+		</style>
+	</head>
+
+	<body>
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+
+		<div class="text-align-right">
+			<input type="checkbox" class="randomize-everything">randomize everything
+			<button class="all-online">Online</button>
+			<button class="all-offline">Offline</button>
+			<button class="no-random">No Random</button>
+		</div>
+
+		<div class="demo">
+			<div id="clients-section">
+				<div id="clients" class="computers">
+					<div class="computer" id="client-placeholder"></div>
+				</div>
+				<button id="add-client">Add Client</button>
+			</div>
+			<div id="server-section">
+				<div id="server" class="computers"></div>
+				<div id="server-log" class="log"></div>
+			</div>
+		</div>
+
+		<script type="text/javascript" src="./build/demo-textarea.js" charset="utf-8"></script>
+	</body>
+</html>
