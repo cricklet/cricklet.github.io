@@ -6,7 +6,7 @@ title: Projects
 <div class="project project-javascript project-collaborative">
 	<h2>WASM Quake 3 Renderer</h2>
 
-  <p>A small Q3 BSP renderer, built in C++ for the web (via emscripten/embind/wasm). For faster build times, this also supports native OSX (via XCode). You can see the <a href="https://github.com/cricklet/wasm-quake3-renderer">source-code on GitHub.</p>
+  <p>This is a Quake 3 BSP renderer, built in C++ for the web (via emscripten/embind/wasm). For faster build times, this project also supports native OSX (via XCode). You can see the <a href="https://github.com/cricklet/wasm-quake3-renderer">source-code on GitHub.</p>
 	
 	<img src="images/q.jpeg" style="max-width:100%; height:auto;" />
 	
@@ -15,11 +15,8 @@ title: Projects
 <div class="project project-javascript project-collaborative">
 	<h2>Collaborative text editing library (operational transform)</h2>
 
-	<p>This is an implementation/demo of collaborative text editing via operational transforms. It's mostly inspired by Daniel Spiewak's <a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">description of operational transform</a>.</p>
-
-	<p>Initially, I implemented the seminal (though, unfortunately, incorrect) <a href="https://www.lri.fr/~mbl/ENS/CSCW/2012/papers/Ellis-SIGMOD89.pdf">Concurrency Control in Groupware Systems</a> from 1989. You can see that unsuccessful implementation in my <a href="https://github.com/cricklet/blue.js/commit/749d94b6122dfb90130523bb14a1f734e7de54c4">git history</a>.</p>
-
-	<p>This implementation includes transformation/composition of operations, generation of operations based on text changes, and application of operations to text. In addition, it includes all the logic necessary for handling communication and conflict resolution between multiple clients over an out-of-order high-latency network.</p>
+  <p>This is an implementation/demo of collaborative text editing via operational transforms. It's mostly inspired by Daniel Spiewak's <a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">description of operational transforms</a>.
+    This implementation includes transformation/composition of operations, generation of operations based on text changes, and application of operations to text.</p>
 
   <p>You can see the <a href="https://github.com/cricklet/operational-transform-demo">source-code on GitHub</a> and a <a href="/sites/blue/index.html">detailed writeup + demo online</a>.</p>
 	
@@ -36,9 +33,7 @@ title: Projects
 <div class="project project-cpp project-gamedev project-graphics">
   <h2>Real-time Hatched Renderer</h2>
 
-  <p>I built this renderer from scratch in modern C++. I use <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization">RAII</a> to handle OpenGL resources, lambda closures to cleanly setup different shader pipelines, shared_ptr for memory management, etc.</p>
-
-  <p>It renders a scene with soft shadows using variance shadow mapping [<a href="http://www.punkuser.net/vsm/">Donnelly 2006</a>], hemisphere based screen-space ambient occlusion, and real-time hatching [<a href="http://gfx.cs.princeton.edu/proj/hatching/">Praun 2001</a>].</p>
+  <p>This is a rendering engine built from scratch, implementing soft shadows using variance shadow mapping [<a href="http://www.punkuser.net/vsm/">Donnelly 2006</a>], hemisphere based screen-space ambient occlusion, and real-time hatching [<a href="http://gfx.cs.princeton.edu/proj/hatching/">Praun 2001</a>].</p>
 
   <p>You can see the <a href="https://github.com/cricklet/hatched">source-code on GitHub</a> and a <a href="cos526_final/index.html">detailed writeup online</a>.</p>
 
@@ -49,30 +44,12 @@ title: Projects
 <div class="project project-javascript project-gamedev">
   <h2>Star Captain</h2>
 
-  <p>A toy star-ship simulation I built to learn fundamentals of <a href="https://flowtype.org/">FlowType</a>. I experimented with a functional style, relying heavily on stateless functions and Flow's algebraic type system.</p>
+  <p>A toy star-ship simulation I built to learn fundamentals of <a href="https://flowtype.org/">FlowType</a>. This experiments with a functional style, relying heavily on stateless functions and Flow's algebraic type system.</p>
 
   <p>Check out the <a href="https://github.com/cricklet/starcap">sourcecode on GitHub</a>!</p>
 
   <br/>
   <img src="images/sc.gif" style="width:100%; height:auto;" />
-</div>
-
-<div class="project project-java project-android">
-  <h2>PanesLibrary</h2>
-
-  <p><a href="https://github.com/cricklet/Android-PanesLibrary">PanesLibrary</a> was an open-source library I built in 2013 that makes it ridiculously easy to build native Android apps with flexible multi-pane tablet layouts. On the phone, the app appears as a conventional app with a sliding menu and a content pane where fragments are stacked on top of each other. On the tablet, the menu and all other fragments appear in dynamically added panes of varying sizes.</p>
-
-  <p>It's been starred >300 times, forked >100 times, and used (by others) in production!</p>
-
-  <iframe width="500" height="280" src="//www.youtube.com/embed/UA-lAGVXoLU" frameborder="0" allowfullscreen></iframe>
-</div>
-
-<div class="project project-java project-android">
-  <h2>AutoWallpaper</h2>
-
-  <p><a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free">AutoWallpaper</a> updates the wallpaper of your phone with the top images from Reddit multiple times a day. It's been downloaded >20,000 times.</p>
-
-  <a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free"><img src="images/auto-wallpapers-promo.jpg" style="width=100%; height=auto;" /></a>
 </div>
 
 <div class="project project-javascript project-gamedev project-graphics">
@@ -86,6 +63,18 @@ title: Projects
 
   <br/>
   <img src="images/rip.gif" style="width:100%; height:auto;" />
+</div>
+
+<div class="project project-javascript project-collaborative">
+  <h2>BlueDocs</h2>
+
+  <p>In early 2016, I built a collaborative markdown editor backed by FirePad and CodeMirror.
+    I ran it for about a month (garnering about 3,000 pageviews).</p>
+
+  <p>You can see the <a href="https://github.com/cricklet/bluedocs">source-code on GitHub</a>.</p>
+
+  <br/>
+  <img src="images/bluedocs.png" style="width:100%; height:auto;" />
 </div>
 
 <div class="project project-cpp project-gamedev">
@@ -110,6 +99,24 @@ title: Projects
   <img src="images/escape.png" style="width:80%; height:auto;" />
 </div>
 
+<div class="project project-java project-android">
+  <h2>PanesLibrary</h2>
+
+  <p><a href="https://github.com/cricklet/Android-PanesLibrary">PanesLibrary</a> was an open-source library I built in 2013 that makes it ridiculously easy to build native Android apps with flexible multi-pane tablet layouts. On the phone, the app appears as a conventional app with a sliding menu and a content pane where fragments are stacked on top of each other. On the tablet, the menu and all other fragments appear in dynamically added panes of varying sizes.</p>
+
+  <p>It's been starred >300 times, forked >100 times, and used (by others) in production!</p>
+
+  <iframe width="500" height="280" src="//www.youtube.com/embed/UA-lAGVXoLU" frameborder="0" allowfullscreen></iframe>
+</div>
+
+<div class="project project-java project-android">
+  <h2>AutoWallpaper</h2>
+
+  <p><a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free">AutoWallpaper</a> updates the wallpaper of your phone with the top images from Reddit multiple times a day. It's been downloaded >20,000 times.</p>
+
+  <a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free"><img src="images/auto-wallpapers-promo.jpg" style="width=100%; height=auto;" /></a>
+</div>
+
 <div class="project project-gamedev project-java project-android project-graphics">
   <h2>Dead Arcade</h2>
 
@@ -118,18 +125,6 @@ title: Projects
   <p>Until <a href="http://www.rexapp.com">Rex</a>, this was my biggest project. It was the first time I'd worked with another programmer for a significant period of time and the first time I actually polished and published something. Since publishing it late 2011 (polishing it took <i>a lot</i> of time), it's been downloaded 23,000 times.</p>
 
   <img src="images/dead-arcade-promo.png" style="width:100%; height:auto;" />
-</div>
-
-<div class="project project-javascript project-collaborative">
-  <h2>BlueDocs</h2>
-
-  <p>In early 2016, I built a collaborative markdown editor backed by FirePad and CodeMirror.
-    I ran it for about a month (garnering about 3,000 pageviews).</p>
-
-  <p>You can see the <a href="https://github.com/cricklet/bluedocs">source-code on GitHub</a>.</p>
-
-  <br/>
-  <img src="images/bluedocs.png" style="width:100%; height:auto;" />
 </div>
 
 <div class="project project-startup project-java project-android project-python">
