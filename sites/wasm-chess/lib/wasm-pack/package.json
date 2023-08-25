@@ -1,0 +1,11 @@
+{
+  "name": "wasm-chess",
+  "version": "0.1.0",
+  "files": [
+    "wasm_chess_bg.wasm",
+    "wasm_chess.js",
+    "wasm_chess.d.ts"
+  ],
+  "browser": "wasm_chess.js",
+  "types": "wasm_chess.d.ts"
+}
