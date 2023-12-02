@@ -45,7 +45,7 @@ body {
   display: flex;
   justify-content: start;
   align-items: center;
-  --square-size: min(min(8rem, 7vw), 7vh);
+  --square-size: min(min(8rem, 12vw), 8vh);
   display: flex;
   flex-direction: column;
 }

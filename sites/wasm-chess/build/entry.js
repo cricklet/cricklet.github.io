@@ -27647,13 +27647,15 @@ function updateLog(log, e) {
   }
   if (e.name === "log" || e.name === "error") {
     let value = prettyJson(e.msg).trim();
+    const thinkRegex = /think\(\) for < (\d+)ms/;
     let lastLine = log[log.length - 1];
-    if (value === "think() for < 200ms") {
-      const regex = /think\(\) for < (\d+)ms/;
-      const match = lastLine.match(regex);
-      if (match) {
-        const number = parseInt(match[1]);
-        return [...log.slice(0, -1), "think() for < " + (number + 200) + "ms"];
+    const valueThinkMatch = value.match(thinkRegex);
+    if (valueThinkMatch) {
+      const lastThinkMatch = lastLine.match(thinkRegex);
+      if (lastThinkMatch) {
+        const lastMs = parseInt(lastThinkMatch[1]);
+        const valueMs = parseInt(valueThinkMatch[1]);
+        return [...log.slice(0, -1), "think() for < " + (lastMs + valueMs) + "ms"];
       }
     }
     if (value.indexOf("handle_line") !== -1) {
