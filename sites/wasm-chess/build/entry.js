@@ -4391,8 +4391,8 @@ var require_react_dom_development = __commonJS({
           });
         });
         function dangerousStyleValue(name, value, isCustomProperty) {
-          var isEmpty2 = value == null || typeof value === "boolean" || value === "";
-          if (isEmpty2) {
+          var isEmpty3 = value == null || typeof value === "boolean" || value === "";
+          if (isEmpty3) {
             return "";
           }
           if (!isCustomProperty && typeof value === "number" && value !== 0 && !(isUnitlessNumber.hasOwnProperty(name) && isUnitlessNumber[name])) {
@@ -25695,15 +25695,6 @@ function prettyJson(json2, indent) {
   }
   return result;
 }
-function omit(obj, ...keys) {
-  let result = {};
-  for (let key in obj) {
-    if (!keys.includes(key)) {
-      result[key] = obj[key];
-    }
-  }
-  return result;
-}
 
 // src/wasm-bindings.ts
 var import_wasm_chess = __toESM(require_wasm_chess());
@@ -25732,30 +25723,7 @@ function decodeReceiveFromWorker(msg) {
 // src/worker/worker-wrapper.ts
 async function createWorker(url) {
   let worker2 = new Worker(url);
-  let listeners2 = [
-    (e) => {
-      if (isEmpty(e)) {
-        return;
-      }
-      if (e.name === "log") {
-        console.log("log (wasm worker) =>", prettyJson(e.msg));
-      } else if (e.name === "error") {
-        console.error("error (wasm worker) =>", prettyJson(e.msg));
-      } else if (e.name === "ready") {
-        console.log("ready (wasm worker)");
-      } else if (e.name === "uci") {
-        if (e.output.length > 0) {
-          console.log("uci sync response (wasm worker)", indent_string("\n" + e.output, 2));
-        }
-      } else if (e.name === "uci-flush-output") {
-        if (e.output.length > 0) {
-          console.log("uci async response (wasm worker)", e.output);
-        }
-      } else {
-        console.log(e.kind, "(wasm worker) =>", prettyJson(omit(e, "name", "kind", "id")));
-      }
-    }
-  ];
+  let listeners2 = [];
   worker2.onmessage = (e) => {
     let data = decodeReceiveFromWorker(e.data);
     listeners2.forEach((l) => l(data));
@@ -25784,11 +25752,19 @@ async function createWorker(url) {
       let id = responseId++;
       let sent = { ...data, id };
       worker2.postMessage(JSON.stringify(sent));
-      return await waitFor((e) => {
-        if (responseMatchesRequest(sent, e)) {
-          return e;
+      return await waitFor(
+        (e) => {
+          if (responseMatchesRequest(sent, e)) {
+            return e;
+          }
         }
-      });
+      );
+    },
+    listen: (callback) => {
+      listeners2.push(callback);
+      return () => {
+        listeners2 = listeners2.filter((cb) => cb !== callback);
+      };
     },
     wait: waitFor,
     terminate: () => {
@@ -25799,14 +25775,9 @@ async function createWorker(url) {
 
 // src/wasm-bindings.ts
 var listeners = [];
-function listen(listener) {
-  listeners.push(listener);
-  return () => {
-    listeners = listeners.filter((l) => l !== listener);
-  };
-}
 globalThis.BindingsJs = {
   log_to_js: (message) => {
+    console.log("wasm-bindings.ts, syncWasmUci, log_to_js:", message);
     message.split("\n").forEach((line) => {
       listeners.forEach((listener) => listener(line));
     });
@@ -25815,11 +25786,17 @@ globalThis.BindingsJs = {
 async function newUciWasmWorker() {
   let worker2 = await createWorker("build/worker/uci-wasm-worker.js");
   return {
+    listen: (callback) => {
+      return worker2.listen(callback);
+    },
     handle_line: async function(line) {
       let response = await worker2.sendWithResponse({
         name: "uci",
         line
       });
+      for (const listener of listeners) {
+        listener(response.output);
+      }
       return response.output;
     },
     terminate: () => worker2.terminate
@@ -25848,14 +25825,20 @@ async function searchWorker() {
       await worker2.handle_line("stop");
       let output = [];
       if (start === "startpos") {
-        output.push(await worker2.handle_line(`position ${start} moves ${moves.join(" ")}`));
+        output.push(
+          await worker2.handle_line(`position ${start} moves ${moves.join(" ")}`)
+        );
       } else {
-        output.push(await worker2.handle_line(`position fen ${start} moves ${moves.join(" ")}`));
+        output.push(
+          await worker2.handle_line(
+            `position fen ${start} moves ${moves.join(" ")}`
+          )
+        );
       }
       output.push(await worker2.handle_line("go"));
       await new Promise((resolve2) => setTimeout(resolve2, 1e3));
       output.push(await worker2.handle_line("stop"));
-      let reversed = output.flatMap((line) => line.split("\n")).map((line) => line.trim()).filter((line) => line !== "").reverse();
+      let reversed = output.flatMap((line) => line.split("\n").reverse()).map((line) => line.trim()).filter((line) => line !== "").reverse();
       for (let line of reversed) {
         if (line.startsWith("bestmove")) {
           let result2 = line.split(" ")[1];
@@ -25864,6 +25847,9 @@ async function searchWorker() {
         }
       }
       throw new Error("no bestmove found");
+    },
+    listen: (callback) => {
+      return worker2.listen(callback);
     },
     terminate: () => worker2.terminate()
   };
@@ -25877,7 +25863,9 @@ async function loadWasmBindgen() {
     wasm_bindgen;
   } catch (e) {
     if (e instanceof ReferenceError) {
-      throw new Error("wasm_bindgen is undefined, please include via <script> tag");
+      throw new Error(
+        "wasm_bindgen is undefined, please include via <script> tag"
+      );
     }
   }
   await wasm_bindgen();
@@ -27653,12 +27641,38 @@ function InputComponent() {
     /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "invalid-input", children: invalidInputSuffix })
   ] }) });
 }
+function updateLog(log, e) {
+  if (isEmpty(e)) {
+    return log;
+  }
+  if (e.name === "log" || e.name === "error") {
+    let value = prettyJson(e.msg).trim();
+    let lastLine = log[log.length - 1];
+    if (value === "think() for < 200ms") {
+      const regex = /think\(\) for < (\d+)ms/;
+      const match = lastLine.match(regex);
+      if (match) {
+        const number = parseInt(match[1]);
+        return [...log.slice(0, -1), "think() for < " + (number + 200) + "ms"];
+      }
+    }
+    if (value.indexOf("handle_line") !== -1) {
+      return log;
+    }
+    return [...log, value];
+  } else if (e.name === "uci") {
+    return [...log, e.output.trim()];
+  } else if (e.name === "uci-flush-output") {
+    return [...log, e.output.trim()];
+  }
+  return log;
+}
 var worker = await searchWorker();
 function App() {
   let board = useAtomValue(atomBoard);
   let [game, setGame] = useAtom(atomGame);
   let [fen] = useAtom(atomFen);
-  let setLog = useSetAtom(logAtom);
+  let [log, setLog] = useAtom(logAtom);
   let [input, setInput] = useAtom(atomInput);
   let allMoves = useAtomValue(atomLegalMoves);
   let [engineControlsWhite, setEngineControlsWhite] = useAtom(atomEngineControlsWhite);
@@ -27666,14 +27680,16 @@ function App() {
   let whiteToMove = useAtomValue(atomWhiteToMove);
   let playerToMove = useAtomValue(atomPlayerToMove);
   let [searchParams, setSearchParams] = useSearchParams();
-  let [initialized, setInitialized] = (0, import_react2.useState)(false);
+  let initialized = (0, import_react2.useRef)(false);
   (0, import_react2.useEffect)(() => {
-    if (!initialized) {
+    if (!initialized.current) {
       let start = searchParams.get("start");
       let moves = searchParams.get("moves");
       if (start !== null && moves !== null) {
         setGame({ start, moves: moves.split("-") });
       }
+      setLog(["wasm worker loaded \u{1F3C3}\u200D\u2642\uFE0F"]);
+      initialized.current = true;
     }
     let navigateTo = {
       start: game.start,
@@ -27686,7 +27702,6 @@ function App() {
     if (navigateTo.start !== navigateFrom.start || navigateTo.moves !== navigateFrom.moves) {
       setSearchParams(navigateTo, { replace: !initialized || playerToMove });
     }
-    setInitialized(true);
     let popstateCallback = () => {
       let currentSearchParams = new URLSearchParams(window.location.search);
       let start = currentSearchParams.get("start");
@@ -27708,11 +27723,18 @@ function App() {
     }
   }, [fen, game]);
   (0, import_react2.useEffect)(() => {
-    let cleanup = listen((line) => {
-      setLog((log) => [...log, line]);
+    const workerListenerCleanup = worker.listen((e) => {
+      if (isEmpty(e)) {
+        return;
+      }
+      setLog((log2) => {
+        return updateLog(log2, e);
+      });
     });
-    return cleanup;
-  }, []);
+    return () => {
+      workerListenerCleanup();
+    };
+  });
   (0, import_react2.useEffect)(() => {
     async function think() {
       let start = game.start;
@@ -27773,12 +27795,17 @@ function App() {
       document.onkeydown = null;
     };
   }, [input, setInput]);
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "app", children: initialized && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(BoardComponent, { board }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(InputComponent, {}),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "log" }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(EngineOptions, {})
-  ] }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+    initialized && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(import_jsx_runtime7.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "app", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "top-bar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(InputComponent, {}),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(EngineOptions, {})
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(BoardComponent, { board }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "log", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("pre", { children: log.toReversed().join("\n\n") }) })
+    ] }) }),
+    !initialized && "Loading..."
+  ] });
 }
 var app_default = App;
 

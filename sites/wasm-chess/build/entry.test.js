@@ -590,58 +590,8 @@ function resolveable() {
   });
   return [promise, resolve];
 }
-function indent_string(lines, indent) {
-  let s = " ".repeat(indent);
-  return lines.split("\n").map((line) => s + line).join("\n");
-}
-function prettyJson(json, indent) {
-  if (!indent) {
-    indent = 0;
-  }
-  if (Array.isArray(json)) {
-    let result2 = "";
-    for (let value of json) {
-      result2 += "\n  " + value;
-    }
-    return result2;
-  }
-  let result = "{\n";
-  for (let key in json) {
-    let value = json[key];
-    if (typeof value == "string") {
-      if (value.indexOf("\n") != -1) {
-        result += "  " + key + ": \n";
-        result += indent_string(value, 4) + "\n";
-      } else {
-        result += "  " + key + ": " + value + "\n";
-      }
-    } else {
-      result += "  " + key + ": " + value + "\n";
-    }
-  }
-  return result;
-}
-function omit(obj, ...keys) {
-  let result = {};
-  for (let key in obj) {
-    if (!keys.includes(key)) {
-      result[key] = obj[key];
-    }
-  }
-  return result;
-}
 
 // src/worker/worker-types.ts
-function isEmpty(msg) {
-  if (msg.name === "log") {
-    return msg.msg.length === 0;
-  } else if (msg.name === "uci") {
-    return msg.output.length === 0;
-  } else if (msg.name === "uci-flush-output") {
-    return msg.output.length === 0;
-  }
-  return false;
-}
 function isResponse(msg) {
   return msg.kind === "response" && msg.id !== void 0;
 }
@@ -655,30 +605,7 @@ function decodeReceiveFromWorker(msg) {
 // src/worker/worker-wrapper.ts
 async function createWorker(url) {
   let worker = new Worker(url);
-  let listeners2 = [
-    (e) => {
-      if (isEmpty(e)) {
-        return;
-      }
-      if (e.name === "log") {
-        console.log("log (wasm worker) =>", prettyJson(e.msg));
-      } else if (e.name === "error") {
-        console.error("error (wasm worker) =>", prettyJson(e.msg));
-      } else if (e.name === "ready") {
-        console.log("ready (wasm worker)");
-      } else if (e.name === "uci") {
-        if (e.output.length > 0) {
-          console.log("uci sync response (wasm worker)", indent_string("\n" + e.output, 2));
-        }
-      } else if (e.name === "uci-flush-output") {
-        if (e.output.length > 0) {
-          console.log("uci async response (wasm worker)", e.output);
-        }
-      } else {
-        console.log(e.kind, "(wasm worker) =>", prettyJson(omit(e, "name", "kind", "id")));
-      }
-    }
-  ];
+  let listeners2 = [];
   worker.onmessage = (e) => {
     let data = decodeReceiveFromWorker(e.data);
     listeners2.forEach((l) => l(data));
@@ -707,11 +634,19 @@ async function createWorker(url) {
       let id = responseId++;
       let sent = { ...data, id };
       worker.postMessage(JSON.stringify(sent));
-      return await waitFor((e) => {
-        if (responseMatchesRequest(sent, e)) {
-          return e;
+      return await waitFor(
+        (e) => {
+          if (responseMatchesRequest(sent, e)) {
+            return e;
+          }
         }
-      });
+      );
+    },
+    listen: (callback) => {
+      listeners2.push(callback);
+      return () => {
+        listeners2 = listeners2.filter((cb) => cb !== callback);
+      };
     },
     wait: waitFor,
     terminate: () => {
@@ -724,6 +659,7 @@ async function createWorker(url) {
 var listeners = [];
 globalThis.BindingsJs = {
   log_to_js: (message) => {
+    console.log("wasm-bindings.ts, syncWasmUci, log_to_js:", message);
     message.split("\n").forEach((line) => {
       listeners.forEach((listener) => listener(line));
     });
@@ -774,11 +710,17 @@ async function wasmWorkerForTesting() {
 async function newUciWasmWorker() {
   let worker = await createWorker("build/worker/uci-wasm-worker.js");
   return {
+    listen: (callback) => {
+      return worker.listen(callback);
+    },
     handle_line: async function(line) {
       let response = await worker.sendWithResponse({
         name: "uci",
         line
       });
+      for (const listener of listeners) {
+        listener(response.output);
+      }
       return response.output;
     },
     terminate: () => worker.terminate
@@ -807,14 +749,20 @@ async function searchWorker() {
       await worker.handle_line("stop");
       let output = [];
       if (start === "startpos") {
-        output.push(await worker.handle_line(`position ${start} moves ${moves.join(" ")}`));
+        output.push(
+          await worker.handle_line(`position ${start} moves ${moves.join(" ")}`)
+        );
       } else {
-        output.push(await worker.handle_line(`position fen ${start} moves ${moves.join(" ")}`));
+        output.push(
+          await worker.handle_line(
+            `position fen ${start} moves ${moves.join(" ")}`
+          )
+        );
       }
       output.push(await worker.handle_line("go"));
       await new Promise((resolve2) => setTimeout(resolve2, 1e3));
       output.push(await worker.handle_line("stop"));
-      let reversed = output.flatMap((line) => line.split("\n")).map((line) => line.trim()).filter((line) => line !== "").reverse();
+      let reversed = output.flatMap((line) => line.split("\n").reverse()).map((line) => line.trim()).filter((line) => line !== "").reverse();
       for (let line of reversed) {
         if (line.startsWith("bestmove")) {
           let result2 = line.split(" ")[1];
@@ -823,6 +771,9 @@ async function searchWorker() {
         }
       }
       throw new Error("no bestmove found");
+    },
+    listen: (callback) => {
+      return worker.listen(callback);
     },
     terminate: () => worker.terminate()
   };
@@ -836,7 +787,9 @@ async function loadWasmBindgen() {
     wasm_bindgen;
   } catch (e) {
     if (e instanceof ReferenceError) {
-      throw new Error("wasm_bindgen is undefined, please include via <script> tag");
+      throw new Error(
+        "wasm_bindgen is undefined, please include via <script> tag"
+      );
     }
   }
   await wasm_bindgen();
