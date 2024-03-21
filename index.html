@@ -3,24 +3,38 @@ layout: default
 title: Projects
 ---
 
+<div class="project project-rust project-gamedev">
+	<h2>Rust chess engine</h2>
+
+  <p>A chess engine supporting <a href="https://www.chessprogramming.org/Magic_Bitboards">magic bitboards</a> for fast move generation, <a href="https://www.chessprogramming.org/Transposition_Table">transposition tables</a> for caching previously searched positions, and a <a href="https://www.chessprogramming.org/Iterative_Deepening">iterative deepening search algorithm</a>.</p>
+  
+  <p>The engine runs in the browser via a web-worker. You can <a href="sites/wasm-chess/index.html">play it here</a>!</p>
+
+  <a href="sites/wasm-chess/index.html"><img src="images/chess.png" style="max-width:100%; height:auto;" /></a>
+
+  <p>
+    <a href="https://github.com/cricklet/gopher-chess">github.com/cricklet/gopher-chess</a> (go implementation)
+    <br/>
+    <a href="https://github.com/cricklet/wasm-chess">github.com/cricklet/wasm-chess</a> (rewrite in rust)
+  </p>
+</div>
+
 <div class="project project-cpp project-graphics project-gamedev">
 	<h2>WASM Quake 3 Renderer</h2>
 
-  <p>A Quake 3 BSP renderer, built in C++ for the web (via emscripten/embind/wasm). For faster build times, this project also supports native OSX (via XCode). You can see the <a href="https://github.com/cricklet/wasm-quake3-renderer">source-code on GitHub</a>.</p>
-	
-	<img src="images/q.jpeg" style="max-width:100%; height:auto;" />
+  <p>A Quake 3 BSP renderer, built in C++ for the web (via emscripten/embind/wasm) and OSX.</p>
+  
+	<a href="https://github.com/cricklet/wasm-quake3-renderer"><img src="images/q.jpeg" style="max-width:100%; height:auto;" /></a>
+  <p><a href="https://github.com/cricklet/wasm-quake3-renderer">github.com/cricklet/wasm-quake3-renderer</a>.</p>
 </div>
 
 <div class="project project-javascript project-collaborative">
 	<h2>Operational Transform Library</h2>
 
-  <p>An implementation/demo of collaborative text editing via operational transforms, based off of <a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">this article by Daniel Spiewak</a>.
-    This implementation includes transformation/composition of operations, generation of operations based on text changes, and application of operations to text.</p>
-
-  <p>You can see the <a href="https://github.com/cricklet/operational-transform-demo">source-code on GitHub</a> and a <a href="/sites/blue/index.html">demo online</a>.</p>
+  <p>An implementation/demo of collaborative text editing via operational transforms, based off of <a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">this article by Daniel Spiewak</a>.</p>
 	
-	<img src="images/blue.gif" style="max-width:100%; height:auto;" />
-	
+	<img src="images/ot.gif" style="max-width:100%; height:auto;" />
+  <p><a href="https://github.com/cricklet/operational-transform-demo">github.com/cricklet/operational-transform-demo</a></p>
 </div>
 
 <div class="project project-hardware">
@@ -34,10 +48,8 @@ title: Projects
 
   <p>Variance shadow mapping [<a href="http://www.punkuser.net/vsm/">Donnelly 2006</a>], hemisphere based screen-space ambient occlusion, and real-time hatching [<a href="http://gfx.cs.princeton.edu/proj/hatching/">Praun 2001</a>], implemented from scratch for a school project.</p>
 
-  <p>You can see the <a href="https://github.com/cricklet/hatched">source-code on GitHub</a>.</p>
-
-  <img src="images/hatching.png" style="width:100%; height:auto" />
-  <p>(ssao, real-time hatching, variance shadow maps, diffuse lighting)</p>
+  <a href="https://github.com/cricklet/hatched"><img src="images/hatching.png" style="width:100%; height:auto" /></a>
+  <p><a href="https://github.com/cricklet/hatched">github.com/cricklet/hatched</a></p>
 </div>
 
 <div class="project project-javascript project-gamedev">
@@ -45,28 +57,29 @@ title: Projects
 
   <p>A toy star-ship simulation, built to learn fundamentals of <a href="https://flowtype.org/">FlowType</a>.</p>
 
-  <p>Check out the <a href="https://github.com/cricklet/starcap">sourcecode on GitHub</a>.</p>
-
   <br/>
   <img src="images/sc.gif" style="width:100%; height:auto;" />
+  <p><a href="https://github.com/cricklet/starcap">github.com/cricklet/starcap</a></p>
 </div>
 
 <div class="project project-javascript project-gamedev project-graphics">
   <h2>Rest In Peace</h2>
 
-  <p>The ghosts of the dead haunt one dimension and the dead come back to life in the other! I built RIP in 48 hours for the 30th Ludum Dare competition. It's coded from scratch in Javascript using HTML5 &lt;canvas/&gt;. You can play it <a href="sites/ld48/index.html">in your browser</a> or checkout the <a href="https://github.com/cricklet/ld48-rip">sourcecode on GitHub</a>.</p>
+  <p>The ghosts of the dead haunt one dimension and the dead come back to life in the other! I built RIP in 48 hours for the 30th Ludum Dare competition. It's coded from scratch in Javascript using HTML5 &lt;canvas/&gt;. You can play it <a href="sites/ld48/index.html">in your browser</a>.</p>
 
   <br/>
   <img src="images/rip.gif" style="width:100%; height:auto;" />
+  <p><a href="https://github.com/cricklet/ld48-rip">github.com/cricklet/ld48-rip</a></p>
 </div>
 
 <div class="project project-javascript project-collaborative">
   <h2>BlueDocs</h2>
 
-  <p>A collaborative markdown editor backed by FirePad and CodeMirror. You can see the <a href="https://github.com/cricklet/bluedocs">source-code on GitHub</a>.</p>
+  <p>A collaborative markdown editor backed by FirePad and CodeMirror.</p>
 
   <br/>
   <img src="images/bluedocs.png" style="width:100%; height:auto;" />
+  <p><a href="https://github.com/cricklet/bluedocs">github.com/cricklet/bluedocs</a></p>
 </div>
 
 <div class="project project-cpp project-gamedev">
@@ -82,43 +95,34 @@ title: Projects
 <div class="project project-gamedev project-graphics">
   <h2>Escape!</h2>
 
-  <p>A classic stealth game set in a pastel colored world inhabited by Death. I built Escape over a week for the Insanity Jam competition. It's coded in C# using Unity3D.</p>
-
-  <p>Play it here: <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeWeb/Escape.html">Unity Web Player</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeLinux.zip">Linux</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/EscapeWindows.zip">Windows</a>, <a href="https://dl.dropboxusercontent.com/u/43674030/Escape.app.zip">Mac</a></p>
+  <p>A classic stealth game set in a pastel colored world inhabited by Death, built with Unity3D for the Insanity Jam competition.</p>
 
   <img src="images/escape.png" style="width:80%; height:auto;" />
 </div>
 
 <div class="project project-java project-android">
-  <h2>PanesLibrary</h2>
+  <h2>PanesLibrary (2013)</h2>
 
-  <p><a href="https://github.com/cricklet/Android-PanesLibrary">PanesLibrary</a> makes it easy to build native Android apps (circa 2013) with flexible multi-pane tablet layouts. On the phone, the app appears as a conventional app with a sliding menu and a content pane where fragments are stacked on top of each other. On the tablet, the menu and all other fragments appear in dynamically added panes of varying sizes.</p>
+  <p>PanesLibrary makes it easy to build native Android apps with flexible multi-pane tablet layouts. On the phone, the app appears as a conventional app with a sliding menu and a content pane where fragments are stacked on top of each other. On the tablet, the menu and all other fragments appear in dynamically added panes of varying sizes.</p>
 
   <iframe width="500" height="280" src="//www.youtube.com/embed/UA-lAGVXoLU" frameborder="0" allowfullscreen></iframe>
+  <a href="https://github.com/cricklet/Android-PanesLibrary">github.com/cricklet/Android-PanesLibrary</a>
 </div>
 
 <div class="project project-java project-android">
-  <h2>AutoWallpaper</h2>
+  <h2>AutoWallpaper (2013)</h2>
 
-  <p><a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free">AutoWallpaper</a> updates the wallpaper of your phone with the top images from Reddit multiple times a day. It's been downloaded >20,000 times.</p>
+  <p>AutoWallpaper updates the wallpaper of your phone with the top images from Reddit multiple times a day. It's been downloaded >20,000 times.</p>
 
   <a href="https://play.google.com/store/apps/details?id=com.autowallpaper.free"><img src="images/auto-wallpapers-promo.jpg" style="width=100%; height=auto;" /></a>
 </div>
 
 <div class="project project-gamedev project-java project-android project-graphics">
-  <h2>Dead Arcade</h2>
+  <h2>Dead Arcade (2011)</h2>
 
-  <p>Summer of 2011, Justin Kruskal (coder), Melinda B (artist), and I built <a href="https://play.google.com/store/apps/details?id=game.zombie">Dead Arcade</a>, an Android game based on the original Mario Bros arcade game. The game engine we built relies on an entity/component model and renders with OpenGL. It's been downloaded around 25,000 times.</p>
+  <p>An Android game based on the original Mario Bros arcade game, built from scratch over the summer of 2011 with a couple friends.</p>
 
   <iframe width="500" height="280" src="//www.youtube.com/embed/fSc24WLZmwA" frameborder="0" allowfullscreen></iframe>
-</div>
-
-<div class="project project-cpp project-graphics">
-  <h2>Path Tracer</h2>
-
-  <p>Built for a school project. You can see the <a href="https://github.com/cricklet/COS-526-Path-Tracer/blob/master/src/render.cpp">source-code on GitHub</a>.</p>
-
-  <img src="images/cornell.jpg" style="width:50%; height:auto" />
 </div>
 
 <div class="project project-cpp project-gamedev project-graphics">
@@ -135,25 +139,14 @@ title: Projects
 <div class="project project-gamedev project-java">
   <h2 id="zrts">Facebook Princeton Hackathon (2011)</h2>
 
-  <p>A tower-defense RTS, built from scratch in 24 hours for the Facebook Princeton Hackathon. The AI relies mostly on gradient descent and a grid data structure. Checkout the <a href="https://github.com/cricklet/ZRTS-24hr-hackathon">sourcecode on GitHub</a>.</p>
+  <p>A tower-defense RTS, built from scratch in 24 hours for the Facebook Princeton Hackathon. The AI relies mostly on gradient descent and a grid data structure.</p>
 
   <iframe width="500" height="300" src="//www.youtube.com/embed/jENzAbhT4WY" frameborder="0" allowfullscreen></iframe>
-</div>
-
-<div class="project project-gamedev project-cpp project-graphics">
-  <h2 id="426">Zombie Shooter</h2>
-
-  <p>For our graphics final project, Kynan Rilee and I built a top-down zombie shooter from scratch in C++ using OpenGL. It includes billiard ball physics, baked lighting, point/spot/directional light, simple object avoidance, boid AI, and more.</p>
-
-  <iframe width="500" height="300" src="//www.youtube.com/embed/ln7qcOiLzNY" frameborder="0" allowfullscreen></iframe>
+  <p><a href="https://github.com/cricklet/ZRTS-24hr-hackathon">github.com/cricklet/ZRTS-24hr-hackathon</a></p>
 </div>
 
 <div class="project project-java project-gamedev">
-  <h2 id="2dengine">2D Java Game Engine</h2>
-
-  <p>In early college, I discovered Java generics and set out to build a flexible 2D game engine.</p>
-
-  <p>Checkout the <a href="https://github.com/cricklet/2D-Game-Engine-2011">sourcecode on GitHub</a>.</p>
+  <h2 id="2dengine">2D Java Game Engine (2011)</h2>
 
   <iframe width="500" height="300" src="//www.youtube.com/embed/G8LXEY0m5IM" frameborder="0" allowfullscreen></iframe>
 </div>
@@ -161,7 +154,7 @@ title: Projects
 <div class="project project-gamedev project-java">
   <h2 id="oldjava">2D Java Games</h2>
 
-  <p>In high school, I made a bunch of simple Java games from scratch. My two favorite games were Gravity Golf (golfing with in a little n-body simulator) and Self-Defense-Initiative (a missle defense clone).</p>
+  <p>Some simple Java games I built for fun in high school. My two favorite games were Gravity Golf (golfing with in a little n-body simulator) and Self-Defense-Initiative (a missle defense clone).</p>
 
   <img style="width:33%; height:auto; float:left" src="images/grav.png">
   <img style="width:33%; height:auto; float:left" src="images/grav2.png">
@@ -172,7 +165,7 @@ title: Projects
 <div class="project project-gamedev project-java">
   <h2 id="wsource">Wolfenstein: Source</h2>
 
-  <p><a href="http://www.moddb.com/mods/wolf4d">Wolfenstein: Source</a> is a Half Life 2 mod I made in high school. The goal was to convert the classic Wolfenstein 3D video game to the Source engine. I built a Java program that would process Wolfenstein 3D maps and generate Half Life 2 levels.</p>
+  <p>A Half Life 2 mod I made in high school which converts classic Wolfenstein 3D maps to the Source engine.</p>
 
   <img style="width:50%; height:auto; float:left" alt="Wolfenstein: Source" src="images/ws1.bmp">
   <img style="width:50%; height:auto; float:left" alt="Wolfenstein 3d" src="images/w3d1.bmp">
@@ -182,7 +175,7 @@ title: Projects
 <div class="project project-gamedev project-cpp">
   <h2 id="yoda">Yoda Life</h2>
 
-  <p><a href="http://www.moddb.com/mods/yodalife">Yoda Life</a> is a Half Life mod I made freshman year of high school. It's Half Life, except every character is Yoda and all the weapons are from Star Wars.</p>
+  <p>A Half Life mod I made freshman year of high school. It's Half Life, except every character is Yoda and all the weapons are from Star Wars.</p>
 
   <iframe width="320px" height="240px" src="http://www.moddb.com/media/iframe/87789" frameborder="0" scrolling="no" allowfullscreen ></iframe>
 </div>

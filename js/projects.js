@@ -1,10 +1,4 @@
-function wrapImgs() {
-  $('img').each(function () {
-    var $img = $(this),
-    href = $img.attr('src');
-    $img.wrap('<a href="' + href + '"></a>');
-  });
-}
+
 
 function updateProjects() {
   var hash = window.location.hash;
@@ -22,7 +16,6 @@ function updateProjects() {
 }
 
 $(document).ready(function () {
-  wrapImgs();
   updateProjects();
 
   window.addEventListener("hashchange", function () {
