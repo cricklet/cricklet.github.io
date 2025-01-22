@@ -99,10 +99,10 @@
 
 <body>
   <div id="result"></div>
-  <textarea id="dateInput" oninput="onInput()" placeholder="// calculate workdays until deadline
+  <textarea id="dateInput" oninput="onInput()" placeholder="// calculate week-days until deadline
 4/21/2025
 
-// excluding all following dates / date ranges
+// excluding the following dates / date ranges
 2/7/2025
 2/21/2025
 4/7/2025-4/17/2025">
@@ -179,7 +179,7 @@
       }
 
       document.getElementById('result').textContent =
-        `Days left: ${workdays}`;
+        `Days remaining: ${workdays}`;
     }
 
     // Add theme functionality
