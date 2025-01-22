@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Days Left</title>
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: rgba(255, 255, 255, 0.87);
+      --secondary-text: rgba(255, 255, 255, 0.6);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --text-color: #000000;
+      --secondary-text: #666666;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      background: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.1s ease;
+    }
+
+    h2 {
+      color: var(--text-color);
+      font-size: 1.5rem;
+      font-weight: normal;
+      margin-bottom: 0.5rem;
+    }
+
+    p {
+      color: var(--secondary-text);
+      margin-bottom: 2rem;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    textarea {
+      width: 90%;
+      max-width: 600px;
+      height: 200px;
+      margin-bottom: 20px;
+      padding: 15px;
+      border-radius: 10px;
+      border: none;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-color);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 1rem;
+      resize: vertical;
+    }
+
+    #result {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 2rem;
+      color: var(--text-color);
+      text-align: center;
+      min-height: 60px;
+      margin-bottom: 20px;
+    }
+
+    #theme-toggle {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--text-color);
+      color: var(--bg-color);
+      opacity: 0;
+      cursor: pointer;
+      border: none;
+      font-size: 1.5rem;
+      transition: all 0.1s ease;
+    }
+
+    body:hover #theme-toggle {
+      opacity: 1;
+    }
+
+    #theme-toggle:hover {
+      transform: scale(1.1);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="result"></div>
+  <textarea id="dateInput" oninput="onInput()" placeholder="// calculate workdays until deadline
+4/21/2025
+
+// excluding all following dates / date ranges
+2/7/2025
+2/21/2025
+4/7/2025-4/17/2025">
+// calculate workdays until deadline
+4/21/2025
+
+// excluding all following dates / date ranges
+2/7/2025
+2/21/2025
+4/7/2025-4/17/2025
+</textarea>
+  <button id="theme-toggle" onclick="toggleTheme()">☀️</button>
+
+  <script>
+    const LOCAL_STORAGE_KEY = 'textAreaSaved3';
+
+    function isWeekend(date) {
+      const day = date.getDay();
+      return day === 0 || day === 6;
+    }
+
+    function parseDate(dateStr) {
+      const [month, day, year] = dateStr.split('/');
+      return new Date(year, month - 1, day);
+    }
+
+    function onInput() {
+      const input = document.getElementById('dateInput').value;
+      localStorage.setItem(LOCAL_STORAGE_KEY, input);
+      calculateWorkdays();
+    }
+
+    function calculateWorkdays() {
+      const input = document.getElementById('dateInput').value;
+
+      // Strip out comments and empty lines
+      const lines = input.trim().split('\n')
+        .map(line => line.split('//')[0].trim()) // Remove everything after //
+        .filter(line => line.length > 0); // Remove empty lines
+
+      if (lines.length < 1) {
+        document.getElementById('result').textContent = 'Please enter dates';
+        return;
+      }
+
+      const deadline = parseDate(lines[0]);
+      const today = new Date();
+      const vacationDays = new Set();
+
+      // Process vacation dates
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.includes('-')) {
+          // Date range
+          const [startStr, endStr] = line.split('-');
+          const start = parseDate(startStr);
+          const end = parseDate(endStr);
+
+          for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+            vacationDays.add(date.toDateString());
+          }
+        } else {
+          // Single date
+          vacationDays.add(parseDate(line).toDateString());
+        }
+      }
+
+      // Count working days
+      let workdays = 0;
+      for (let date = new Date(today); date <= deadline; date.setDate(date.getDate() + 1)) {
+        if (!isWeekend(date) && !vacationDays.has(date.toDateString())) {
+          workdays++;
+        }
+      }
+
+      document.getElementById('result').textContent =
+        `Days left: ${workdays}`;
+    }
+
+    // Add theme functionality
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const toggle = document.getElementById('theme-toggle');
+      toggle.textContent = theme === 'light' ? '◐' : '◑';
+      localStorage.setItem('theme', theme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+    }
+
+    // Set initial theme
+    setTheme('dark');
+
+    // Load saved input when page loads
+    window.addEventListener('load', function() {
+      const savedInput = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedInput) {
+        document.getElementById('dateInput').value = savedInput;
+        calculateWorkdays(); // Calculate initial result
+      }
+    });
+
+    document.getElementById('dateInput')
+
+    calculateWorkdays();
+  </script>
+</body>
+
+</html>

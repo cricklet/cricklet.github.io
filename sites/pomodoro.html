@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sometype+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Apercu+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Code+Pro&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reddit+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass+Mono&display=swap">
+
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --bg-color-break: #44556a;
+      --bg-color-overtime: #4b4352;
+      /* Slightly reddish dark background */
+      /* Dark navy blue for break in dark mode */
+      --text-color: rgba(255, 255, 255, 0.87);
+      /* Slightly dimmed white */
+      --secondary-text: rgba(255, 255, 255, 0.6);
+      /* Even dimmer for secondary text */
+      --button-shadow: rgba(0, 0, 0, 0.2);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --bg-color-break: #e6f3ff;
+      --bg-color-overtime: #f4f0ff;
+      /* Slightly reddish light background */
+      /* Light sky blue for break in light mode */
+      --text-color: #000000;
+      --secondary-text: #666666;
+      --button-shadow: rgba(0, 0, 0, 0.1);
+    }
+
+    body {
+      position: relative;  /* For absolute positioning context */
+      min-height: 100vh;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      transition: all 0.1s ease;
+    }
+
+    body.break {
+      background: var(--bg-color-break);
+    }
+
+    body.overtime {
+      background: var(--bg-color-overtime);
+    }
+
+    #timer {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 6rem;
+      /* font-weight: 400; */
+      color: var(--text-color);
+      transition: all 0.1s ease;
+      font-family: 'Reddit Mono', monospace;
+    }
+
+    #timer.inactive {
+      opacity: 0.8;
+    }
+
+    button {
+      opacity: 0;
+      font-size: 1.2rem;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 10px;
+      color: var(--text-color);
+      cursor: pointer;
+      transition: all 0.1s ease;
+      min-width: 100px;
+      box-shadow: 0 2px 5px var(--button-shadow);
+      height: 44px;
+    }
+
+    body:hover button {
+      opacity: 1;
+    }
+
+    button:hover {
+      transform: scale(1.1);
+    }
+
+    button.start {
+      background-color: #5ba794;
+    }
+
+    button.pause {
+      background-color: #a97070;
+    }
+
+    #phase {
+      font-size: 1.5rem;
+      color: var(--secondary-text);
+    }
+
+    #theme-toggle {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      max-width: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--text-color);
+      color: var(--bg-color);
+      opacity: 0;
+      cursor: pointer;
+      box-shadow: 0 2px 5px var(--button-shadow);
+      font-size: 1.5rem;
+      padding: 0;
+      border: none;
+      transition: all 0.1s ease;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    body:hover #theme-toggle {
+      opacity: 1;
+    }
+
+    #theme-toggle:hover {
+      transform: scale(1.1);
+    }
+
+    button.skip {
+      background-color: #78909C;
+      min-width: 44px;
+      padding: 10px;
+    }
+
+    .button-group {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+    }
+
+    :root[data-theme="light"] button.start {
+      background-color: #98D8AA;
+    }
+
+    :root[data-theme="light"] button.pause {
+      background-color: #FF9B9B;
+    }
+
+    :root[data-theme="light"] button.skip {
+      background-color: #B5B5B5;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="timer" class="inactive">?</div>
+  <div class="button-group">
+    <button onclick="toggleTimer()" id="toggleButton" class="start">Start</button>
+    <button onclick="skipPhase()" class="skip">⏭</button>
+  </div>
+
+  <button id="theme-toggle" onclick="toggleTheme()">☀️</button>
+
+  <script>
+    function getTimeFromParams() {
+      const params = new URLSearchParams(window.location.search);
+      const workTime = params.get('work');
+      const breakTime = params.get('break');
+
+      return {
+        workMinutes: workTime ? parseFloat(workTime) : 25,
+        breakMinutes: breakTime ? parseFloat(breakTime) : 5
+      };
+    }
+
+    const times = getTimeFromParams();
+    let isRunning = false;
+    let interval;
+    let timeLeft = times.workMinutes * 60; // Convert minutes to seconds
+    let isWorkPhase = true;
+    switchPhase(isWorkPhase);
+    setTheme('dark');
+    
+    // Auto-start the timer
+    setTimer(true);
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const toggle = document.getElementById('theme-toggle');
+      toggle.textContent = theme === 'light' ? '◐' : '◑';
+      localStorage.setItem('theme', theme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+    }
+
+    function toggleTimer() {
+      setTimer(!isRunning);
+    }
+
+    function setTimer(newRunning) {
+      const button = document.getElementById('toggleButton');
+      const timer = document.getElementById('timer');
+
+      if (newRunning) {
+        interval = setInterval(updateTimer, 1000);
+        button.textContent = 'Pause';
+        button.className = 'pause';
+        timer.classList.remove('inactive');
+      } else {
+        clearInterval(interval);
+        button.textContent = 'Start';
+        button.className = 'start';
+        timer.classList.add('inactive');
+      }
+      isRunning = newRunning;
+      updateDisplay();
+    }
+
+    function updateTimer() {
+      const wasPositive = timeLeft > 0;
+      timeLeft--;
+      const isNowNegative = timeLeft < 0;
+
+      if (wasPositive && isNowNegative) {
+        showNotification();
+      }
+
+      updateDisplay();
+    }
+
+    function updateDisplay() {
+      const absSeconds = Math.abs(timeLeft);
+      const minutes = Math.floor(absSeconds / 60);
+      const seconds = Math.floor(absSeconds % 60);
+      const sign = timeLeft < 0 ? '-' : '';
+
+      let timeString;
+      timeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+      document.getElementById('timer').textContent = sign + timeString;
+      document.body.classList.toggle('overtime', timeLeft < 0 && isWorkPhase);
+    }
+
+    function switchPhase(newPhase) {
+      isWorkPhase = newPhase;
+      timeLeft = (isWorkPhase ? times.workMinutes : times.breakMinutes) * 60;
+      document.body.classList.toggle('break', !isWorkPhase);
+      updateDisplay();
+    }
+
+    function skipPhase() {
+      clearInterval(interval);
+      isRunning = false;
+      const button = document.getElementById('toggleButton');
+      const timer = document.getElementById('timer');
+
+      button.textContent = 'Start';
+      button.className = 'start';
+      timer.classList.add('inactive');
+      switchPhase(!isWorkPhase);
+      setTimer(true);
+
+      updateDisplay();
+    }
+  </script>
+</body>
+
+</html>
