@@ -176,6 +176,10 @@
         if (!isWeekend(date) && !vacationDays.has(date.toDateString())) {
           workdays++;
         }
+        if (workdays > 1000) {
+          workdays = null;
+          break;
+        }
       }
 
       document.getElementById('result').textContent =
