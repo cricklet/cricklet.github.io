@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Estimate Completion</title>
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: rgba(255, 255, 255, 0.87);
+      --secondary-text: rgba(255, 255, 255, 0.6);
+      --input-bg-color: rgba(255, 255, 255, 0.1);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --text-color: #000000;
+      --secondary-text: #666666;
+      --input-bg-color: rgba(0, 0, 0, 0.05);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      background: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.1s ease;
+    }
+
+    h2 {
+      color: var(--text-color);
+      font-size: 1.5rem;
+      font-weight: normal;
+      margin-bottom: 0.5rem;
+    }
+
+    p {
+      color: var(--secondary-text);
+      margin-bottom: 2rem;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    textarea {
+      width: 90%;
+      max-width: 600px;
+      height: 400px;
+      margin-bottom: 20px;
+      padding: 15px;
+      border-radius: 10px;
+      border: none;
+      background: var(--input-bg-color);
+      color: var(--text-color);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 1rem;
+      resize: vertical;
+    }
+
+    #result {
+      width: 90%;
+      max-width: 600px;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 1rem;
+      color: var(--text-color);
+      text-align: left;
+      min-height: 60px;
+      margin-bottom: 20px;
+    }
+
+    #theme-toggle {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--text-color);
+      color: var(--bg-color);
+      opacity: 0;
+      cursor: pointer;
+      border: none;
+      font-size: 1.5rem;
+      transition: all 0.1s ease;
+    }
+
+    body:hover #theme-toggle {
+      opacity: 1;
+    }
+
+    #theme-toggle:hover {
+      transform: scale(1.1);
+    }
+
+    #clear-cache {
+      position: absolute;
+      bottom: 20px;
+      right: 74px;
+      height: 44px;
+      padding: 10px 20px;
+      border-radius: 22px;
+      background: var(--text-color);
+      color: var(--bg-color);
+      border: none;
+      font-size: 0.9rem;
+      cursor: pointer;
+      opacity: 0;
+      transition: all 0.1s ease;
+    }
+
+    body:hover #clear-cache {
+      opacity: 1;
+    }
+
+    #clear-cache:hover {
+      transform: scale(1.1);
+    }
+  </style>
+</head>
+
+<body>
+  <textarea id="dateInput" oninput="onInput()" placeholder="// given the following estimates for milestones
+6, M0: pen tool construction
+6, M1: pen tool editing rays
+6, M2: edit boundary sketch
+12, M3: regions data model
+8, M4(A): regions misc product changes
+14, M4(B): pen tool misc product changes
+5, M4(C): vertex id stability for lofts
+
+// excluding the following dates / date ranges
+2/7/2025
+2/21/2025
+4/7/2025-4/16/2025
+
+// calculate estimated completion date for each milestone">
+// given the following estimates for milestones
+6, M0: pen tool construction
+6, M1: pen tool editing rays
+6, M2: edit boundary sketch
+12, M3: regions data model
+8, M4(A): regions misc product changes
+14, M4(B): pen tool misc product changes
+5, M4(C): vertex id stability for lofts
+
+// excluding the following dates / date ranges
+2/7/2025
+2/21/2025
+4/7/2025-4/16/2025
+
+// calculate estimated completion date for each milestone
+</textarea>
+<div id="result"></div>
+  <button id="theme-toggle" onclick="toggleTheme()">☀️</button>
+  <button id="clear-cache" onclick="clearCache()">Reset</button>
+
+  <script>
+    const LOCAL_STORAGE_KEY = 'textAreaSaved3';
+
+    function isWeekend(date) {
+      const day = date.getDay();
+      return day === 0 || day === 6;
+    }
+
+    function parseDate(dateStr) {
+      const [month, day, year] = dateStr.split('/');
+      return new Date(year, month - 1, day);
+    }
+
+    function onInput() {
+      const input = document.getElementById('dateInput').value;
+      localStorage.setItem(LOCAL_STORAGE_KEY, input);
+      calculateWorkdays();
+    }
+
+    function calculateWorkdays() {
+      const input = document.getElementById('dateInput').value;
+
+      // Strip out comments and empty lines
+      const lines = input.trim().split('\n')
+        .map(line => line.split('//')[0].trim())
+        .filter(line => line.length > 0);
+
+      // Parse milestones
+      const milestones = [];
+      const vacationDays = new Set();
+      let parsingMilestones = true;
+
+      for (const line of lines) {
+        if (line.includes(',')) {
+          // Parse milestone
+          const daysStr = line.split(',')[0]
+          const name = line.substring(daysStr.length + 1).trim()
+          const days = parseInt(daysStr.split(',')[0]);
+          milestones.push({ days, name });
+        } else if (line.includes('-')) {
+          // Date range
+          const [startStr, endStr] = line.split('-');
+          const start = parseDate(startStr);
+          const end = parseDate(endStr);
+
+          for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+            vacationDays.add(date.toDateString());
+          }
+        } else if (line.match(/\d+\/\d+\/\d+/)) {
+          // Single vacation date
+          vacationDays.add(parseDate(line).toDateString());
+        }
+      }
+
+      // Calculate completion dates
+      const today = new Date();
+      let currentDate = new Date(today);
+      let result = '<table style="border-collapse: collapse; width: 100%; max-width: 600px;">\n';
+      result += '<tr style="border-bottom: 1px solid var(--secondary-text);">\n';
+      result += '  <th style="text-align: left; padding: 8px;">Milestone</th>\n';
+      result += '  <th style="text-align: right; padding: 8px;">Days</th>\n';
+      result += '  <th style="text-align: right; padding: 8px;">Total</th>\n';
+      result += '  <th style="text-align: right; padding: 8px;">Completion</th>\n';
+      result += '</tr>\n';
+      let totalDays = 0;
+
+      for (const milestone of milestones) {
+        let workdaysNeeded = milestone.days;
+        let daysToAdd = 0;
+
+        while (workdaysNeeded > 0) {
+          if (!isWeekend(currentDate) && !vacationDays.has(currentDate.toDateString())) {
+            workdaysNeeded--;
+          }
+          daysToAdd++;
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        totalDays += milestone.days;
+        const completionDate = new Date(currentDate);
+        completionDate.setDate(completionDate.getDate() - 1);
+
+        result += '<tr style="border-bottom: 1px solid var(--secondary-text); opacity: 0.9;">\n';
+        result += `  <td style="padding: 8px;">${milestone.name}</td>\n`;
+        result += `  <td style="text-align: right; padding: 8px;">${milestone.days}</td>\n`;
+        result += `  <td style="text-align: right; padding: 8px;">${totalDays}</td>\n`;
+        result += `  <td style="text-align: right; padding: 8px;">${completionDate.toLocaleDateString()}</td>\n`;
+        result += '</tr>\n';
+      }
+
+      result += '<tr style="border-top: 2px solid var(--secondary-text);">\n';
+      result += '  <td style="padding: 8px;"><strong>Total</strong></td>\n';
+      result += `  <td style="text-align: right; padding: 8px;"><strong>${totalDays}</strong></td>\n`;
+      result += `  <td style="text-align: right; padding: 8px;"><strong>${totalDays}</strong></td>\n`;
+      result += '  <td></td>\n';
+      result += '</tr>\n';
+      result += '</table>';
+
+      document.getElementById('result').innerHTML = result;
+    }
+
+    // Add theme functionality
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const toggle = document.getElementById('theme-toggle');
+      toggle.textContent = theme === 'light' ? '◐' : '◑';
+      localStorage.setItem('theme', theme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+    }
+
+    function clearCache() {
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      document.getElementById('dateInput').value = document.getElementById('dateInput').getAttribute('placeholder');
+      calculateWorkdays();
+    }
+
+    // Set initial theme
+    setTheme('dark');
+
+    // Load saved input when page loads
+    window.addEventListener('load', function() {
+      const savedInput = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedInput) {
+        document.getElementById('dateInput').value = savedInput;
+        calculateWorkdays(); // Calculate initial result
+      }
+    });
+
+    document.getElementById('dateInput')
+
+    calculateWorkdays();
+  </script>
+</body>
+
+</html>
