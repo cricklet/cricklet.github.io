@@ -8,12 +8,14 @@
       --bg-color: #1a1a1a;
       --text-color: rgba(255, 255, 255, 0.87);
       --secondary-text: rgba(255, 255, 255, 0.6);
+      --input-bg-color: rgba(255, 255, 255, 0.1);
     }
 
     :root[data-theme="light"] {
       --bg-color: #f0f0f0;
       --text-color: #000000;
       --secondary-text: #666666;
+      --input-bg-color: rgba(0, 0, 0, 0.05);
     }
 
     body {
@@ -47,12 +49,12 @@
     textarea {
       width: 90%;
       max-width: 600px;
-      height: 200px;
+      height: 400px;
       margin-bottom: 20px;
       padding: 15px;
       border-radius: 10px;
       border: none;
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--input-bg-color);
       color: var(--text-color);
       font-family: 'Reddit Mono', monospace;
       font-size: 1rem;
@@ -200,11 +202,16 @@
       setTheme(newTheme);
     }
 
-    // Set initial theme
-    setTheme('dark');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(prefersDark ? 'dark' : 'light');
+
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      setTheme(e.matches ? 'dark' : 'light');
+    });
 
     // Load saved input when page loads
-    window.addEventListener('load', function() {
+    window.addEventListener('load', function () {
       const savedInput = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (savedInput) {
         document.getElementById('dateInput').value = savedInput;

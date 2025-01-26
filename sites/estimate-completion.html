@@ -157,7 +157,7 @@
 
 // calculate estimated completion date for each milestone
 </textarea>
-<div id="result"></div>
+  <div id="result"></div>
   <button id="theme-toggle" onclick="toggleTheme()">☀️</button>
   <button id="clear-cache" onclick="clearCache()">Reset</button>
 
@@ -267,7 +267,6 @@
       document.documentElement.setAttribute('data-theme', theme);
       const toggle = document.getElementById('theme-toggle');
       toggle.textContent = theme === 'light' ? '◐' : '◑';
-      localStorage.setItem('theme', theme);
     }
 
     function toggleTheme() {
@@ -282,11 +281,16 @@
       calculateWorkdays();
     }
 
-    // Set initial theme
-    setTheme('dark');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(prefersDark ? 'dark' : 'light');
+
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      setTheme(e.matches ? 'dark' : 'light');
+    });
 
     // Load saved input when page loads
-    window.addEventListener('load', function() {
+    window.addEventListener('load', function () {
       const savedInput = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (savedInput) {
         document.getElementById('dateInput').value = savedInput;
