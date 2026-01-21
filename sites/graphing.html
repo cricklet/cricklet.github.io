@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Graphing App</title>
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: rgba(255, 255, 255, 0.87);
+      --secondary-text: rgba(255, 255, 255, 0.6);
+      --input-bg-color: rgba(255, 255, 255, 0.1);
+      --canvas-bg-color: #2a2a2a;
+      --canvas-border: rgba(255, 255, 255, 0.2);
+      --point-color: #4fc3f7;
+      --line-color: #f06292;
+      --arc-color: #81c784;
+      --circle-color: #ffb74d;
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --text-color: #000000;
+      --secondary-text: #666666;
+      --input-bg-color: rgba(0, 0, 0, 0.05);
+      --canvas-bg-color: #ffffff;
+      --canvas-border: rgba(0, 0, 0, 0.2);
+      --point-color: #0277bd;
+      --line-color: #e91e63;
+      --arc-color: #2e7d32;
+      --circle-color: #ff9800;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      margin: 0;
+      padding: 10px;
+      background: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      transition: all 0.2s ease;
+      box-sizing: border-box;
+    }
+
+    .container {
+      display: flex;
+      flex: 1;
+      width: 100%;
+      max-width: 100%;
+      margin: 0;
+      gap: 10px;
+      height: 100vh;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    .left-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .input-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .input-container:first-child {
+      flex: 4;
+      /* Takes up 80% of the space */
+    }
+
+    .input-container:last-child {
+      flex: 1;
+      /* Takes up 20% of the space */
+    }
+
+    #input-text {
+      width: 100%;
+      height: 100%;
+      resize: none;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+      padding: 15px;
+      border-radius: 10px;
+      border: none;
+      background: var(--input-bg-color);
+      color: var(--text-color);
+      font-size: 14px;
+      line-height: 1.5;
+      box-sizing: border-box;
+    }
+
+    #normalized-text {
+      width: 100%;
+      height: 100%;
+      resize: none;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+      padding: 15px;
+      border-radius: 10px;
+      border: none;
+      background: var(--canvas-bg-color);
+      color: var(--secondary-text);
+      font-size: 14px;
+      line-height: 1.5;
+      box-sizing: border-box;
+      cursor: default;
+    }
+
+    .right-panel {
+      flex: 2;
+      background-color: var(--input-bg-color);
+      border-radius: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-width: 0;
+    }
+
+    #drawing-canvas {
+      background-color: var(--canvas-bg-color);
+      border: 1px solid var(--canvas-border);
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      border-radius: 5px;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      .left-panel,
+      .right-panel {
+        min-height: 400px;
+        width: 100%;
+      }
+    }
+
+    /* New button styling */
+    .new-button, .reset-button {
+      position: fixed;
+      bottom: 20px;
+      background-color: transparent;
+      color: var(--text-color);
+      padding: 12px 16px;
+      margin: 15px;
+      border-radius: 4px;
+      font-size: 14px;
+      text-decoration: none;
+      border: 1px solid var(--canvas-border);
+      transition: all 0.2s ease;
+      z-index: 100;
+      cursor: pointer;
+    }
+
+    .new-button {
+      right: 20px;
+    }
+
+    .reset-button {
+      right: 100px;
+    }
+
+    .new-button:hover, .reset-button:hover {
+      background-color: var(--input-bg-color);
+    }
+
+    /* Format toggle button styling */
+    .format-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: transparent;
+      color: var(--text-color);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      text-decoration: none;
+      border: 1px solid var(--canvas-border);
+      transition: all 0.2s ease;
+      cursor: pointer;
+      white-space: nowrap;
+      z-index: 1;
+    }
+
+    .format-toggle:hover {
+      background-color: var(--input-bg-color);
+    }
+
+    /* Add new container for normalized text area */
+    .normalized-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Add new container for format controls */
+    .format-controls {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+
+    /* Style for the format input */
+    .format-input {
+      flex: 1;
+      background-color: transparent;
+      color: var(--text-color);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      border: 1px solid var(--canvas-border);
+      transition: all 0.2s ease;
+    }
+
+    .format-input:focus {
+      outline: none;
+      background-color: var(--input-bg-color);
+    }
+
+    /* Update format toggle button */
+    .format-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: transparent;
+      color: var(--text-color);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      text-decoration: none;
+      border: 1px solid var(--canvas-border);
+      transition: all 0.2s ease;
+      cursor: pointer;
+      white-space: nowrap;
+      z-index: 1;
+    }
+
+    .format-toggle:hover {
+      background-color: var(--input-bg-color);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="left-panel">
+      <div class="input-container">
+        <textarea id="input-text" placeholder="Enter your points and curves data here..."></textarea>
+      </div>
+      <div class="format-controls">
+        <input type="text" id="format-input" placeholder="Filter points (e.g. 1,2,3 or 1 2 3)" class="format-input">
+      </div>
+      <div class="input-container">
+        <div class="normalized-container">
+          <button class="format-toggle" id="format-toggle">Format: JS</button>
+          <textarea id="normalized-text" readonly></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="right-panel">
+      <canvas id="drawing-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- New button -->
+  <a href="graphing.html" class="new-button">New</a>
+  <button class="reset-button" id="reset-button">Reset</button>
+
+  <script src="dist/graphing.js"></script>
+</body>
+
+</html>

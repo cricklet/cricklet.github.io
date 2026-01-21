@@ -1,0 +1,330 @@
+<html>
+	<head>
+		<title>Operational Transform</title>
+
+		<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.9.0/highlight.min.js"></script>
+		<script>hljs.initHighlightingOnLoad();</script>
+
+		<script type="text/javascript" src="node_modules/object.observe/dist/object-observe.js" charset="utf-8"></script>
+		<script type="text/javascript" src="node_modules/array.observe/array-observe.js" charset="utf-8"></script>
+		<script type="text/javascript" src="./js/libs/jquery.js" charset="utf-8"></script>
+		<script type="text/javascript" src="./build/bundle.js" charset="utf-8"></script>
+
+		<link rel="stylesheet" href="./style.css"></link>
+
+		<style>
+			*,
+			*::before,
+			*::after {
+			    -webkit-box-sizing: border-box;
+			       -moz-box-sizing: border-box;
+			            box-sizing: border-box;
+			}
+			.code {
+			  font-family:Monaco, Bitstream Vera Sans Mono, Lucida Console, Terminal;
+				font-size: 0.84em;
+				padding-left: 0.1em;
+				padding-right: 0.1em;
+			}
+			.explanation {
+				padding: 8px;
+			}
+			.demo {
+				background-color: #f5f5f5;
+				padding: 16px;
+				font-size: 1rem;
+				width: 100%;
+			}
+			textarea {
+				font-size: 0.8em;
+			}
+			input[type=number] {
+				width: 5em;
+			}
+			#computers {
+		    display: -webkit-flex;
+		    display: flex;
+
+				-webkit-flex-direction: row;
+				flex-direction: row;
+				-webkit-flex-wrap: wrap;
+				flex-wrap: wrap;
+			}
+			#computers > * + * {
+				margin-right: 8px;
+			}
+			#computers > :first-child {
+				margin-right: 8px;
+			}
+			.computer {
+  			-webkit-flex: 1;
+        flex: 1;
+
+				-webkit-flex-grow: 1;
+				flex-grow: 1;
+
+				min-width: 180px;
+				margin-bottom: 0.4em;
+			}
+			.computer div {
+				font-size: 0.8em;
+			}
+			.computer h4 {
+				margin-top: 0.4em;
+				margin-bottom: 0.2em;
+			}
+			.computer > textarea {
+				width: 100%;
+			}
+			.computer > * + * {
+				margin-top: 2px;
+			}
+			.demo button {
+				cursor: pointer;
+				font-size: 0.8em;
+				background-color: #fdfdfd;
+				border-color: #fff #fff #f0f0f0 #f0f0f0;
+				border-width: 2px;
+			}
+			.demo button#add-client {
+			}
+			.demo button#add-client:hover {
+				background-color: #fff;
+			}
+		</style>
+	</head>
+
+	<body>
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+
+		<div class="wrapper wide">
+      <header id="header">
+        <h1>Kenrick Rilee</h1>
+        <a href="/">Projects</a><br/>
+				<br/>
+				<a href="https://github.com/cricklet">GitHub</a><br/>
+				<br/>
+      </header>
+			<section class="wide">
+				<div class="top">
+					<h1>Collaborative Editing via OT (<a href="https://github.com/cricklet/blue-ot.js">GitHub</a>)</h1>
+				</div>
+
+				<br/>
+				<div class="demo">
+					<div id="computers">
+						<div class="computer"></div>
+						<div class="computer"></div>
+						<div class="computer"></div>
+					</div>
+					<button id="add-client">Add Client</button>
+				</div>
+
+				<br/>
+				<br/>
+				<div class="explanation">
+					<h4>TLDR</h4>
+
+					<p>
+						Implementing realtime collaborative editing with operational transforms (OT) was fun.
+						However, the difficulty of the solution is pushing me towards learning
+						about alternate solutions like CRDTs and WOOT.
+					</p>
+					<p>
+						I'm excited about applying realtime collaboration to domains <i>other</i> than
+						text, so the relative complexity of OT is a serious detractor.
+					</p>
+
+					<br/>
+					<h2>Why operational transforms?</h2>
+
+					<p>
+						Operational transform (OT) is one of the core technologies enabling
+						realtime collaborative text editing in Google Docs. It is the most
+						well-known and implemented solution for realtime collaboration.
+					</p>
+
+					<p>
+						In addition to enabling smooth real-time interaction, OT makes it possible
+						for apps to seamlessly operate in high-latency or even offline situations.
+						Actions that a user takes while the app is offline
+						can be optimistically applied and later synchronized
+						with the server -- all with the guarantee of eventual consistency.
+					</p>
+
+					<p>
+						Perhaps the most exciting benefit is the fact that OT is essentially
+						a version control system. Continuous integration and tools like
+						<span class="code">git</span> have revolutionized the software
+						industry. Realtime collaborative systems can bring those
+						same kinds of benefits to other domains.
+					</p>
+
+					<p>
+						For a deep description of how operational transforms work, check out
+						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">Daniel Spiewak's description</a>
+						of the algorithm.
+					</p>
+
+					<br/>
+					<h2>Difficulties</h2>
+
+					<p>
+						<div style="padding-left: 3em; padding-right: 3em">
+							"Unfortunately,	implementing OT sucks. The algorithms are really hard and time
+							consuming to implement correctly.
+							Wave took 2 years to write and if we rewrote it today,
+							it would take almost as long to write a second time."
+							<br/>
+							<div style="text-align: right">Joseph Gentle, a developer on Google Wave</div>
+						</div>
+					</p>
+
+					<p>
+						While OT isn't prohibitively difficult to implement for
+						a simple text system
+						it can get complicated fast: you have to model your domain
+						in terms of operations (i.e. insert or delete) and
+						describe in very precise terms how each kind of operation
+						affects related operations.	Implementation is further
+						complicated by the fact that ordering matters so much.
+					</p>
+
+					<p>
+						Other algorithms like
+						<a href="https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type">Conflict Free Replicated Data Type</a> (CRDT)
+						and <a href="https://hal.inria.fr/inria-00071240/document">WithOut Operational Transform</a> (WOOT)
+						aim to alleviate these complications while retaining the overall benefit
+						of collaborative realtime systems. CRDTs
+						rely on operations which are necessarily commutative, dramatically
+						simplifying the ordering of operations.
+						Another method involves using a
+						<a href="http://marijnhaverbeke.nl/blog/collaborative-editing.html">position map</a>
+						to describe how the positions in a document are shifted between states.
+					</p>
+
+					<br/>
+					<h2>Implementation</h2>
+
+					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/ot/text_operations.js">js/ot/text_operations.js</a></h3>
+
+					<p>
+						In OT, a document is represented as a series of operations
+						(i.e. insert text here, delete text there).
+					</p>
+
+					<p>
+						When conflicting operations arise, each operation is transformed in a
+						method similar to <span class="code">git merge</span>: a new operation
+						is created which can be applied directly to a client's state without
+						that client needing to change its history.
+					</p>
+
+					<p>
+						In my implementation (and in most practical implementations), the algorithm
+						is centralized: the server dictates which operations should take precedence
+						during a conflict. While OT intends to be a distributed algorithm, it is
+						much easier to implement/understand when centralized.
+					</p>
+
+					<br/>
+					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/ot/orchestrator.js">js/ot/orchestrator.js</a></h3>
+
+					<p>
+						The most complicated part of OT (and the most difficult
+						part to test) is the orchestration/communication between the clients and servers.
+						What should they communicate and how much state does each need
+						to track?
+					</p>
+
+					<p>
+						Part of the difficulty is that the client and server
+						do not have full knowledge of each other; it would incredibly
+						expensive for the server to track the history &amp; state of each client.
+						In addition, the clients/servers do not share the same history.
+						Because OT acts like a <span class="code">git merge</span> rather
+						than a <span class="code">git rebase</span>, operation
+						histories are never re-written and thus can diverge wildly.
+					</p>
+
+					<p>
+						In general, the solution here is to make everything as easy as possible
+						for the server. The client optimistically applies local operations and
+						buffers them. It then flushes that buffer (to the server) only after it's
+						been synchronized with the state of the server.
+						This way, the client only ever sends operations which are easy for
+						the server to understand.
+						For a more complete explanation,
+						<a href="http://www.codecommit.com/blog/java/understanding-and-applying-operational-transformation">
+							Daniel Spedwak's write-up is fantastic
+						</a>.
+					</p>
+
+					<p>
+						All this, combined with the strictly in-order nature of operations,
+						leads to a complicated, finicky system.
+						Luckily, once this portion of the algorithm is written, it's very
+						generic.
+					</p>
+
+<pre><code class="javascript">export type Client&lt;O,S&gt; = {
+  uid: SiteUid,
+  state: S,
+
+  // The client ops not yet sent to the server.
+  buffer: ?ChildedOperation&lt;O&gt;,
+
+  // The client op which has been sent to the server, but not yet ACKd.
+  prebuffer: ?ParentedOperation&lt;O&gt;,
+
+  // The prebuffer + buffer form a 'bridge' between the server state
+  // and the client state.
+
+  requestQueue: Array&lt;ServerRequest&lt;O&gt;&gt;,
+
+  ...
+}
+
+export type Server&lt;O,S&gt; = {
+  uid: SiteUid,
+
+  state: S,
+  history: Array&lt;FullOperation&lt;O&gt;&gt;
+}</code></pre>
+
+
+					<br/>
+					<h3><a href="https://github.com/cricklet/blue-ot.js/blob/master/js/entry.js">js/ot/entry.js</a></h3>
+					<p>
+						This demo runs entirely in the browser: the network is simulated.
+						Requests from the clients &amp; servers are manually broadcasted (with random delay)
+						with simple function calls.
+						Simulating the system in this way makes the demo &amp; testing dramatically easier.
+					</p>
+
+					<pre><code class="javascript">async function asyncBroadcastServerRequest (serverRequest: ServerRequest&lt;O&gt;) {
+  // take the request from the server, send it to each client
+  let clientPromises: Promise&lt;*&gt;[] = clients.map(async (client) => {
+    await asyncDelay()
+
+    // take the responses from each client, send them back to the server
+    let clientResponse = orchestrator.clientProcessRemoteRequest(client, serverRequest)
+    for (let clientResponse of clientResponse) {
+      await asyncDelay()
+      await asyncBroadcastClientResponse(clientResponse)
+    }
+  })
+
+  await Promise.all(clientPromises)
+}</code></pre>
+
+					<p>
+						Porting this simulated system onto an actual <span class="code">node.js</span> server would be relatively simple.
+					</p>
+
+
+				</div>
+			</section>
+		</div>
+	</body>
+</html>

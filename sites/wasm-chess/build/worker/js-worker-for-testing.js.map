@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../../src/worker/js-worker-for-testing.ts"],
+  "sourcesContent": ["\nasync function init() {\n    self.onmessage = async event => {\n        let response = `message received by worker: ${event.data}`\n        self.postMessage(response)\n    }\n}\n\ninit()"],
+  "mappings": ";AACA,eAAe,OAAO;AAClB,OAAK,YAAY,OAAM,UAAS;AAC5B,QAAI,WAAW,+BAA+B,MAAM,IAAI;AACxD,SAAK,YAAY,QAAQ;AAAA,EAC7B;AACJ;AAEA,KAAK;",
+  "names": []
+}

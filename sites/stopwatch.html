@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sometype+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Apercu+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Code+Pro&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reddit+Mono&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass+Mono&display=swap">
+
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: rgba(255, 255, 255, 0.87);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --text-color: #000000;
+    }
+
+    body {
+      position: relative;
+      min-height: 100vh;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      transition: all 0.1s ease;
+    }
+
+    .timer-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    #current-timer {
+      font-size: 6rem;
+      color: var(--text-color);
+      transition: all 0.1s ease;
+      font-family: 'Reddit Mono', monospace;
+      margin-bottom: 1rem;
+    }
+
+    #total-timer {
+      font-size: 3rem;
+      color: var(--text-color);
+      opacity: 0.7;
+      transition: all 0.1s ease;
+      font-family: 'Reddit Mono', monospace;
+    }
+
+    #current-timer .hundredths,
+    #total-timer .hundredths {
+      font-size: 0.5em;
+    }
+
+    #theme-toggle,
+    #reset-button {
+      position: absolute;
+      bottom: 20px;
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      max-width: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--text-color);
+      color: var(--bg-color);
+      opacity: 0;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      font-size: 1.5rem;
+      padding: 0;
+      border: none;
+      transition: all 0.1s ease;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    #theme-toggle {
+      right: 20px;
+    }
+
+    #reset-button {
+      right: 74px;
+      font-size: 1.2rem;
+    }
+
+    body:hover #theme-toggle,
+    body:hover #reset-button {
+      opacity: 1;
+    }
+
+    #theme-toggle:hover,
+    #reset-button:hover {
+      transform: scale(1.1);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="timer-container">
+    <div id="current-timer">00:00</div>
+    <div id="total-timer">00:00</div>
+  </div>
+  <button id="reset-button" onclick="resetStopwatch()">↻</button>
+  <button id="theme-toggle" onclick="toggleTheme()">☀️</button>
+  <canvas id="pip-canvas" style="display: none;"></canvas>
+
+  <script>
+    let currentStartTime = null;
+    let totalStartTime = null;
+    let currentAccumulatedSeconds = 0;
+    let totalAccumulatedSeconds = 0;
+    let interval;
+    let pipWindow = null;
+    let canvas = null;
+    let ctx = null;
+
+    // Use system theme preference
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(prefersDark ? 'dark' : 'light');
+
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      setTheme(e.matches ? 'dark' : 'light');
+    });
+
+    // Initialize PIP support
+    initializePIP();
+
+    // Listen for visibility changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Listen for spacebar press
+    document.addEventListener('keydown', handleKeyDown);
+
+    // Load saved stopwatch state or start new one
+    loadStopwatchState();
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const toggle = document.getElementById('theme-toggle');
+      toggle.textContent = theme === 'light' ? '◐' : '◑';
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+    }
+
+    function handleKeyDown(event) {
+      if (event.code === 'Space') {
+        event.preventDefault();
+        resetCurrentTimer();
+      }
+    }
+
+    function resetCurrentTimer() {
+      // Reset current timer to 0
+      currentStartTime = Date.now();
+      currentAccumulatedSeconds = 0;
+      saveStopwatchState();
+    }
+
+    function resetStopwatch() {
+      // Reset both current and total timers
+      const now = Date.now();
+      currentStartTime = now;
+      totalStartTime = now;
+      currentAccumulatedSeconds = 0;
+      totalAccumulatedSeconds = 0;
+      saveStopwatchState();
+    }
+
+    function saveStopwatchState() {
+      // Save the start times to localStorage
+      if (totalStartTime !== null) {
+        localStorage.setItem('stopwatch_totalStartTime', totalStartTime.toString());
+        localStorage.setItem('stopwatch_totalAccumulatedSeconds', totalAccumulatedSeconds.toString());
+      }
+      if (currentStartTime !== null) {
+        localStorage.setItem('stopwatch_currentStartTime', currentStartTime.toString());
+        localStorage.setItem('stopwatch_currentAccumulatedSeconds', currentAccumulatedSeconds.toString());
+      }
+    }
+
+    function loadStopwatchState() {
+      // Try to load saved state from localStorage
+      const savedTotalStartTime = localStorage.getItem('stopwatch_totalStartTime');
+      const savedTotalAccumulatedSeconds = localStorage.getItem('stopwatch_totalAccumulatedSeconds');
+      const savedCurrentStartTime = localStorage.getItem('stopwatch_currentStartTime');
+      const savedCurrentAccumulatedSeconds = localStorage.getItem('stopwatch_currentAccumulatedSeconds');
+
+      const now = Date.now();
+
+      if (savedTotalStartTime && savedTotalAccumulatedSeconds) {
+        // Restore saved state
+        const savedTotalStart = parseInt(savedTotalStartTime);
+        const savedTotalAccum = parseFloat(savedTotalAccumulatedSeconds);
+        
+        // Calculate how much time has passed since the saved start time
+        const timeSinceSave = (now - savedTotalStart) / 1000;
+        
+        // Add the elapsed time to accumulated seconds and reset start time to now
+        totalAccumulatedSeconds = savedTotalAccum + timeSinceSave;
+        totalStartTime = now;
+        
+        if (savedCurrentStartTime && savedCurrentAccumulatedSeconds) {
+          const savedCurrentStart = parseInt(savedCurrentStartTime);
+          const savedCurrentAccum = parseFloat(savedCurrentAccumulatedSeconds);
+          
+          const timeSinceCurrentSave = (now - savedCurrentStart) / 1000;
+          currentAccumulatedSeconds = savedCurrentAccum + timeSinceCurrentSave;
+          currentStartTime = now;
+        } else {
+          // If no current timer saved, start it fresh
+          currentStartTime = now;
+          currentAccumulatedSeconds = 0;
+        }
+      } else {
+        // No saved state, start fresh
+        startStopwatch();
+        saveStopwatchState();
+        return;
+      }
+      
+      // Start the update interval
+      interval = setInterval(updateStopwatch, 10);
+    }
+
+    function startStopwatch() {
+      const now = Date.now();
+      currentStartTime = now;
+      totalStartTime = now;
+      interval = setInterval(updateStopwatch, 10);
+      saveStopwatchState();
+    }
+
+    function updateStopwatch() {
+      const now = Date.now();
+      
+      // Calculate elapsed time based on actual wall-clock time
+      // This ensures accuracy even when the tab is in the background
+      const currentElapsed = currentAccumulatedSeconds + (now - currentStartTime) / 1000;
+      const totalElapsed = totalAccumulatedSeconds + (now - totalStartTime) / 1000;
+      
+      updateDisplay(currentElapsed, totalElapsed);
+    }
+
+    function updateDisplay(currentSeconds, totalSeconds) {
+      // Update current timer
+      const currentTotalSeconds = Math.floor(currentSeconds);
+      const currentMinutes = Math.floor(currentTotalSeconds / 60);
+      const currentSecs = currentTotalSeconds % 60;
+      const currentHundredths = Math.floor((currentSeconds % 1) * 100);
+      const currentTimeString = `${String(currentMinutes).padStart(2, '0')}:${String(currentSecs).padStart(2, '0')}.<span class="hundredths">${String(currentHundredths).padStart(2, '0')}</span>`;
+      document.getElementById('current-timer').innerHTML = currentTimeString;
+
+      // Update total timer
+      const totalTotalSeconds = Math.floor(totalSeconds);
+      const totalMinutes = Math.floor(totalTotalSeconds / 60);
+      const totalSecs = totalTotalSeconds % 60;
+      const totalTimeString = `${String(totalMinutes).padStart(2, '0')}:${String(totalSecs).padStart(2, '0')}`;
+      document.getElementById('total-timer').innerHTML = totalTimeString;
+
+      // Update PIP canvas if active
+      if (pipWindow && canvas && ctx) {
+        updatePIPCanvas(currentTotalSeconds, currentMinutes, currentSecs, currentHundredths, totalTotalSeconds, totalMinutes, totalSecs);
+      }
+    }
+
+    function initializePIP() {
+      canvas = document.getElementById('pip-canvas');
+      ctx = canvas.getContext('2d');
+
+      // Set high DPI resolution
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = 400 * dpr;
+      canvas.height = 300 * dpr;
+      canvas.style.width = '400px';
+      canvas.style.height = '300px';
+      ctx.scale(dpr, dpr);
+    }
+
+    function handleVisibilityChange() {
+      if (document.hidden && 'pictureInPictureEnabled' in document) {
+        enterPIP();
+      } else if (!document.hidden && pipWindow) {
+        exitPIP();
+      }
+    }
+
+    async function enterPIP() {
+      if (!canvas || pipWindow) return;
+
+      try {
+        // Calculate current elapsed times
+        const now = Date.now();
+        const currentElapsed = currentAccumulatedSeconds + (now - currentStartTime) / 1000;
+        const totalElapsed = totalAccumulatedSeconds + (now - totalStartTime) / 1000;
+        
+        // Initialize canvas with current time display
+        const currentTotalSeconds = Math.floor(currentElapsed);
+        const currentMinutes = Math.floor(currentTotalSeconds / 60);
+        const currentSecs = currentTotalSeconds % 60;
+        const currentHundredths = Math.floor((currentElapsed % 1) * 100);
+        const totalTotalSeconds = Math.floor(totalElapsed);
+        const totalMinutes = Math.floor(totalTotalSeconds / 60);
+        const totalSecs = totalTotalSeconds % 60;
+        updatePIPCanvas(currentTotalSeconds, currentMinutes, currentSecs, currentHundredths, totalTotalSeconds, totalMinutes, totalSecs);
+
+        // Create a video element to stream the canvas
+        const video = document.createElement('video');
+        video.srcObject = canvas.captureStream(30);
+        video.muted = true;
+
+        // Wait for metadata to load before requesting PIP
+        await new Promise((resolve) => {
+          video.addEventListener('loadedmetadata', resolve, { once: true });
+          video.play();
+        });
+
+        pipWindow = await video.requestPictureInPicture();
+
+        pipWindow.addEventListener('resize', () => {
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = pipWindow.width * dpr;
+          canvas.height = pipWindow.height * dpr;
+          canvas.style.width = pipWindow.width + 'px';
+          canvas.style.height = pipWindow.height + 'px';
+          ctx.scale(dpr, dpr);
+
+          // Calculate current elapsed times
+          const now = Date.now();
+          const currentElapsed = currentAccumulatedSeconds + (now - currentStartTime) / 1000;
+          const totalElapsed = totalAccumulatedSeconds + (now - totalStartTime) / 1000;
+          
+          // Redraw content after resize
+          const currentTotalSeconds = Math.floor(currentElapsed);
+          const currentMinutes = Math.floor(currentTotalSeconds / 60);
+          const currentSecs = currentTotalSeconds % 60;
+          const currentHundredths = Math.floor((currentElapsed % 1) * 100);
+          const totalTotalSeconds = Math.floor(totalElapsed);
+          const totalMinutes = Math.floor(totalTotalSeconds / 60);
+          const totalSecs = totalTotalSeconds % 60;
+          updatePIPCanvas(currentTotalSeconds, currentMinutes, currentSecs, currentHundredths, totalTotalSeconds, totalMinutes, totalSecs);
+        });
+
+      } catch (error) {
+        console.error('Failed to enter PIP mode:', error);
+      }
+    }
+
+    function exitPIP() {
+      if (pipWindow) {
+        document.exitPictureInPicture();
+        pipWindow = null;
+      }
+    }
+
+    function updatePIPCanvas(currentTotalSeconds, currentMinutes, currentSecs, currentHundredths, totalTotalSeconds, totalMinutes, totalSecs) {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const bgColor = currentTheme === 'light' ? '#f0f0f0' : '#1a1a1a';
+      const textColor = currentTheme === 'light' ? '#000000' : 'rgba(255, 255, 255, 0.87)';
+      const secondaryTextColor = currentTheme === 'light' ? '#666666' : 'rgba(255, 255, 255, 0.5)';
+
+      // Use logical dimensions for drawing
+      const logicalWidth = parseInt(canvas.style.width) || 400;
+      const logicalHeight = parseInt(canvas.style.height) || 300;
+
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, logicalWidth, logicalHeight);
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Draw current timer (top)
+      ctx.fillStyle = textColor;
+      ctx.font = 'bold 64px "Reddit Mono", monospace';
+      const currentTimeText = `${String(currentMinutes).padStart(2, '0')}:${String(currentSecs).padStart(2, '0')}.${String(currentHundredths).padStart(2, '0')}`;
+      const centerX = logicalWidth / 2;
+      const currentCenterY = logicalHeight * 0.35;
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(currentTimeText, centerX, currentCenterY);
+
+      // Draw total timer (bottom)
+      ctx.fillStyle = secondaryTextColor;
+      ctx.font = 'bold 64px "Reddit Mono", monospace';
+      const totalTimeText = `${String(totalMinutes).padStart(2, '0')}:${String(totalSecs).padStart(2, '0')}.${String(currentHundredths).padStart(2, '0')}`;
+      const totalCenterY = logicalHeight * 0.65;
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(totalTimeText, centerX, totalCenterY);
+    }
+  </script>
+</body>
+
+</html>
