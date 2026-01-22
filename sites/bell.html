@@ -91,6 +91,74 @@
       opacity: 0.5;
       font-family: 'Reddit Mono', monospace;
     }
+
+    .volume-container {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      opacity: 0;
+      transition: opacity 0.1s ease;
+    }
+
+    body:hover .volume-container {
+      opacity: 1;
+    }
+
+    .volume-container label {
+      font-size: 0.9rem;
+      color: var(--text-color);
+      opacity: 0.7;
+      font-family: 'Reddit Mono', monospace;
+      white-space: nowrap;
+    }
+
+    #volume-slider {
+      width: 150px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+    }
+
+    #volume-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--text-color);
+      border-radius: 50%;
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+
+    #volume-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    #volume-slider::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      background: var(--text-color);
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+      transition: transform 0.1s ease;
+    }
+
+    #volume-slider::-moz-range-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    :root[data-theme="light"] #volume-slider {
+      background: rgba(0, 0, 0, 0.2);
+    }
   </style>
 </head>
 
@@ -101,6 +169,10 @@
   </div>
   <button id="reset-button" onclick="resetTimer()">↻</button>
   <div id="interval-text"></div>
+  <div class="volume-container">
+    <label for="volume-slider">Volume:</label>
+    <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1">
+  </div>
   <audio id="bell-audio" src="bell.mp3" preload="auto"></audio>
   <canvas id="pip-canvas" style="display: none;"></canvas>
 
@@ -113,6 +185,7 @@
     let pipWindow = null;
     let canvas = null;
     let ctx = null;
+    let volumeDebounceTimer = null;
 
     // Parse URL parameters
     function getBellIntervalFromParams() {
@@ -158,6 +231,10 @@
 
     // Load saved state or start new timer
     loadTimerState();
+
+    // Load and setup volume
+    loadVolume();
+    setupVolumeSlider();
 
     function setTheme(theme) {
       document.documentElement.setAttribute('data-theme', theme);
@@ -278,6 +355,40 @@
       audio.currentTime = 0;
       audio.play().catch(err => {
         console.error('Error playing bell:', err);
+      });
+    }
+
+    function loadVolume() {
+      const savedVolume = localStorage.getItem('bell_volume');
+      if (savedVolume !== null) {
+        const volume = parseFloat(savedVolume);
+        const audio = document.getElementById('bell-audio');
+        const slider = document.getElementById('volume-slider');
+        audio.volume = volume;
+        slider.value = volume;
+      }
+    }
+
+    function saveVolume(volume) {
+      localStorage.setItem('bell_volume', volume.toString());
+    }
+
+    function setupVolumeSlider() {
+      const slider = document.getElementById('volume-slider');
+      const audio = document.getElementById('bell-audio');
+
+      slider.addEventListener('input', (e) => {
+        const volume = parseFloat(e.target.value);
+        audio.volume = volume;
+        saveVolume(volume);
+
+        // Debounce the bell preview
+        if (volumeDebounceTimer) {
+          clearTimeout(volumeDebounceTimer);
+        }
+        volumeDebounceTimer = setTimeout(() => {
+          playBell();
+        }, 300);
       });
     }
 
