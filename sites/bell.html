@@ -49,10 +49,10 @@
       font-family: 'Reddit Mono', monospace;
     }
 
-    #reset-button {
+    #reset-button,
+    #ff-button {
       position: absolute;
       bottom: 20px;
-      right: 20px;
       width: 44px;
       height: 44px;
       min-width: 44px;
@@ -74,11 +74,22 @@
       flex-shrink: 0;
     }
 
-    body:hover #reset-button {
+    #reset-button {
+      right: 20px;
+    }
+
+    #ff-button {
+      right: 74px;
+      font-size: 1rem;
+    }
+
+    body:hover #reset-button,
+    body:hover #ff-button {
       opacity: 1;
     }
 
-    #reset-button:hover {
+    #reset-button:hover,
+    #ff-button:hover {
       transform: scale(1.1);
     }
 
@@ -167,6 +178,7 @@
     <div id="countdown-timer">00:00</div>
     <div id="total-timer">00:00</div>
   </div>
+  <button id="ff-button" onclick="skipToNextInterval()">⏩</button>
   <button id="reset-button" onclick="resetTimer()">↻</button>
   <div id="interval-text"></div>
   <div class="volume-container">
@@ -244,6 +256,13 @@
       const now = Date.now();
       totalStartTime = now;
       totalAccumulatedSeconds = 0;
+      nextBellTime = now + bellIntervalSeconds * 1000;
+      saveTimerState();
+    }
+
+    function skipToNextInterval() {
+      const now = Date.now();
+      playBell();
       nextBellTime = now + bellIntervalSeconds * 1000;
       saveTimerState();
     }
