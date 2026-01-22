@@ -309,11 +309,15 @@
         } else {
           // Bell time hasn't passed yet, adjust for elapsed time
           nextBellTime = savedNextBell;
+          // Play bell at start when loading saved state
+          playBell();
         }
       } else {
         // No saved state, start fresh
         startTimer();
         saveTimerState();
+        // Play bell at start
+        playBell();
         return;
       }
 
