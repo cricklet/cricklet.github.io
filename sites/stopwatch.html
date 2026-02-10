@@ -171,6 +171,9 @@
       if (event.code === 'Space') {
         event.preventDefault();
         resetCurrentTimer();
+      } else if (event.key === 'r' || event.key === 'R') {
+        event.preventDefault();
+        resetStopwatch();
       }
     }
 
