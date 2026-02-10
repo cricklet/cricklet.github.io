@@ -248,6 +248,12 @@
     loadVolume();
     setupVolumeSlider();
 
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') {
+        resetTimer();
+      }
+    });
+
     function setTheme(theme) {
       document.documentElement.setAttribute('data-theme', theme);
     }
@@ -301,23 +307,17 @@
         const timeSinceNextBell = now - savedNextBell;
 
         if (timeSinceNextBell >= 0) {
-          // Bell time has passed, play bell and calculate next bell time
-          playBell();
           // Calculate how many intervals have passed
           const intervalsPassed = Math.floor(timeSinceNextBell / (bellIntervalSeconds * 1000)) + 1;
           nextBellTime = savedNextBell + intervalsPassed * bellIntervalSeconds * 1000;
         } else {
           // Bell time hasn't passed yet, adjust for elapsed time
           nextBellTime = savedNextBell;
-          // Play bell at start when loading saved state
-          playBell();
         }
       } else {
         // No saved state, start fresh
         startTimer();
         saveTimerState();
-        // Play bell at start
-        playBell();
         return;
       }
 
