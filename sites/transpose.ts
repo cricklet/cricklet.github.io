@@ -96,7 +96,6 @@ function transposeChord(chord: string, semitones: number): string {
 }
 
 function transposeLine(line: string, semitones: number, targetKeyName?: string): string {
-  console.log('transposing line', line, semitones, targetKeyName);
   // Split by | to preserve bar separators
   const parts = line.split('|');
   return parts.map(part => {
@@ -105,11 +104,11 @@ function transposeLine(line: string, semitones: number, targetKeyName?: string):
     // But NOT: "b9", "b13" (where 'b' is part of extension)
     // Strategy: match A-G (optionally with # or b) that is:
     // 1. At word boundary
-    // 2. Followed by space, m/M, 7/6, or end of string
+    // 2. Followed by space, m/M, chord degree digit, or end of string
     // 3. NOT a standalone 'b' followed by digit
     
     let result = part;
-    const regex = /\b([A-G][#b]?)(?=\s|$|[mM]|[67]|sus|dim|aug|add)/gi;
+    const regex = /\b([A-G][#b]?)(?=\s|$|[mM]|\d|sus|dim|aug|add|alt(?:\d|$|\s))/gi;
     let match;
     
     // Collect all matches first, then process in reverse order to maintain offsets
@@ -135,7 +134,7 @@ function transposeLine(line: string, semitones: number, targetKeyName?: string):
       
       // The regex lookahead already ensures we match valid chord patterns.
       // If the match is followed by 'm' or 'M', that's part of the chord quality (minor/major).
-      // If it's followed by a digit directly (like '7'), that's also valid (the lookahead includes [67]).
+      // If it's followed by a digit directly (like '7' or '13'), that's also valid.
       // We should NOT skip these cases - they are valid chords to transpose.
       
       // Transpose the chord root
@@ -155,7 +154,12 @@ function transposeLine(line: string, semitones: number, targetKeyName?: string):
       // Replace in the result string
       result = result.substring(0, m.index) + newRoot + result.substring(m.index + m.match.length);
     }
-    
+
+    // Keep bar-cell width when roots shorten (e.g. EbM7 -> CM7): pad at end through all extensions.
+    if (result.length < part.length) {
+      result += ' '.repeat(part.length - result.length);
+    }
+
     return result;
   }).join('|');
 }

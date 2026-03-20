@@ -42,11 +42,10 @@
     return noteNames[semitone % 12];
   }
   function transposeLine(line, semitones, targetKeyName) {
-    console.log("transposing line", line, semitones, targetKeyName);
     const parts = line.split("|");
     return parts.map((part) => {
       let result = part;
-      const regex = /\b([A-G][#b]?)(?=\s|$|[mM]|[67]|sus|dim|aug|add)/gi;
+      const regex = /\b([A-G][#b]?)(?=\s|$|[mM]|\d|sus|dim|aug|add|alt(?:\d|$|\s))/gi;
       let match;
       const matches = [];
       while ((match = regex.exec(part)) !== null) {
@@ -70,6 +69,9 @@
         const preferFlats = targetKeyName && ["F", "C", "Eb", "Bb", "Ab", "Dm", "Am", "Cm", "Gm", "Fm"].includes(targetKeyName) || semitones % 12 === 3 || semitones % 12 === 8 || semitones % 12 === 10;
         const newRoot = getNoteName(newSemitone, preferFlats);
         result = result.substring(0, m.index) + newRoot + result.substring(m.index + m.match.length);
+      }
+      if (result.length < part.length) {
+        result += " ".repeat(part.length - result.length);
       }
       return result;
     }).join("|");
