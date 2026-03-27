@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Metronome</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reddit+Mono&display=swap">
+
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: rgba(255, 255, 255, 0.87);
+      --border-color: rgba(255, 255, 255, 0.35);
+      --section-track: transparent;
+      --section-fill: rgba(255, 255, 255, 0.07);
+      --section-divider: rgba(255, 255, 255, 0.1);
+      --section-running-ring: rgba(255, 255, 255, 0.14);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --text-color: #000000;
+      --border-color: rgba(0, 0, 0, 0.28);
+      --section-track: transparent;
+      --section-fill: rgba(0, 0, 0, 0.045);
+      --section-divider: rgba(0, 0, 0, 0.08);
+      --section-running-ring: rgba(0, 0, 0, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      transition: background 0.1s ease, color 0.1s ease;
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+      height: 100dvh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .control-section {
+      position: relative;
+      width: 100%;
+      flex-shrink: 0;
+      background: var(--section-track);
+      overflow: hidden;
+      cursor: pointer;
+      touch-action: none;
+    }
+
+    #bpm-section {
+      flex: 9 1 0;
+      min-height: 0;
+      border-bottom: 1px solid var(--section-divider);
+    }
+
+    #volume-section {
+      flex: 1 1 0;
+      min-height: 0;
+    }
+
+    .fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0%;
+      background: var(--section-fill);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .readout {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 100%;
+      z-index: 1;
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(1.75rem, 6vmin, 3.5rem);
+      font-weight: 600;
+      text-align: center;
+      pointer-events: none;
+      line-height: 1.2;
+      padding: 0 0.5rem;
+      text-shadow:
+        0 0 20px var(--bg-color),
+        0 0 8px var(--bg-color),
+        0 1px 2px var(--bg-color);
+    }
+
+    #bpm-section .readout {
+      font-size: clamp(2.75rem, 14vmin, 7.5rem);
+    }
+
+    #volume-section .readout {
+      font-size: clamp(1.25rem, 4vmin, 2.25rem);
+    }
+
+    #theme-toggle {
+      position: fixed;
+      bottom: calc(10vh + 16px);
+      right: 16px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--text-color);
+      color: var(--bg-color);
+      opacity: 0;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      font-size: 1.5rem;
+      padding: 0;
+      border: none;
+      transition: opacity 0.1s ease, transform 0.1s ease;
+      z-index: 10;
+    }
+
+    body:hover #theme-toggle {
+      opacity: 1;
+    }
+
+    #theme-toggle:hover {
+      transform: scale(1.08);
+    }
+
+    .hint {
+      position: fixed;
+      bottom: calc(10vh + 16px);
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-color);
+      opacity: 0;
+      transition: opacity 0.1s ease;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    body:hover .hint {
+      opacity: 0.45;
+    }
+
+    body.running #bpm-section {
+      box-shadow: inset 0 0 0 1px var(--section-running-ring);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="bpm-section" class="control-section" aria-label="Tempo: drag horizontally">
+    <div id="bpm-fill" class="fill" aria-hidden="true"></div>
+    <div id="bpm-readout" class="readout">120 BPM</div>
+  </div>
+  <div id="volume-section" class="control-section" aria-label="Volume: drag horizontally">
+    <div id="volume-fill" class="fill" aria-hidden="true"></div>
+    <div id="volume-readout" class="readout">100%</div>
+  </div>
+
+  <span class="hint">Space — start / stop</span>
+  <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+
+  <script>
+    const BPM_MIN = 40;
+    const BPM_MAX = 200;
+    const STORAGE_BPM = 'metronome_bpm';
+    const STORAGE_VOLUME = 'metronome_volume';
+
+    const bpmSection = document.getElementById('bpm-section');
+    const volumeSection = document.getElementById('volume-section');
+    const bpmFill = document.getElementById('bpm-fill');
+    const volumeFill = document.getElementById('volume-fill');
+    const bpmReadout = document.getElementById('bpm-readout');
+    const volumeReadout = document.getElementById('volume-readout');
+
+    let bpm = 120;
+    let volumePct = 100;
+    let running = false;
+
+    let audioCtx = null;
+    let masterGain = null;
+    let nextClickTime = 0;
+    let scheduleRaf = null;
+
+    let dragTarget = null;
+
+    function clamp(v, lo, hi) {
+      return Math.min(hi, Math.max(lo, v));
+    }
+
+    function loadStoredBpm() {
+      try {
+        const raw = localStorage.getItem(STORAGE_BPM);
+        if (raw == null) return null;
+        const n = parseFloat(raw);
+        if (!Number.isFinite(n)) return null;
+        return clamp(n, BPM_MIN, BPM_MAX);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function loadStoredVolume() {
+      try {
+        const raw = localStorage.getItem(STORAGE_VOLUME);
+        if (raw == null) return null;
+        const n = parseFloat(raw);
+        if (!Number.isFinite(n)) return null;
+        return clamp(n, 0, 100);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function persistBpm() {
+      try {
+        localStorage.setItem(STORAGE_BPM, String(bpm));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    function persistVolume() {
+      try {
+        localStorage.setItem(STORAGE_VOLUME, String(volumePct));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    function bpmFromClientX(clientX) {
+      const r = bpmSection.getBoundingClientRect();
+      const t = r.width <= 0 ? 0.5 : (clientX - r.left) / r.width;
+      return BPM_MIN + clamp(t, 0, 1) * (BPM_MAX - BPM_MIN);
+    }
+
+    function volumeFromClientX(clientX) {
+      const r = volumeSection.getBoundingClientRect();
+      const t = r.width <= 0 ? 1 : (clientX - r.left) / r.width;
+      return clamp(t, 0, 1) * 100;
+    }
+
+    function setBpm(next) {
+      bpm = clamp(next, BPM_MIN, BPM_MAX);
+      bpmReadout.textContent = `${Math.round(bpm)} BPM`;
+      const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
+      bpmFill.style.width = `${clamp(frac, 0, 1) * 100}%`;
+      if (running && audioCtx) {
+        const now = audioCtx.currentTime;
+        nextClickTime = now + Math.min(60 / bpm, 0.08);
+      }
+    }
+
+    function setVolumePct(next) {
+      volumePct = clamp(next, 0, 100);
+      volumeReadout.textContent = `${Math.round(volumePct)}%`;
+      volumeFill.style.width = `${volumePct}%`;
+      if (masterGain && audioCtx) {
+        masterGain.gain.setTargetAtTime(volumePct / 100, audioCtx.currentTime, 0.02);
+      }
+    }
+
+    function ensureAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = clamp(volumePct, 0, 100) / 100;
+      masterGain.connect(audioCtx.destination);
+    }
+
+    function playClick(when) {
+      if (!audioCtx || !masterGain) return;
+      const t = when;
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(880, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.22, t + 0.001);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + 0.04);
+      osc.connect(g);
+      g.connect(masterGain);
+      osc.start(t);
+      osc.stop(t + 0.05);
+    }
+
+    function scheduleLoop() {
+      if (!running || !audioCtx) return;
+      const lookahead = 0.08;
+      const now = audioCtx.currentTime;
+      while (nextClickTime < now + lookahead) {
+        playClick(nextClickTime);
+        nextClickTime += 60 / bpm;
+      }
+      scheduleRaf = requestAnimationFrame(scheduleLoop);
+    }
+
+    function startMetronome() {
+      if (running) return;
+      ensureAudio();
+      const begin = () => {
+        running = true;
+        document.body.classList.add('running');
+        nextClickTime = audioCtx.currentTime + 0.05;
+        scheduleLoop();
+      };
+      if (audioCtx.state === 'suspended') {
+        void audioCtx.resume().then(begin, begin);
+      } else {
+        begin();
+      }
+    }
+
+    function stopMetronome() {
+      running = false;
+      document.body.classList.remove('running');
+      if (scheduleRaf != null) {
+        cancelAnimationFrame(scheduleRaf);
+        scheduleRaf = null;
+      }
+    }
+
+    function toggleMetronome() {
+      if (running) {
+        stopMetronome();
+      } else {
+        startMetronome();
+      }
+    }
+
+    function onPointerDown(e, target) {
+      dragTarget = target;
+      if (target === 'bpm') {
+        setBpm(bpmFromClientX(e.clientX));
+        startMetronome();
+      } else {
+        setVolumePct(volumeFromClientX(e.clientX));
+      }
+    }
+
+    function onPointerMove(e) {
+      if (!dragTarget) return;
+      if (dragTarget === 'bpm') {
+        setBpm(bpmFromClientX(e.clientX));
+        startMetronome();
+      } else {
+        setVolumePct(volumeFromClientX(e.clientX));
+      }
+    }
+
+    function onPointerUp(e) {
+      const finished = dragTarget;
+      dragTarget = null;
+      if (finished === 'bpm') {
+        persistBpm();
+      } else if (finished === 'volume') {
+        persistVolume();
+      }
+      if (e && e.currentTarget && typeof e.currentTarget.releasePointerCapture === 'function') {
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+
+    bpmSection.addEventListener('pointerdown', e => {
+      bpmSection.setPointerCapture(e.pointerId);
+      onPointerDown(e, 'bpm');
+    });
+    bpmSection.addEventListener('pointermove', e => onPointerMove(e));
+    bpmSection.addEventListener('pointerup', onPointerUp);
+    bpmSection.addEventListener('pointercancel', onPointerUp);
+
+    volumeSection.addEventListener('pointerdown', e => {
+      volumeSection.setPointerCapture(e.pointerId);
+      onPointerDown(e, 'volume');
+    });
+    volumeSection.addEventListener('pointermove', e => onPointerMove(e));
+    volumeSection.addEventListener('pointerup', onPointerUp);
+    volumeSection.addEventListener('pointercancel', onPointerUp);
+
+    document.addEventListener('keydown', e => {
+      if (e.code !== 'Space') return;
+      const tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+      e.preventDefault();
+      ensureAudio();
+      toggleMetronome();
+    });
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const toggle = document.getElementById('theme-toggle');
+      toggle.textContent = theme === 'light' ? '◐' : '◑';
+    }
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      setTheme(current === 'light' ? 'dark' : 'light');
+    }
+
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(prefersDark ? 'dark' : 'light');
+
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      setTheme(e.matches ? 'dark' : 'light');
+    });
+
+    const storedBpm = loadStoredBpm();
+    const storedVolume = loadStoredVolume();
+    if (storedBpm !== null) {
+      bpm = storedBpm;
+    }
+    if (storedVolume !== null) {
+      volumePct = storedVolume;
+    }
+    setBpm(bpm);
+    setVolumePct(volumePct);
+  </script>
+</body>
+
+</html>
