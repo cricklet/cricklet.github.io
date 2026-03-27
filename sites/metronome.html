@@ -42,7 +42,9 @@
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg-color);
       color: var(--text-color);
-      transition: background 0.1s ease, color 0.1s ease;
+      transition:
+        background 0.22s ease,
+        color 0.22s ease;
       display: flex;
       flex-direction: column;
       min-height: 100dvh;
@@ -50,6 +52,24 @@
       overflow: hidden;
       user-select: none;
       -webkit-user-select: none;
+    }
+
+    /*
+     * Paused: noticeably grayer than running (filter was too subtle on this palette).
+     * Running uses :root vars; .running is set in JS when the metronome is active.
+     */
+    body:not(.running) {
+      --bg-color: #252525;
+      --text-color: rgba(255, 255, 255, 0.58);
+      --section-fill: rgba(255, 255, 255, 0.045);
+      --section-divider: rgba(255, 255, 255, 0.075);
+    }
+
+    :root[data-theme='light'] body:not(.running) {
+      --bg-color: #dcdcdc;
+      --text-color: rgba(0, 0, 0, 0.48);
+      --section-fill: rgba(0, 0, 0, 0.032);
+      --section-divider: rgba(0, 0, 0, 0.065);
     }
 
     .control-section {
@@ -176,7 +196,7 @@
     <div id="volume-readout" class="readout">100%</div>
   </div>
 
-  <span class="hint">Space — start / stop</span>
+  <span class="hint">Space — start / stop · T — tap tempo</span>
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
   <audio id="click-audio" src="click.mp3" preload="auto"></audio>
 
@@ -206,6 +226,10 @@
     }
 
     let dragTarget = null;
+
+    let tapTempoTimes = [];
+    const TAP_TEMPO_TIMEOUT_MS = 2000;
+    const TAP_TEMPO_MAX_SAMPLES = 8;
 
     function clamp(v, lo, hi) {
       return Math.min(hi, Math.max(lo, v));
@@ -249,6 +273,39 @@
       } catch (_) {
         /* ignore */
       }
+    }
+
+    function isTypingTarget(el) {
+      if (!el || !el.tagName) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+    }
+
+    function handleTapTempo() {
+      const now = performance.now();
+      if (
+        tapTempoTimes.length &&
+        now - tapTempoTimes[tapTempoTimes.length - 1] > TAP_TEMPO_TIMEOUT_MS
+      ) {
+        tapTempoTimes = [];
+      }
+      tapTempoTimes.push(now);
+      if (tapTempoTimes.length > TAP_TEMPO_MAX_SAMPLES) {
+        tapTempoTimes.shift();
+      }
+      if (tapTempoTimes.length < 2) return;
+
+      const intervals = [];
+      for (let i = 1; i < tapTempoTimes.length; i++) {
+        intervals.push(tapTempoTimes[i] - tapTempoTimes[i - 1]);
+      }
+      const avgMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+      if (avgMs < 1) return;
+
+      const nextBpm = Math.round(60000 / avgMs);
+      setBpm(nextBpm);
+      persistBpm();
+      startMetronome();
     }
 
     function bpmFromClientX(clientX) {
@@ -406,11 +463,16 @@
     volumeSection.addEventListener('pointercancel', onPointerUp);
 
     document.addEventListener('keydown', e => {
-      if (e.code !== 'Space') return;
-      const tag = e.target && e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
-      e.preventDefault();
-      toggleMetronome();
+      if (isTypingTarget(e.target)) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        toggleMetronome();
+        return;
+      }
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        handleTapTempo();
+      }
     });
 
     function setTheme(theme) {
