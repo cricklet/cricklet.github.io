@@ -178,6 +178,7 @@
 
   <span class="hint">Space — start / stop</span>
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+  <audio id="click-audio" src="click.mp3" preload="auto"></audio>
 
   <script>
     const BPM_MIN = 40;
@@ -196,10 +197,13 @@
     let volumePct = 100;
     let running = false;
 
-    let audioCtx = null;
-    let masterGain = null;
     let nextClickTime = 0;
     let scheduleRaf = null;
+
+    /** Seconds; monotonic clock for scheduling (no Web Audio — avoids file:// + MediaElementSource silence). */
+    function clickNowSec() {
+      return performance.now() / 1000;
+    }
 
     let dragTarget = null;
 
@@ -264,8 +268,8 @@
       bpmReadout.textContent = `${Math.round(bpm)} BPM`;
       const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
       bpmFill.style.width = `${clamp(frac, 0, 1) * 100}%`;
-      if (running && audioCtx) {
-        const now = audioCtx.currentTime;
+      if (running) {
+        const now = clickNowSec();
         nextClickTime = now + Math.min(60 / bpm, 0.08);
       }
     }
@@ -274,39 +278,45 @@
       volumePct = clamp(next, 0, 100);
       volumeReadout.textContent = `${Math.round(volumePct)}%`;
       volumeFill.style.width = `${volumePct}%`;
-      if (masterGain && audioCtx) {
-        masterGain.gain.setTargetAtTime(volumePct / 100, audioCtx.currentTime, 0.02);
-      }
+      document.getElementById('click-audio').volume = volumePct / 100;
     }
 
-    function ensureAudio() {
-      if (audioCtx) return;
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      masterGain = audioCtx.createGain();
-      masterGain.gain.value = clamp(volumePct, 0, 100) / 100;
-      masterGain.connect(audioCtx.destination);
+    /** Like bell.mp3: load via <audio src>, not fetch (works with file:// open). */
+    function waitClickReady() {
+      const el = document.getElementById('click-audio');
+      if (el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        return Promise.resolve();
+      }
+      return new Promise(resolve => {
+        el.addEventListener(
+          'canplaythrough',
+          () => resolve(),
+          { once: true }
+        );
+        el.addEventListener(
+          'error',
+          () => {
+            console.warn('click.mp3 failed to load');
+            resolve();
+          },
+          { once: true }
+        );
+      });
     }
 
     function playClick(when) {
-      if (!audioCtx || !masterGain) return;
-      const t = when;
-      const osc = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(880, t);
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.22, t + 0.001);
-      g.gain.exponentialRampToValueAtTime(0.0008, t + 0.04);
-      osc.connect(g);
-      g.connect(masterGain);
-      osc.start(t);
-      osc.stop(t + 0.05);
+      const el = document.getElementById('click-audio');
+      const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
+      window.setTimeout(() => {
+        el.currentTime = 0;
+        void el.play().catch(() => {});
+      }, delayMs);
     }
 
     function scheduleLoop() {
-      if (!running || !audioCtx) return;
+      if (!running) return;
       const lookahead = 0.08;
-      const now = audioCtx.currentTime;
+      const now = clickNowSec();
       while (nextClickTime < now + lookahead) {
         playClick(nextClickTime);
         nextClickTime += 60 / bpm;
@@ -316,18 +326,13 @@
 
     function startMetronome() {
       if (running) return;
-      ensureAudio();
       const begin = () => {
         running = true;
         document.body.classList.add('running');
-        nextClickTime = audioCtx.currentTime + 0.05;
+        nextClickTime = clickNowSec() + 0.05;
         scheduleLoop();
       };
-      if (audioCtx.state === 'suspended') {
-        void audioCtx.resume().then(begin, begin);
-      } else {
-        begin();
-      }
+      void waitClickReady().then(begin, begin);
     }
 
     function stopMetronome() {
@@ -405,7 +410,6 @@
       const tag = e.target && e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
       e.preventDefault();
-      ensureAudio();
       toggleMetronome();
     });
 
