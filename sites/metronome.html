@@ -40,9 +40,6 @@
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg-color);
       color: var(--text-color);
-      transition:
-        background 0.22s ease,
-        color 0.22s ease;
       display: flex;
       flex-direction: column;
       min-height: 100dvh;
@@ -64,10 +61,7 @@
     }
 
     :root[data-theme="light"] body.unfocused {
-      --bg-color: #c6c6cc;
-      --text-color: rgba(0, 0, 0, 0.72);
-      --section-fill: rgba(0, 0, 0, 0.06);
-      --section-divider: rgba(0, 0, 0, 0.1);
+      --bg-color: #ddd;
     }
 
     :root[data-theme="dark"] body.focused {
@@ -78,10 +72,10 @@
     }
 
     :root[data-theme="dark"] body.unfocused {
-      --bg-color: #17171a;
-      --text-color: rgba(255, 255, 255, 0.55);
-      --section-fill: rgba(255, 255, 255, 0.045);
-      --section-divider: rgba(255, 255, 255, 0.07);
+      --bg-color: #1f1f23;
+      --text-color: rgba(255, 255, 255, 0.58);
+      --section-fill: rgba(255, 255, 255, 0.05);
+      --section-divider: rgba(255, 255, 255, 0.078);
     }
 
     .control-section {
@@ -162,7 +156,6 @@
       font-size: 1.5rem;
       padding: 0;
       border: none;
-      transition: opacity 0.1s ease, transform 0.1s ease;
       z-index: 10;
     }
 
@@ -183,7 +176,6 @@
       font-size: 0.75rem;
       color: var(--text-color);
       opacity: 0;
-      transition: opacity 0.1s ease;
       pointer-events: none;
       white-space: nowrap;
     }
