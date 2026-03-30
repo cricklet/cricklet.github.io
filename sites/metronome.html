@@ -55,21 +55,67 @@
     }
 
     /*
-     * Paused: noticeably grayer than running (filter was too subtle on this palette).
-     * Running uses :root vars; .running is set in JS when the metronome is active.
+     * Focus × playing: .focused / .unfocused on body (window focus), .running = metronome on.
+     * First click after click-to-focus is swallowed in JS so it doesn’t move BPM / volume / start.
      */
-    body:not(.running) {
-      --bg-color: #252525;
-      --text-color: rgba(255, 255, 255, 0.58);
-      --section-fill: rgba(255, 255, 255, 0.045);
-      --section-divider: rgba(255, 255, 255, 0.075);
+    :root[data-theme="light"] body.focused:not(.running) {
+      --bg-color: #f2f2f4;
+      --text-color: rgba(0, 0, 0, 0.82);
+      --section-fill: rgba(0, 0, 0, 0.05);
+      --section-divider: rgba(0, 0, 0, 0.09);
     }
 
-    :root[data-theme="light"] body:not(.running) {
-      --bg-color: #dcdcdc;
-      --text-color: rgba(0, 0, 0, 0.48);
-      --section-fill: rgba(0, 0, 0, 0.032);
-      --section-divider: rgba(0, 0, 0, 0.065);
+    :root[data-theme="light"] body.focused.running {
+      --bg-color: #e8f2fc;
+      --text-color: rgba(0, 0, 0, 0.84);
+      --section-fill: rgba(30, 100, 180, 0.12);
+      --section-divider: rgba(0, 60, 120, 0.14);
+      --section-running-ring: rgba(0, 80, 160, 0.22);
+    }
+
+    :root[data-theme="light"] body.unfocused:not(.running) {
+      --bg-color: #c6c6cc;
+      --text-color: rgba(0, 0, 0, 0.72);
+      --section-fill: rgba(0, 0, 0, 0.06);
+      --section-divider: rgba(0, 0, 0, 0.1);
+    }
+
+    :root[data-theme="light"] body.unfocused.running {
+      --bg-color: #b8cce4;
+      --text-color: rgba(0, 0, 0, 0.74);
+      --section-fill: rgba(20, 70, 140, 0.18);
+      --section-divider: rgba(0, 40, 90, 0.16);
+      --section-running-ring: rgba(0, 55, 120, 0.28);
+    }
+
+    :root[data-theme="dark"] body.focused:not(.running) {
+      --bg-color: #252528;
+      --text-color: rgba(255, 255, 255, 0.84);
+      --section-fill: rgba(255, 255, 255, 0.07);
+      --section-divider: rgba(255, 255, 255, 0.12);
+    }
+
+    :root[data-theme="dark"] body.focused.running {
+      --bg-color: #222a32;
+      --text-color: rgba(255, 255, 255, 0.87);
+      --section-fill: rgba(120, 180, 255, 0.12);
+      --section-divider: rgba(100, 160, 240, 0.18);
+      --section-running-ring: rgba(120, 190, 255, 0.28);
+    }
+
+    :root[data-theme="dark"] body.unfocused:not(.running) {
+      --bg-color: #17171a;
+      --text-color: rgba(255, 255, 255, 0.55);
+      --section-fill: rgba(255, 255, 255, 0.045);
+      --section-divider: rgba(255, 255, 255, 0.07);
+    }
+
+    :root[data-theme="dark"] body.unfocused.running {
+      --bg-color: #1a222a;
+      --text-color: rgba(255, 255, 255, 0.66);
+      --section-fill: rgba(100, 160, 230, 0.1);
+      --section-divider: rgba(80, 130, 200, 0.14);
+      --section-running-ring: rgba(90, 150, 220, 0.22);
     }
 
     .control-section {
@@ -228,6 +274,14 @@
 
     let dragTarget = null;
 
+    let swallowFirstControlPointer = false;
+    let swallowPointerTimer = null;
+    /** performance.now() when document became visible; used to tell tab-return from app-switch refocus. */
+    let visibleSinceMs = 0;
+    let windowEverBlurred = false;
+    const SWALLOW_POINTER_FALLBACK_MS = 280;
+    const TAB_VISIBLE_FOCUS_GRACE_MS = 320;
+
     let tapTempoTimes = [];
     const TAP_TEMPO_TIMEOUT_MS = 2000;
     const TAP_TEMPO_MAX_SAMPLES = 8;
@@ -280,6 +334,15 @@
       if (!el || !el.tagName) return false;
       const tag = el.tagName;
       return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+    }
+
+    function syncWindowFocusClasses() {
+      const hasFocus =
+        typeof document.hasFocus === 'function' &&
+        document.hasFocus() &&
+        document.visibilityState === 'visible';
+      document.body.classList.toggle('focused', hasFocus);
+      document.body.classList.toggle('unfocused', !hasFocus);
     }
 
     function handleTapTempo() {
@@ -447,6 +510,22 @@
       }
     }
 
+    document.addEventListener(
+      'pointerdown',
+      e => {
+        if (!swallowFirstControlPointer) return;
+        if (!e.target.closest?.('.control-section')) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        swallowFirstControlPointer = false;
+        if (swallowPointerTimer != null) {
+          clearTimeout(swallowPointerTimer);
+          swallowPointerTimer = null;
+        }
+      },
+      true
+    );
+
     bpmSection.addEventListener('pointerdown', e => {
       bpmSection.setPointerCapture(e.pointerId);
       onPointerDown(e, 'bpm');
@@ -508,6 +587,49 @@
     }
 
     loadInitialTheme();
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        visibleSinceMs = performance.now();
+      }
+      syncWindowFocusClasses();
+    });
+
+    window.addEventListener('blur', () => {
+      windowEverBlurred = true;
+      syncWindowFocusClasses();
+      swallowFirstControlPointer = false;
+      if (swallowPointerTimer != null) {
+        clearTimeout(swallowPointerTimer);
+        swallowPointerTimer = null;
+      }
+    });
+
+    window.addEventListener('focus', () => {
+      syncWindowFocusClasses();
+      if (!windowEverBlurred) {
+        swallowFirstControlPointer = false;
+        return;
+      }
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const shortlyAfterTabVisible =
+            visibleSinceMs > 0 && performance.now() - visibleSinceMs < TAB_VISIBLE_FOCUS_GRACE_MS;
+          if (shortlyAfterTabVisible) {
+            swallowFirstControlPointer = false;
+          } else {
+            swallowFirstControlPointer = true;
+            if (swallowPointerTimer != null) clearTimeout(swallowPointerTimer);
+            swallowPointerTimer = setTimeout(() => {
+              swallowFirstControlPointer = false;
+              swallowPointerTimer = null;
+            }, SWALLOW_POINTER_FALLBACK_MS);
+          }
+        });
+      });
+    });
+
+    syncWindowFocusClasses();
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
       try {
