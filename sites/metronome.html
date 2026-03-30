@@ -15,7 +15,6 @@
       --section-track: transparent;
       --section-fill: rgba(255, 255, 255, 0.07);
       --section-divider: rgba(255, 255, 255, 0.1);
-      --section-running-ring: rgba(255, 255, 255, 0.14);
     }
 
     :root[data-theme="light"] {
@@ -25,7 +24,6 @@
       --section-track: transparent;
       --section-fill: rgba(0, 0, 0, 0.045);
       --section-divider: rgba(0, 0, 0, 0.08);
-      --section-running-ring: rgba(0, 0, 0, 0.1);
     }
 
     * {
@@ -55,67 +53,35 @@
     }
 
     /*
-     * Focus × playing: .focused / .unfocused on body (window focus), .running = metronome on.
+     * Colors only reflect window focus (.focused / .unfocused). Playing does not change the palette.
      * First click after click-to-focus is swallowed in JS so it doesn’t move BPM / volume / start.
      */
-    :root[data-theme="light"] body.focused:not(.running) {
+    :root[data-theme="light"] body.focused {
       --bg-color: #f2f2f4;
       --text-color: rgba(0, 0, 0, 0.82);
       --section-fill: rgba(0, 0, 0, 0.05);
       --section-divider: rgba(0, 0, 0, 0.09);
     }
 
-    :root[data-theme="light"] body.focused.running {
-      --bg-color: #e8f2fc;
-      --text-color: rgba(0, 0, 0, 0.84);
-      --section-fill: rgba(30, 100, 180, 0.12);
-      --section-divider: rgba(0, 60, 120, 0.14);
-      --section-running-ring: rgba(0, 80, 160, 0.22);
-    }
-
-    :root[data-theme="light"] body.unfocused:not(.running) {
+    :root[data-theme="light"] body.unfocused {
       --bg-color: #c6c6cc;
       --text-color: rgba(0, 0, 0, 0.72);
       --section-fill: rgba(0, 0, 0, 0.06);
       --section-divider: rgba(0, 0, 0, 0.1);
     }
 
-    :root[data-theme="light"] body.unfocused.running {
-      --bg-color: #b8cce4;
-      --text-color: rgba(0, 0, 0, 0.74);
-      --section-fill: rgba(20, 70, 140, 0.18);
-      --section-divider: rgba(0, 40, 90, 0.16);
-      --section-running-ring: rgba(0, 55, 120, 0.28);
-    }
-
-    :root[data-theme="dark"] body.focused:not(.running) {
+    :root[data-theme="dark"] body.focused {
       --bg-color: #252528;
       --text-color: rgba(255, 255, 255, 0.84);
       --section-fill: rgba(255, 255, 255, 0.07);
       --section-divider: rgba(255, 255, 255, 0.12);
     }
 
-    :root[data-theme="dark"] body.focused.running {
-      --bg-color: #222a32;
-      --text-color: rgba(255, 255, 255, 0.87);
-      --section-fill: rgba(120, 180, 255, 0.12);
-      --section-divider: rgba(100, 160, 240, 0.18);
-      --section-running-ring: rgba(120, 190, 255, 0.28);
-    }
-
-    :root[data-theme="dark"] body.unfocused:not(.running) {
+    :root[data-theme="dark"] body.unfocused {
       --bg-color: #17171a;
       --text-color: rgba(255, 255, 255, 0.55);
       --section-fill: rgba(255, 255, 255, 0.045);
       --section-divider: rgba(255, 255, 255, 0.07);
-    }
-
-    :root[data-theme="dark"] body.unfocused.running {
-      --bg-color: #1a222a;
-      --text-color: rgba(255, 255, 255, 0.66);
-      --section-fill: rgba(100, 160, 230, 0.1);
-      --section-divider: rgba(80, 130, 200, 0.14);
-      --section-running-ring: rgba(90, 150, 220, 0.22);
     }
 
     .control-section {
@@ -224,10 +190,6 @@
 
     body:hover .hint {
       opacity: 0.45;
-    }
-
-    body.running #bpm-section {
-      box-shadow: inset 0 0 0 1px var(--section-running-ring);
     }
   </style>
 </head>
