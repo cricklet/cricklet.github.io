@@ -275,12 +275,17 @@
     let dragTarget = null;
 
     let swallowFirstControlPointer = false;
+    /** After swallowing pointerdown, block mousedown/click in the same gesture (those still fire). */
+    let absorbingRefocusClick = false;
     let swallowPointerTimer = null;
-    /** performance.now() when document became visible; used to tell tab-return from app-switch refocus. */
-    let visibleSinceMs = 0;
+    /**
+     * Set when the tab/document just became visible (tab switch). If focus runs in the same
+     * activation, we must not arm swallow so the first tap still controls the metronome.
+     * Cleared on focus after handling, or on hidden.
+     */
+    let documentJustBecameVisible = false;
     let windowEverBlurred = false;
-    const SWALLOW_POINTER_FALLBACK_MS = 280;
-    const TAB_VISIBLE_FOCUS_GRACE_MS = 320;
+    const SWALLOW_POINTER_FALLBACK_MS = 400;
 
     let tapTempoTimes = [];
     const TAP_TEMPO_TIMEOUT_MS = 2000;
@@ -510,18 +515,45 @@
       }
     }
 
-    document.addEventListener(
-      'pointerdown',
-      e => {
-        if (!swallowFirstControlPointer) return;
-        if (!e.target.closest?.('.control-section')) return;
+    function clearSwallowPointerTimer() {
+      if (swallowPointerTimer != null) {
+        clearTimeout(swallowPointerTimer);
+        swallowPointerTimer = null;
+      }
+    }
+
+    function tryAbsorbRefocusPointerEvent(e) {
+      const onControl = e.target.closest?.('.control-section');
+      if (swallowFirstControlPointer && onControl) {
         e.preventDefault();
         e.stopImmediatePropagation();
         swallowFirstControlPointer = false;
-        if (swallowPointerTimer != null) {
-          clearTimeout(swallowPointerTimer);
-          swallowPointerTimer = null;
-        }
+        clearSwallowPointerTimer();
+        absorbingRefocusClick = true;
+        return true;
+      }
+      if (absorbingRefocusClick && onControl) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return true;
+      }
+      return false;
+    }
+
+    document.addEventListener('pointerdown', e => tryAbsorbRefocusPointerEvent(e), true);
+    document.addEventListener('mousedown', e => tryAbsorbRefocusPointerEvent(e), true);
+
+    document.addEventListener(
+      'pointerup',
+      () => {
+        absorbingRefocusClick = false;
+      },
+      true
+    );
+    document.addEventListener(
+      'pointercancel',
+      () => {
+        absorbingRefocusClick = false;
       },
       true
     );
@@ -589,8 +621,15 @@
     loadInitialTheme();
 
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) {
-        visibleSinceMs = performance.now();
+      if (document.hidden) {
+        documentJustBecameVisible = false;
+      } else {
+        documentJustBecameVisible = true;
+        swallowFirstControlPointer = false;
+        if (swallowPointerTimer != null) {
+          clearTimeout(swallowPointerTimer);
+          swallowPointerTimer = null;
+        }
       }
       syncWindowFocusClasses();
     });
@@ -609,24 +648,20 @@
       syncWindowFocusClasses();
       if (!windowEverBlurred) {
         swallowFirstControlPointer = false;
+        documentJustBecameVisible = false;
         return;
       }
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const shortlyAfterTabVisible =
-            visibleSinceMs > 0 && performance.now() - visibleSinceMs < TAB_VISIBLE_FOCUS_GRACE_MS;
-          if (shortlyAfterTabVisible) {
-            swallowFirstControlPointer = false;
-          } else {
-            swallowFirstControlPointer = true;
-            if (swallowPointerTimer != null) clearTimeout(swallowPointerTimer);
-            swallowPointerTimer = setTimeout(() => {
-              swallowFirstControlPointer = false;
-              swallowPointerTimer = null;
-            }, SWALLOW_POINTER_FALLBACK_MS);
-          }
-        });
-      });
+      if (documentJustBecameVisible) {
+        swallowFirstControlPointer = false;
+        documentJustBecameVisible = false;
+        return;
+      }
+      swallowFirstControlPointer = true;
+      if (swallowPointerTimer != null) clearTimeout(swallowPointerTimer);
+      swallowPointerTimer = setTimeout(() => {
+        swallowFirstControlPointer = false;
+        swallowPointerTimer = null;
+      }, SWALLOW_POINTER_FALLBACK_MS);
     });
 
     syncWindowFocusClasses();
