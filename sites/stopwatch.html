@@ -130,6 +130,7 @@
     let currentAccumulatedSeconds = 0;
     let totalAccumulatedSeconds = 0;
     let interval;
+    let paused = false;
     let pipWindow = null;
     let canvas = null;
     let ctx = null;
@@ -149,7 +150,6 @@
     // Listen for visibility changes
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Listen for spacebar press
     document.addEventListener('keydown', handleKeyDown);
 
     // Load saved stopwatch state or start new one
@@ -170,32 +170,87 @@
     function handleKeyDown(event) {
       if (event.code === 'Space') {
         event.preventDefault();
-        resetCurrentTimer();
+        if (!event.repeat) togglePause();
       } else if (event.key === 'r' || event.key === 'R') {
+        if (event.metaKey || event.ctrlKey) return;
         event.preventDefault();
         resetStopwatch();
       }
     }
 
+    function getCurrentElapsedSeconds(now) {
+      if (paused || currentStartTime === null) return currentAccumulatedSeconds;
+      return currentAccumulatedSeconds + (now - currentStartTime) / 1000;
+    }
+
+    function getTotalElapsedSeconds(now) {
+      if (paused || totalStartTime === null) return totalAccumulatedSeconds;
+      return totalAccumulatedSeconds + (now - totalStartTime) / 1000;
+    }
+
     function resetCurrentTimer() {
-      // Reset current timer to 0
-      currentStartTime = Date.now();
-      currentAccumulatedSeconds = 0;
+      if (paused) {
+        currentAccumulatedSeconds = 0;
+        updateDisplay(currentAccumulatedSeconds, totalAccumulatedSeconds);
+      } else {
+        currentStartTime = Date.now();
+        currentAccumulatedSeconds = 0;
+      }
       saveStopwatchState();
     }
 
+    function pauseStopwatch() {
+      if (paused || currentStartTime === null || totalStartTime === null) return;
+      const now = Date.now();
+      currentAccumulatedSeconds += (now - currentStartTime) / 1000;
+      totalAccumulatedSeconds += (now - totalStartTime) / 1000;
+      clearInterval(interval);
+      interval = null;
+      currentStartTime = null;
+      totalStartTime = null;
+      paused = true;
+      updateDisplay(currentAccumulatedSeconds, totalAccumulatedSeconds);
+      saveStopwatchState();
+    }
+
+    function unpauseStopwatch() {
+      if (!paused) return;
+      const now = Date.now();
+      currentStartTime = now;
+      totalStartTime = now;
+      paused = false;
+      interval = setInterval(updateStopwatch, 10);
+      saveStopwatchState();
+    }
+
+    function togglePause() {
+      if (paused) unpauseStopwatch();
+      else pauseStopwatch();
+    }
+
     function resetStopwatch() {
-      // Reset both current and total timers
+      clearInterval(interval);
+      interval = null;
       const now = Date.now();
       currentStartTime = now;
       totalStartTime = now;
       currentAccumulatedSeconds = 0;
       totalAccumulatedSeconds = 0;
+      paused = false;
+      interval = setInterval(updateStopwatch, 10);
       saveStopwatchState();
     }
 
     function saveStopwatchState() {
-      // Save the start times to localStorage
+      if (paused) {
+        localStorage.setItem('stopwatch_paused', '1');
+        localStorage.setItem('stopwatch_currentAccumulatedSeconds', currentAccumulatedSeconds.toString());
+        localStorage.setItem('stopwatch_totalAccumulatedSeconds', totalAccumulatedSeconds.toString());
+        localStorage.removeItem('stopwatch_currentStartTime');
+        localStorage.removeItem('stopwatch_totalStartTime');
+        return;
+      }
+      localStorage.removeItem('stopwatch_paused');
       if (totalStartTime !== null) {
         localStorage.setItem('stopwatch_totalStartTime', totalStartTime.toString());
         localStorage.setItem('stopwatch_totalAccumulatedSeconds', totalAccumulatedSeconds.toString());
@@ -207,7 +262,19 @@
     }
 
     function loadStopwatchState() {
-      // Try to load saved state from localStorage
+      if (localStorage.getItem('stopwatch_paused') === '1') {
+        const savedCurrentAccum = localStorage.getItem('stopwatch_currentAccumulatedSeconds');
+        const savedTotalAccum = localStorage.getItem('stopwatch_totalAccumulatedSeconds');
+        currentAccumulatedSeconds = savedCurrentAccum != null ? parseFloat(savedCurrentAccum) : 0;
+        totalAccumulatedSeconds = savedTotalAccum != null ? parseFloat(savedTotalAccum) : 0;
+        currentStartTime = null;
+        totalStartTime = null;
+        paused = true;
+        updateDisplay(currentAccumulatedSeconds, totalAccumulatedSeconds);
+        return;
+      }
+
+      paused = false;
       const savedTotalStartTime = localStorage.getItem('stopwatch_totalStartTime');
       const savedTotalAccumulatedSeconds = localStorage.getItem('stopwatch_totalAccumulatedSeconds');
       const savedCurrentStartTime = localStorage.getItem('stopwatch_currentStartTime');
@@ -251,6 +318,7 @@
     }
 
     function startStopwatch() {
+      paused = false;
       const now = Date.now();
       currentStartTime = now;
       totalStartTime = now;
@@ -259,12 +327,13 @@
     }
 
     function updateStopwatch() {
+      if (paused) return;
       const now = Date.now();
       
       // Calculate elapsed time based on actual wall-clock time
       // This ensures accuracy even when the tab is in the background
-      const currentElapsed = currentAccumulatedSeconds + (now - currentStartTime) / 1000;
-      const totalElapsed = totalAccumulatedSeconds + (now - totalStartTime) / 1000;
+      const currentElapsed = getCurrentElapsedSeconds(now);
+      const totalElapsed = getTotalElapsedSeconds(now);
       
       updateDisplay(currentElapsed, totalElapsed);
     }
@@ -318,8 +387,8 @@
       try {
         // Calculate current elapsed times
         const now = Date.now();
-        const currentElapsed = currentAccumulatedSeconds + (now - currentStartTime) / 1000;
-        const totalElapsed = totalAccumulatedSeconds + (now - totalStartTime) / 1000;
+        const currentElapsed = getCurrentElapsedSeconds(now);
+        const totalElapsed = getTotalElapsedSeconds(now);
         
         // Initialize canvas with current time display
         const currentTotalSeconds = Math.floor(currentElapsed);
@@ -352,11 +421,10 @@
           canvas.style.height = pipWindow.height + 'px';
           ctx.scale(dpr, dpr);
 
-          // Calculate current elapsed times
           const now = Date.now();
-          const currentElapsed = currentAccumulatedSeconds + (now - currentStartTime) / 1000;
-          const totalElapsed = totalAccumulatedSeconds + (now - totalStartTime) / 1000;
-          
+          const currentElapsed = getCurrentElapsedSeconds(now);
+          const totalElapsed = getTotalElapsedSeconds(now);
+
           // Redraw content after resize
           const currentTotalSeconds = Math.floor(currentElapsed);
           const currentMinutes = Math.floor(currentTotalSeconds / 60);
