@@ -171,6 +171,9 @@
       if (event.code === 'Space') {
         event.preventDefault();
         if (!event.repeat) togglePause();
+      } else if (event.key === 's' || event.key === 'S') {
+        event.preventDefault();
+        resetCurrentTimer();
       } else if (event.key === 'r' || event.key === 'R') {
         if (event.metaKey || event.ctrlKey) return;
         event.preventDefault();
