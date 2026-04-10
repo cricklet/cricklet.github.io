@@ -530,7 +530,7 @@
 
     document.addEventListener('keydown', e => {
       if (isTypingTarget(e.target)) return;
-      if (e.code === 'Space') {
+      if (e.code === 'Space' || e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         toggleMetronome();
         return;
