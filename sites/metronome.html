@@ -62,6 +62,7 @@
 
     :root[data-theme="light"] body.unfocused {
       --bg-color: #ddd;
+      --text-color: #666;
     }
 
     :root[data-theme="dark"] body.focused {
@@ -348,10 +349,6 @@
       bpmReadout.textContent = `${Math.round(bpm)} BPM`;
       const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
       bpmFill.style.width = `${clamp(frac, 0, 1) * 100}%`;
-      if (running) {
-        const now = clickNowSec();
-        nextClickTime = now + Math.min(60 / bpm, 0.08);
-      }
     }
 
     function setVolumePct(next) {
@@ -538,6 +535,31 @@
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
         handleTapTempo();
+        return;
+      }
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        setBpm(Math.round(bpm) + 1);
+        persistBpm();
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        setBpm(Math.round(bpm) - 1);
+        persistBpm();
+        return;
+      }
+      if (e.key === ']' || e.key === '}') {
+        e.preventDefault();
+        setBpm(Math.round(bpm) + 5);
+        persistBpm();
+        return;
+      }
+      if (e.key === '[' || e.key === '{') {
+        e.preventDefault();
+        setBpm(Math.round(bpm) - 5);
+        persistBpm();
+        return;
       }
     });
 
