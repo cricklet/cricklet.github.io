@@ -135,6 +135,14 @@
       font-size: clamp(2.75rem, 14vmin, 7.5rem);
     }
 
+    .readout {
+      transition: opacity 0.3s ease;
+    }
+
+    body:not(.running) .readout {
+      opacity: 0.35;
+    }
+
     #volume-section .readout {
       font-size: clamp(1.25rem, 4vmin, 2.25rem);
     }
@@ -257,6 +265,10 @@
     let documentJustBecameVisible = false;
     let windowEverBlurred = false;
     const SWALLOW_POINTER_FALLBACK_MS = 400;
+    const INACTIVITY_TIMEOUT_MS = 10000;
+
+    let lastInteractionTime = Date.now();
+    let inactivityTimer = null;
 
     let tapTempoTimes = [];
     const TAP_TEMPO_TIMEOUT_MS = 2000;
@@ -313,12 +325,26 @@
     }
 
     function syncWindowFocusClasses() {
-      const hasFocus =
+      const windowFocused =
         typeof document.hasFocus === 'function' &&
         document.hasFocus() &&
         document.visibilityState === 'visible';
+      const inactive = Date.now() - lastInteractionTime >= INACTIVITY_TIMEOUT_MS;
+      const hasFocus = windowFocused && !inactive;
       document.body.classList.toggle('focused', hasFocus);
       document.body.classList.toggle('unfocused', !hasFocus);
+    }
+
+    function resetInactivityTimer() {
+      lastInteractionTime = Date.now();
+      if (inactivityTimer != null) {
+        clearTimeout(inactivityTimer);
+      }
+      inactivityTimer = setTimeout(() => {
+        inactivityTimer = null;
+        syncWindowFocusClasses();
+      }, INACTIVITY_TIMEOUT_MS);
+      syncWindowFocusClasses();
     }
 
     function handleTapTempo() {
@@ -507,7 +533,19 @@
       return false;
     }
 
-    document.addEventListener('pointerdown', e => tryAbsorbRefocusPointerEvent(e), true);
+    document.addEventListener('pointerdown', e => {
+      if (document.body.classList.contains('unfocused')) {
+        resetInactivityTimer();
+        const onControl = e.target.closest?.('.control-section');
+        if (onControl) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          absorbingRefocusClick = true;
+        }
+        return;
+      }
+      tryAbsorbRefocusPointerEvent(e);
+    }, true);
     document.addEventListener('mousedown', e => tryAbsorbRefocusPointerEvent(e), true);
 
     document.addEventListener(
@@ -545,40 +583,47 @@
       if (isTypingTarget(e.target)) return;
       if (e.code === 'Space' || e.key === 'p' || e.key === 'P') {
         e.preventDefault();
+        resetInactivityTimer();
         toggleMetronome();
         return;
       }
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
+        resetInactivityTimer();
         handleTapTempo();
         return;
       }
       if (e.key === '=' || e.key === '+') {
         e.preventDefault();
+        resetInactivityTimer();
         setBpm(Math.round(bpm) + 1);
         persistBpm();
         return;
       }
       if (e.key === '-' || e.key === '_') {
         e.preventDefault();
+        resetInactivityTimer();
         setBpm(Math.round(bpm) - 1);
         persistBpm();
         return;
       }
       if (e.key === ']' || e.key === '}') {
         e.preventDefault();
+        resetInactivityTimer();
         setBpm(Math.round(bpm) + 5);
         persistBpm();
         return;
       }
       if (e.key === '[' || e.key === '{') {
         e.preventDefault();
+        resetInactivityTimer();
         setBpm(Math.round(bpm) - 5);
         persistBpm();
         return;
       }
       if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
+        resetInactivityTimer();
         resetStopwatch();
         return;
       }
@@ -620,6 +665,7 @@
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         documentJustBecameVisible = false;
+        syncWindowFocusClasses();
       } else {
         documentJustBecameVisible = true;
         swallowFirstControlPointer = false;
@@ -628,7 +674,6 @@
           swallowPointerTimer = null;
         }
       }
-      syncWindowFocusClasses();
     });
 
     window.addEventListener('blur', () => {
@@ -642,7 +687,6 @@
     });
 
     window.addEventListener('focus', () => {
-      syncWindowFocusClasses();
       if (!windowEverBlurred) {
         swallowFirstControlPointer = false;
         documentJustBecameVisible = false;
@@ -662,6 +706,10 @@
     });
 
     syncWindowFocusClasses();
+
+
+    // Start the initial inactivity countdown
+    resetInactivityTimer();
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
       try {
