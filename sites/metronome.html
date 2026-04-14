@@ -184,6 +184,20 @@
     body:hover .hint {
       opacity: 0.45;
     }
+
+    #stopwatch-hint {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(1.2rem, 3.6vmin, 1.7rem);
+      color: var(--text-color);
+      opacity: 0.3;
+      pointer-events: none;
+      z-index: 1;
+      white-space: nowrap;
+    }
   </style>
 </head>
 
@@ -191,6 +205,7 @@
   <div id="bpm-section" class="control-section" aria-label="Tempo: drag horizontally">
     <div id="bpm-fill" class="fill" aria-hidden="true"></div>
     <div id="bpm-readout" class="readout">120 BPM</div>
+    <div id="stopwatch-hint">00:00</div>
   </div>
   <div id="volume-section" class="control-section" aria-label="Volume: drag horizontally">
     <div id="volume-fill" class="fill" aria-hidden="true"></div>
@@ -207,6 +222,7 @@
     const STORAGE_BPM = 'metronome_bpm';
     const STORAGE_VOLUME = 'metronome_volume';
     const STORAGE_THEME = 'metronome_theme';
+    const STORAGE_STOPWATCH = 'metronome_stopwatch_start';
 
     const bpmSection = document.getElementById('bpm-section');
     const volumeSection = document.getElementById('volume-section');
@@ -561,6 +577,11 @@
         persistBpm();
         return;
       }
+      if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        resetStopwatch();
+        return;
+      }
     });
 
     function setTheme(theme) {
@@ -661,6 +682,55 @@
     }
     setBpm(bpm);
     setVolumePct(volumePct);
+
+    // --- Stopwatch ---
+    const stopwatchHint = document.getElementById('stopwatch-hint');
+
+    function loadStopwatchStart() {
+      try {
+        const raw = localStorage.getItem(STORAGE_STOPWATCH);
+        if (raw == null) return null;
+        const n = parseInt(raw, 10);
+        if (!Number.isFinite(n)) return null;
+        return n;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function saveStopwatchStart(ts) {
+      try {
+        localStorage.setItem(STORAGE_STOPWATCH, String(ts));
+      } catch (_) { /* ignore */ }
+    }
+
+    function resetStopwatch() {
+      stopwatchStart = Date.now();
+      saveStopwatchStart(stopwatchStart);
+      updateStopwatch();
+    }
+
+    function updateStopwatch() {
+      const elapsedSec = Math.floor((Date.now() - stopwatchStart) / 1000);
+      const h = Math.floor(elapsedSec / 3600);
+      const m = Math.floor((elapsedSec % 3600) / 60);
+      const s = elapsedSec % 60;
+      if (h > 0) {
+        stopwatchHint.textContent =
+          `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      } else {
+        stopwatchHint.textContent =
+          `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+    }
+
+    let stopwatchStart = loadStopwatchStart();
+    if (stopwatchStart === null) {
+      stopwatchStart = Date.now();
+      saveStopwatchStart(stopwatchStart);
+    }
+    updateStopwatch();
+    setInterval(updateStopwatch, 1000);
   </script>
 </body>
 
