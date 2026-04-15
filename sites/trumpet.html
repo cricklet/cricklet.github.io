@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Trumpet</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reddit+Mono&display=swap">
+  <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.5/build/cjs/vexflow.js"></script>
 
   <style>
     :root {
@@ -56,18 +57,16 @@
       gap: 1.5rem;
     }
 
-    .note-display {
-      font-family: 'Reddit Mono', monospace;
-      font-size: clamp(4rem, 20vmin, 10rem);
-      font-weight: 600;
-      line-height: 1;
-      text-align: center;
-      letter-spacing: -0.02em;
-      transition: opacity 0.15s ease;
+    #staff-container {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 10px;
+      box-shadow: 0 1px 10px rgba(0, 0, 0, 0.18);
+      overflow: hidden;
+      display: inline-block;
     }
 
-    .note-display.silent {
-      opacity: 0.12;
+    #staff-container svg {
+      display: block;
     }
 
     .note-label {
@@ -127,14 +126,6 @@
       transform: scale(1.08);
     }
 
-    .octave-hint {
-      font-family: 'Reddit Mono', monospace;
-      font-size: clamp(0.65rem, 1.5vmin, 0.8rem);
-      opacity: 0.25;
-      text-align: center;
-      letter-spacing: 0.04em;
-    }
-
     #volume-section {
       position: relative;
       width: 100%;
@@ -178,9 +169,8 @@
 
 <body>
   <div id="main">
-    <div class="note-display silent" id="note-display">—</div>
-    <div class="note-label" id="note-label">Bb trumpet</div>
-    <div class="octave-hint" id="octave-hint">&nbsp;</div>
+    <div id="staff-container"></div>
+    <div class="note-label" id="note-label">B♭ trumpet</div>
     <div class="status" id="status">click anywhere, then play</div>
   </div>
 
@@ -205,6 +195,65 @@
       const note = NOTE_NAMES[midi % 12];
       const octave = Math.floor(midi / 12) - 1;
       return { note, octave, label: `${note}${octave}` };
+    }
+
+    // ── VexFlow staff rendering ───────────────────────────────────────────────
+    // Map MIDI semitone → { vfKey: letter for VexFlow key string, acc: accidental or null }
+    // Using flats throughout to match the rest of the app.
+    const VF_NOTE_MAP = [
+      { vfKey: 'c',  acc: null },  // 0  C
+      { vfKey: 'db', acc: 'b'  },  // 1  Db
+      { vfKey: 'd',  acc: null },  // 2  D
+      { vfKey: 'eb', acc: 'b'  },  // 3  Eb
+      { vfKey: 'e',  acc: null },  // 4  E
+      { vfKey: 'f',  acc: null },  // 5  F
+      { vfKey: 'gb', acc: 'b'  },  // 6  Gb
+      { vfKey: 'g',  acc: null },  // 7  G
+      { vfKey: 'ab', acc: 'b'  },  // 8  Ab
+      { vfKey: 'a',  acc: null },  // 9  A
+      { vfKey: 'bb', acc: 'b'  },  // 10 Bb
+      { vfKey: 'b',  acc: null },  // 11 B
+    ];
+
+    function midiToVexKey(midi) {
+      const { vfKey, acc } = VF_NOTE_MAP[midi % 12];
+      const octave = Math.floor(midi / 12) - 1;
+      return { keyStr: `${vfKey}/${octave}`, acc };
+    }
+
+    function renderStaff() {
+      if (typeof Vex === 'undefined') return;
+      const { Renderer, Stave, StaveNote, Formatter, Accidental } = Vex.Flow;
+
+      const container = document.getElementById('staff-container');
+      container.innerHTML = '';
+
+      // Fixed compact width: just enough for clef + one note
+      const STAVE_W = 90;
+      const PAD_X = 6;
+      const W = STAVE_W + PAD_X * 2;
+      const H = 130;
+
+      const renderer = new Renderer(container, Renderer.Backends.SVG);
+      renderer.resize(W, H);
+      const context = renderer.getContext();
+
+      const stave = new Stave(PAD_X, 18, STAVE_W);
+      stave.addClef('treble');
+      stave.setContext(context).draw();
+
+      if (heldNotes.size === 0) return;
+
+      const sorted = [...heldNotes].sort((a, b) => a - b);
+      const keys = sorted.map(m => midiToVexKey(m).keyStr);
+      const accs = sorted.map(m => midiToVexKey(m).acc);
+
+      const note = new StaveNote({ keys, duration: 'w' });
+      accs.forEach((acc, i) => {
+        if (acc) note.addModifier(new Accidental(acc), i);
+      });
+
+      Formatter.FormatAndDraw(context, stave, [note]);
     }
 
     // ── Web Audio synthesis ───────────────────────────────────────────────────
@@ -328,29 +377,21 @@
     }
 
     // ── UI ────────────────────────────────────────────────────────────────────
-    const noteDisplay = document.getElementById('note-display');
-    const noteLabel   = document.getElementById('note-label');
-    const octaveHint  = document.getElementById('octave-hint');
-    const statusEl    = document.getElementById('status');
+    const noteLabel = document.getElementById('note-label');
+    const statusEl  = document.getElementById('status');
 
-    // Track held notes (most recent wins for display)
+    // Track held notes
     const heldNotes = new Set();
 
     function updateDisplay() {
+      renderStaff();
       if (heldNotes.size === 0) {
-        noteDisplay.textContent = '—';
-        noteDisplay.classList.add('silent');
-        noteLabel.textContent = 'Bb trumpet';
-        octaveHint.textContent = '\u00a0';
-        return;
+        noteLabel.textContent = 'B♭ trumpet';
+      } else {
+        const top = Math.max(...heldNotes);
+        const { note, octave } = midiToName(top);
+        noteLabel.textContent = `${note}${octave}`;
       }
-      // Show the highest held note
-      const top = Math.max(...heldNotes);
-      const { note, octave } = midiToName(top);
-      noteDisplay.textContent = note;
-      noteDisplay.classList.remove('silent');
-      noteLabel.textContent = 'Bb trumpet';
-      octaveHint.textContent = `octave ${octave}`;
     }
 
     // ── MIDI ──────────────────────────────────────────────────────────────────
@@ -491,6 +532,9 @@
       try { if (localStorage.getItem(STORAGE_THEME) != null) return; } catch (_) {}
       setTheme(e.matches ? 'dark' : 'light');
     });
+
+    // Draw the empty staff on load (after layout so clientWidth is valid)
+    requestAnimationFrame(renderStaff);
   </script>
 </body>
 
