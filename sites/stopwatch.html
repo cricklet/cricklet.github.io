@@ -168,7 +168,10 @@
     }
 
     function handleKeyDown(event) {
-      if (event.key === 's' || event.key === 'S') {
+      if (event.key === ' ') {
+        event.preventDefault();
+        togglePause();
+      } else if (event.key === 's' || event.key === 'S') {
         event.preventDefault();
         resetCurrentTimer();
       } else if (event.key === 'r' || event.key === 'R') {
