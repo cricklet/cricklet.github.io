@@ -106,6 +106,76 @@
       opacity: 0.7;
     }
 
+    #keyboard-section {
+      flex: 0 0 auto;
+      height: max(90px, 16vh);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border-top: 1px solid var(--section-divider);
+      overflow: hidden;
+    }
+
+    #keyboard {
+      position: relative;
+    }
+
+    .wk {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: rgba(235, 235, 235, 0.94);
+      border: 1px solid rgba(0, 0, 0, 0.28);
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      cursor: pointer;
+      touch-action: none;
+      transition: background 0.05s;
+    }
+
+    :root[data-theme="light"] .wk {
+      background: #fafafa;
+      border-color: rgba(0, 0, 0, 0.38);
+    }
+
+    .wk.active {
+      background: #5badee;
+    }
+
+    .wk .c-label {
+      position: absolute;
+      bottom: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 9px;
+      color: rgba(0, 0, 0, 0.32);
+      pointer-events: none;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .bk {
+      position: absolute;
+      top: 0;
+      height: 62%;
+      background: #2c2c2c;
+      border-radius: 0 0 3px 3px;
+      cursor: pointer;
+      z-index: 2;
+      touch-action: none;
+      transition: background 0.05s;
+    }
+
+    :root[data-theme="light"] .bk {
+      background: #1a1a1a;
+    }
+
+    .bk.active {
+      background: #3a7bd5;
+    }
+
     #theme-toggle {
       position: fixed;
       bottom: 16px;
@@ -196,6 +266,8 @@
   <div id="main">
     <div id="staff-container"></div>
   </div>
+
+  <div id="keyboard-section"></div>
 
   <div id="bottom-info">
     <div class="note-label" id="note-label"></div>
@@ -423,6 +495,7 @@
 
     function updateDisplay() {
       renderStaff();
+      updateKeyboardHighlights();
       if (heldNotes.size > 0) {
         const top = Math.max(...heldNotes);
         const { note, octave } = midiToName(top);
@@ -569,8 +642,131 @@
       setTheme(e.matches ? 'dark' : 'light');
     });
 
+    // ── On-screen keyboard ─────────────────────────────────────────────────────
+    const KB_LOW  = 55; // written G3 (below the staff)
+    const KB_HIGH = 84; // written C6 (high C)
+
+    function isWhiteKey(m) {
+      return [0, 2, 4, 5, 7, 9, 11].includes(m % 12);
+    }
+
+    const KB_WHITE_KEYS = [];
+    for (let m = KB_LOW; m <= KB_HIGH; m++) {
+      if (isWhiteKey(m)) KB_WHITE_KEYS.push(m);
+    }
+
+    let kbPressedNote = null;
+    let kbDragging = false;
+
+    function kbPress(midi) {
+      if (kbPressedNote === midi) return;
+      kbPressedNote = midi;
+      heldNotes.add(midi);
+      startNote(midi);
+      updateDisplay();
+    }
+
+    function kbRelease() {
+      if (kbPressedNote === null) return;
+      const midi = kbPressedNote;
+      kbPressedNote = null;
+      heldNotes.delete(midi);
+      stopNote(midi);
+      updateDisplay();
+    }
+
+    function updateKeyboardHighlights() {
+      const kb = document.getElementById('keyboard');
+      if (!kb) return;
+      kb.querySelectorAll('[data-midi]').forEach(el => {
+        el.classList.toggle('active', heldNotes.has(+el.dataset.midi));
+      });
+    }
+
+    function buildKeyboard() {
+      const section = document.getElementById('keyboard-section');
+      if (!section) return;
+      section.innerHTML = '';
+
+      const padH = 12, padV = 8;
+      const W = section.clientWidth - padH * 2;
+      const H = section.clientHeight - padV * 2;
+      if (W <= 0 || H <= 0) return;
+
+      const wkW = Math.floor(W / KB_WHITE_KEYS.length);
+      const bkW = Math.round(wkW * 0.58);
+      const kbW = wkW * KB_WHITE_KEYS.length;
+
+      const kb = document.createElement('div');
+      kb.id = 'keyboard';
+      kb.style.cssText = `position:relative;width:${kbW}px;height:${H}px;`;
+      section.appendChild(kb);
+
+      // White keys (rendered first, behind black keys)
+      KB_WHITE_KEYS.forEach((midi, i) => {
+        const el = document.createElement('div');
+        el.className = 'wk';
+        el.style.left = (i * wkW) + 'px';
+        el.style.width = (wkW - 1) + 'px';
+        el.dataset.midi = midi;
+        if (midi % 12 === 0) { // C note label
+          const label = document.createElement('span');
+          label.className = 'c-label';
+          label.textContent = 'C' + (Math.floor(midi / 12) - 1);
+          el.appendChild(label);
+        }
+        kb.appendChild(el);
+      });
+
+      // Black keys (rendered on top)
+      for (let m = KB_LOW; m <= KB_HIGH; m++) {
+        if (!isWhiteKey(m)) {
+          const leftIdx = KB_WHITE_KEYS.indexOf(m - 1);
+          if (leftIdx < 0) continue;
+          const el = document.createElement('div');
+          el.className = 'bk';
+          el.style.left = ((leftIdx + 1) * wkW - Math.round(bkW / 2)) + 'px';
+          el.style.width = bkW + 'px';
+          el.dataset.midi = m;
+          kb.appendChild(el);
+        }
+      }
+
+      // Pointer handling — capture on the container so dragging across keys works
+      kb.addEventListener('pointerdown', e => {
+        const over = document.elementFromPoint(e.clientX, e.clientY);
+        const target = over && over.closest('[data-midi]');
+        if (!target) return;
+        ensureAudioCtx();
+        kb.setPointerCapture(e.pointerId);
+        kbDragging = true;
+        kbPress(+target.dataset.midi);
+        e.preventDefault();
+      });
+
+      kb.addEventListener('pointermove', e => {
+        if (!kbDragging) return;
+        const over = document.elementFromPoint(e.clientX, e.clientY);
+        const target = over && over.closest('[data-midi]');
+        if (!target) return;
+        const midi = +target.dataset.midi;
+        if (midi !== kbPressedNote) {
+          kbRelease();
+          kbPress(midi);
+        }
+      });
+
+      kb.addEventListener('pointerup',     () => { kbDragging = false; kbRelease(); });
+      kb.addEventListener('pointercancel', () => { kbDragging = false; kbRelease(); });
+
+      updateKeyboardHighlights();
+    }
+
     // Draw the empty staff on load (after layout so clientWidth is valid)
-    requestAnimationFrame(renderStaff);
+    requestAnimationFrame(() => {
+      renderStaff();
+      new ResizeObserver(buildKeyboard).observe(document.getElementById('keyboard-section'));
+    });
   </script>
 </body>
 
