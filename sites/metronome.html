@@ -176,6 +176,42 @@
       transform: scale(1.08);
     }
 
+    #jazz-toggle {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
+      opacity: 0;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      font-size: 1.25rem;
+      padding: 0;
+      border: 1.5px solid transparent;
+      z-index: 10;
+    }
+
+    body:hover #jazz-toggle {
+      opacity: 1;
+    }
+
+    #jazz-toggle:hover {
+      transform: scale(1.08);
+    }
+
+    #jazz-toggle.active {
+      opacity: 1;
+      background: var(--bg-color);
+      color: var(--text-color);
+      border-color: var(--text-color);
+    }
+
     .hint {
       position: fixed;
       bottom: calc(10vh + 16px);
@@ -222,7 +258,9 @@
 
   <!-- <span class="hint">Space — start / stop · T — tap tempo</span> -->
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+  <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
   <audio id="click-audio" src="click.mp3" preload="auto"></audio>
+  <audio id="click-soft-audio" src="click-soft.mp3" preload="auto"></audio>
 
   <script>
     const BPM_MIN = 40;
@@ -246,7 +284,9 @@
     let nextClickTime = 0;
     let scheduleRaf = null;
 
-    /** Seconds; monotonic clock for scheduling (no Web Audio — avoids file:// + MediaElementSource silence). */
+    let beatNumber = 1;
+    let jazzMode = false;
+
     function clickNowSec() {
       return performance.now() / 1000;
     }
@@ -398,6 +438,7 @@
       volumeReadout.textContent = `${Math.round(volumePct)}%`;
       volumeFill.style.width = `${volumePct}%`;
       document.getElementById('click-audio').volume = volumePct / 100;
+      document.getElementById('click-soft-audio').volume = volumePct / 100;
     }
 
     /** Like bell.mp3: load via <audio src>, not fetch (works with file:// open). */
@@ -423,8 +464,8 @@
       });
     }
 
-    function playClick(when) {
-      const el = document.getElementById('click-audio');
+    function playClick(when, soft) {
+      const el = document.getElementById(soft ? 'click-soft-audio' : 'click-audio');
       const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
       window.setTimeout(() => {
         el.currentTime = 0;
@@ -437,8 +478,10 @@
       const lookahead = 0.08;
       const now = clickNowSec();
       while (nextClickTime < now + lookahead) {
-        playClick(nextClickTime);
+        const soft = jazzMode && (beatNumber === 1 || beatNumber === 3);
+        playClick(nextClickTime, soft);
         nextClickTime += 60 / bpm;
+        beatNumber = (beatNumber % 4) + 1;
       }
       scheduleRaf = requestAnimationFrame(scheduleLoop);
     }
@@ -448,6 +491,7 @@
       const begin = () => {
         running = true;
         document.body.classList.add('running');
+        beatNumber = 1;
         nextClickTime = clickNowSec() + 0.05;
         scheduleLoop();
       };
@@ -645,6 +689,12 @@
         /* ignore */
       }
     }
+
+    function toggleJazz() {
+      jazzMode = !jazzMode;
+      document.getElementById('jazz-toggle').classList.toggle('active', jazzMode);
+    }
+
 
     function loadInitialTheme() {
       try {
