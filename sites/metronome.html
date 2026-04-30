@@ -180,10 +180,10 @@
       outline: none;
     }
 
-    #jazz-toggle {
+    #jazz-toggle,
+    #eighths-toggle {
       position: fixed;
       top: 16px;
-      right: 16px;
       width: 44px;
       height: 44px;
       border-radius: 50%;
@@ -201,19 +201,31 @@
       z-index: 10;
     }
 
-    body:hover #jazz-toggle {
+    #jazz-toggle {
+      right: 72px;
+    }
+
+    #eighths-toggle {
+      right: 16px;
+    }
+
+    body:hover #jazz-toggle,
+    body:hover #eighths-toggle {
       opacity: 1;
     }
 
-    #jazz-toggle:hover {
+    #jazz-toggle:hover,
+    #eighths-toggle:hover {
       transform: scale(1.08);
     }
 
-    #jazz-toggle:focus {
+    #jazz-toggle:focus,
+    #eighths-toggle:focus {
       outline: none;
     }
 
-    #jazz-toggle.active {
+    #jazz-toggle.active,
+    #eighths-toggle.active {
       opacity: 1;
       background: var(--bg-color);
       color: var(--text-color);
@@ -267,6 +279,7 @@
   <!-- <span class="hint">Space — start / stop · T — tap tempo</span> -->
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
+  <button type="button" id="eighths-toggle" onclick="toggleEighths()" title="Eighths offbeat">♪</button>
   <audio id="click-audio" src="click.mp3" preload="auto"></audio>
   <audio id="click-soft-audio" src="click-soft.mp3" preload="auto"></audio>
 
@@ -294,6 +307,8 @@
 
     let beatNumber = 1;
     let jazzMode = false;
+    let eighthsMode = false;
+    let nextIsOffbeat = false;
 
     function clickNowSec() {
       return performance.now() / 1000;
@@ -486,10 +501,21 @@
       const lookahead = 0.08;
       const now = clickNowSec();
       while (nextClickTime < now + lookahead) {
-        const soft = jazzMode && (beatNumber === 1 || beatNumber === 3);
-        playClick(nextClickTime, soft);
-        nextClickTime += 60 / bpm;
-        beatNumber = (beatNumber % 4) + 1;
+        if (nextIsOffbeat) {
+          playClick(nextClickTime, true);
+          nextClickTime += 60 / bpm / 2;
+          nextIsOffbeat = false;
+        } else {
+          const soft = jazzMode && (beatNumber === 1 || beatNumber === 3);
+          playClick(nextClickTime, soft);
+          if (eighthsMode) {
+            nextClickTime += 60 / bpm / 2;
+            nextIsOffbeat = true;
+          } else {
+            nextClickTime += 60 / bpm;
+          }
+          beatNumber = (beatNumber % 4) + 1;
+        }
       }
       scheduleRaf = requestAnimationFrame(scheduleLoop);
     }
@@ -500,6 +526,7 @@
         running = true;
         document.body.classList.add('running');
         beatNumber = 1;
+        nextIsOffbeat = false;
         nextClickTime = clickNowSec() + 0.05;
         scheduleLoop();
       };
@@ -701,6 +728,12 @@
     function toggleJazz() {
       jazzMode = !jazzMode;
       document.getElementById('jazz-toggle').classList.toggle('active', jazzMode);
+    }
+
+    function toggleEighths() {
+      eighthsMode = !eighthsMode;
+      nextIsOffbeat = false;
+      document.getElementById('eighths-toggle').classList.toggle('active', eighthsMode);
     }
 
 
