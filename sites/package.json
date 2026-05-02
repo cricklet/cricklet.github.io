@@ -6,12 +6,16 @@
     "prettier": "^3.5.3"
   },
   "scripts": {
+    "dev": "python3 -m http.server 8080",
     "build:graphing": "esbuild graphing.ts --bundle --outfile=dist/graphing.js",
     "watch:graphing": "esbuild graphing.ts --bundle --outfile=dist/graphing.js --watch",
     "build:transpose": "esbuild transpose.ts --bundle --outfile=dist/transpose.js",
-    "watch:transpose": "esbuild transpose.ts --bundle --outfile=dist/transpose.js --watch"
+    "watch:transpose": "esbuild transpose.ts --bundle --outfile=dist/transpose.js --watch",
+    "build:loop": "cp node_modules/rubberband-web/public/rubberband-processor.js rubberband-processor.txt && esbuild loop.ts --bundle --outfile=dist/loop.js --loader:.txt=text",
+    "watch:loop": "cp node_modules/rubberband-web/public/rubberband-processor.js rubberband-processor.txt && esbuild loop.ts --bundle --outfile=dist/loop.js --loader:.txt=text --watch"
   },
   "dependencies": {
-    "decimal.js": "^10.5.0"
+    "decimal.js": "^10.5.0",
+    "rubberband-web": "^0.2.1"
   }
 }
