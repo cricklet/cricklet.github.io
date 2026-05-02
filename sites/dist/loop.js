@@ -502,7 +502,14 @@
     resetInactivityTimer();
     if (e.key === " ") {
       e.preventDefault();
-      togglePlay();
+      if (e.shiftKey) {
+        if (state.isPlaying) {
+          stopSource();
+        } else {
+          state.pausedBufferPos = 0;
+          play();
+        }
+      } else togglePlay();
     } else if (e.key === "r" || e.key === "R") {
       e.preventDefault();
       stopSource();

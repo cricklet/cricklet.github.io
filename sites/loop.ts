@@ -400,7 +400,11 @@ document.addEventListener('keydown', e => {
   const tag = (e.target as HTMLElement).tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   resetInactivityTimer();
-  if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (e.shiftKey) { if (state.isPlaying) { stopSource(); } else { state.pausedBufferPos = 0; play(); } }
+    else togglePlay();
+  }
   else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); stopSource(); state.pausedBufferPos = 0; play(); }
   else if (e.key === ']') setTargetBPM(state.targetBPM + 5);
   else if (e.key === '[') setTargetBPM(state.targetBPM - 5);
