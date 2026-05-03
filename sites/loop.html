@@ -85,6 +85,45 @@
       border-bottom: 1px solid var(--section-divider);
     }
 
+    #loop-section {
+      flex: 1 1 0;
+      min-height: 0;
+      border-bottom: 1px solid var(--section-divider);
+    }
+
+    #loop-between {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: var(--section-fill);
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    #loop-hint {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.55rem, 1.8vmin, 0.8rem);
+      white-space: nowrap;
+      color: var(--text-color);
+      opacity: 0.5;
+    }
+
+    #loop-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--text-color);
+      opacity: 0.6;
+      pointer-events: none;
+      z-index: 2;
+    }
+
     #volume-section {
       flex: 1 1 0;
       min-height: 0;
@@ -215,6 +254,13 @@
     <div id="detected-tick" aria-hidden="true"></div>
     <div id="bpm-readout" class="readout">— BPM</div>
     <div id="status-hint">Drop an audio file anywhere</div>
+  </div>
+
+  <div id="loop-section" class="control-section" aria-label="Loop points: click to set A/B">
+    <div id="loop-between">
+      <div id="loop-hint">—</div>
+    </div>
+    <div id="loop-playhead"></div>
   </div>
 
   <div id="volume-section" class="control-section" aria-label="Volume: drag horizontally">

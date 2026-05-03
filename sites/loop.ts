@@ -7,6 +7,8 @@ const BPM_MAX = 300;
 const STORAGE_THEME = 'loop_theme';
 const STORAGE_VOLUME = 'loop_volume';
 const STORAGE_TARGET_BPM = 'loop_target_bpm';
+const STORAGE_LOOP_START = 'loop_start_beat';
+const STORAGE_LOOP_END = 'loop_end_beat';
 
 // IndexedDB helpers
 const DB_NAME = 'loop-player';
@@ -52,6 +54,8 @@ interface AppState {
   detectedBPM: number;
   targetBPM: number;
   volume: number;
+  loopStartBeats: number;
+  loopEndBeats: number;
   isPlaying: boolean;
   playStartBufferPos: number;
   playStartWallTime: number;
@@ -67,6 +71,8 @@ const state: AppState = {
   detectedBPM: 120,
   targetBPM: 120,
   volume: 1,
+  loopStartBeats: 0,
+  loopEndBeats: 0,
   isPlaying: false,
   playStartBufferPos: 0,
   playStartWallTime: 0,
@@ -91,6 +97,10 @@ const bpmReadout = document.getElementById('bpm-readout')!;
 const volumeReadout = document.getElementById('volume-readout')!;
 const statusHint = document.getElementById('status-hint')!;
 const detectedTick = document.getElementById('detected-tick')!;
+const loopSection = document.getElementById('loop-section')!;
+const loopBetween = document.getElementById('loop-between')!;
+const loopHint = document.getElementById('loop-hint')!;
+const loopPlayhead = document.getElementById('loop-playhead')!;
 
 // Display updates
 function setBpmDisplay(bpm: number) {
@@ -106,6 +116,86 @@ function setVolumeDisplay(v: number) {
 
 function setStatus(msg: string) {
   statusHint.textContent = msg;
+}
+
+// Loop points
+function totalBeats(): number {
+  if (!state.originalBuffer) return 0;
+  return Math.floor(state.originalBuffer.duration * state.detectedBPM / 60);
+}
+
+function beatDurationSecs(): number {
+  return 60 / state.detectedBPM;
+}
+
+function loopStartSecs(): number {
+  return state.loopStartBeats * beatDurationSecs();
+}
+
+function loopEndSecs(): number {
+  return state.loopEndBeats * beatDurationSecs();
+}
+
+function updateLoopDisplay() {
+  const total = totalBeats();
+  if (total === 0) return;
+  const startFrac = state.loopStartBeats / total;
+  const endFrac = state.loopEndBeats / total;
+  const beats = state.loopEndBeats - state.loopStartBeats;
+  loopBetween.style.left = `${startFrac * 100}%`;
+  loopBetween.style.width = `${(endFrac - startFrac) * 100}%`;
+  loopHint.textContent = `${beats} beat${beats !== 1 ? 's' : ''}`;
+}
+
+// Playhead
+let playheadRaf: number | null = null;
+
+function currentLoopedBufferPos(): number {
+  if (!state.audioCtx || !state.isPlaying || !state.originalBuffer) return state.pausedBufferPos;
+  const ratio = state.targetBPM / state.detectedBPM;
+  const linear = state.playStartBufferPos + (state.audioCtx.currentTime - state.playStartWallTime) * ratio;
+  const lStart = loopStartSecs();
+  const lEnd = loopEndSecs();
+  const len = lEnd - lStart;
+  if (len <= 0) return lStart;
+  return lStart + ((linear - lStart) % len + len) % len;
+}
+
+function tickPlayhead() {
+  if (!state.isPlaying || !state.originalBuffer) return;
+  const pos = currentLoopedBufferPos();
+  const frac = pos / state.originalBuffer.duration;
+  loopPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+  playheadRaf = requestAnimationFrame(tickPlayhead);
+}
+
+function startPlayhead() {
+  if (playheadRaf !== null) return;
+  playheadRaf = requestAnimationFrame(tickPlayhead);
+}
+
+function stopPlayhead() {
+  if (playheadRaf !== null) { cancelAnimationFrame(playheadRaf); playheadRaf = null; }
+}
+
+function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
+  const total = totalBeats();
+  if (total === 0) return;
+  const newStart = clamp(startBeats, 0, total - 1);
+  const newEnd = clamp(endBeats, newStart + 1, total);
+  state.loopStartBeats = newStart;
+  state.loopEndBeats = newEnd;
+  updateLoopDisplay();
+  if (state.currentSource) {
+    state.currentSource.loopStart = loopStartSecs();
+    state.currentSource.loopEnd = loopEndSecs();
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(STORAGE_LOOP_START, String(newStart));
+      localStorage.setItem(STORAGE_LOOP_END, String(newEnd));
+    } catch (_) {}
+  }
 }
 
 // BPM detection: onset envelope + autocorrelation
@@ -178,17 +268,22 @@ function stopSource() {
   }
   state.isPlaying = false;
   document.body.classList.remove('playing');
+  stopPlayhead();
 }
 
 function startSource(bufferPos: number) {
   const ctx = getAudioCtx();
   const buffer = state.originalBuffer!;
   const ratio = state.targetBPM / state.detectedBPM;
-  const safePos = clamp(bufferPos, 0, buffer.duration - 0.01);
+  const lStart = loopStartSecs();
+  const lEnd = loopEndSecs();
+  const safePos = clamp(bufferPos, lStart, lEnd - 0.01);
 
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.loop = true;
+  source.loopStart = lStart;
+  source.loopEnd = lEnd;
   source.playbackRate.value = ratio;
   source.connect(state.rbNode!);
   source.start(0, safePos);
@@ -201,6 +296,7 @@ function startSource(bufferPos: number) {
   state.playStartWallTime = ctx.currentTime;
   state.isPlaying = true;
   document.body.classList.add('playing');
+  startPlayhead();
 
   source.onended = () => {
     if (state.currentSource === source) {
@@ -299,6 +395,40 @@ volumeSection.addEventListener('pointerdown', e => {
 volumeSection.addEventListener('pointermove', e => onPointerMove(e));
 volumeSection.addEventListener('pointerup', e => onPointerUp(e));
 volumeSection.addEventListener('pointercancel', e => onPointerUp(e));
+
+// Loop section pointer
+let dragLoop: 'a' | 'b' | null = null;
+
+function loopSecsFromClientX(clientX: number): number {
+  const r = loopSection.getBoundingClientRect();
+  if (!state.originalBuffer) return 0;
+  return clamp((clientX - r.left) / r.width, 0, 1) * state.originalBuffer.duration;
+}
+
+function updateLoopDrag(clientX: number) {
+  const secs = loopSecsFromClientX(clientX);
+  const beat = Math.round(secs / beatDurationSecs());
+  if (dragLoop === 'a') setLoopPoints(beat, state.loopEndBeats);
+  else setLoopPoints(state.loopStartBeats, beat);
+}
+
+loopSection.addEventListener('pointerdown', e => {
+  if (!state.originalBuffer) return;
+  loopSection.setPointerCapture(e.pointerId);
+  const secs = loopSecsFromClientX(e.clientX);
+  dragLoop = Math.abs(secs - loopStartSecs()) <= Math.abs(secs - loopEndSecs()) ? 'a' : 'b';
+  updateLoopDrag(e.clientX);
+  resetInactivityTimer();
+});
+loopSection.addEventListener('pointermove', e => { if (dragLoop) updateLoopDrag(e.clientX); });
+loopSection.addEventListener('pointerup', e => {
+  dragLoop = null;
+  try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch (_) {}
+});
+loopSection.addEventListener('pointercancel', e => {
+  dragLoop = null;
+  try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch (_) {}
+});
 
 // Focus/unfocus (exact same logic as metronome.html)
 let swallowFirstControlPointer = false;
@@ -453,6 +583,18 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string) {
     } catch (_) {
       setTargetBPM(bpm);
     }
+
+    // Restore or default loop points
+    const total = Math.floor(decoded.duration * bpm / 60);
+    let startBeat = 0, endBeat = total;
+    try {
+      const s = parseInt(localStorage.getItem(STORAGE_LOOP_START) ?? '', 10);
+      const e = parseInt(localStorage.getItem(STORAGE_LOOP_END) ?? '', 10);
+      if (Number.isFinite(s) && Number.isFinite(e) && s >= 0 && e <= total && s < e) {
+        startBeat = s; endBeat = e;
+      }
+    } catch (_) {}
+    setLoopPoints(startBeat, endBeat, false);
 
     setStatus('Loading…');
     await ensureNodes();

@@ -145,6 +145,8 @@
   var STORAGE_THEME = "loop_theme";
   var STORAGE_VOLUME = "loop_volume";
   var STORAGE_TARGET_BPM = "loop_target_bpm";
+  var STORAGE_LOOP_START = "loop_start_beat";
+  var STORAGE_LOOP_END = "loop_end_beat";
   var DB_NAME = "loop-player";
   var DB_STORE = "files";
   var DB_KEY = "last-audio";
@@ -183,6 +185,8 @@
     detectedBPM: 120,
     targetBPM: 120,
     volume: 1,
+    loopStartBeats: 0,
+    loopEndBeats: 0,
     isPlaying: false,
     playStartBufferPos: 0,
     playStartWallTime: 0,
@@ -203,6 +207,10 @@
   var volumeReadout = document.getElementById("volume-readout");
   var statusHint = document.getElementById("status-hint");
   var detectedTick = document.getElementById("detected-tick");
+  var loopSection = document.getElementById("loop-section");
+  var loopBetween = document.getElementById("loop-between");
+  var loopHint = document.getElementById("loop-hint");
+  var loopPlayhead = document.getElementById("loop-playhead");
   function setBpmDisplay(bpm) {
     bpmReadout.textContent = `${Math.round(bpm)} BPM`;
     const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
@@ -214,6 +222,77 @@
   }
   function setStatus(msg) {
     statusHint.textContent = msg;
+  }
+  function totalBeats() {
+    if (!state.originalBuffer) return 0;
+    return Math.floor(state.originalBuffer.duration * state.detectedBPM / 60);
+  }
+  function beatDurationSecs() {
+    return 60 / state.detectedBPM;
+  }
+  function loopStartSecs() {
+    return state.loopStartBeats * beatDurationSecs();
+  }
+  function loopEndSecs() {
+    return state.loopEndBeats * beatDurationSecs();
+  }
+  function updateLoopDisplay() {
+    const total = totalBeats();
+    if (total === 0) return;
+    const startFrac = state.loopStartBeats / total;
+    const endFrac = state.loopEndBeats / total;
+    const beats = state.loopEndBeats - state.loopStartBeats;
+    loopBetween.style.left = `${startFrac * 100}%`;
+    loopBetween.style.width = `${(endFrac - startFrac) * 100}%`;
+    loopHint.textContent = `${beats} beat${beats !== 1 ? "s" : ""}`;
+  }
+  var playheadRaf = null;
+  function currentLoopedBufferPos() {
+    if (!state.audioCtx || !state.isPlaying || !state.originalBuffer) return state.pausedBufferPos;
+    const ratio = state.targetBPM / state.detectedBPM;
+    const linear = state.playStartBufferPos + (state.audioCtx.currentTime - state.playStartWallTime) * ratio;
+    const lStart = loopStartSecs();
+    const lEnd = loopEndSecs();
+    const len = lEnd - lStart;
+    if (len <= 0) return lStart;
+    return lStart + ((linear - lStart) % len + len) % len;
+  }
+  function tickPlayhead() {
+    if (!state.isPlaying || !state.originalBuffer) return;
+    const pos = currentLoopedBufferPos();
+    const frac = pos / state.originalBuffer.duration;
+    loopPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+    playheadRaf = requestAnimationFrame(tickPlayhead);
+  }
+  function startPlayhead() {
+    if (playheadRaf !== null) return;
+    playheadRaf = requestAnimationFrame(tickPlayhead);
+  }
+  function stopPlayhead() {
+    if (playheadRaf !== null) {
+      cancelAnimationFrame(playheadRaf);
+      playheadRaf = null;
+    }
+  }
+  function setLoopPoints(startBeats, endBeats, persist = true) {
+    const total = totalBeats();
+    if (total === 0) return;
+    const newStart = clamp(startBeats, 0, total - 1);
+    const newEnd = clamp(endBeats, newStart + 1, total);
+    state.loopStartBeats = newStart;
+    state.loopEndBeats = newEnd;
+    updateLoopDisplay();
+    if (state.currentSource) {
+      state.currentSource.loopStart = loopStartSecs();
+      state.currentSource.loopEnd = loopEndSecs();
+    }
+    if (persist) {
+      try {
+        localStorage.setItem(STORAGE_LOOP_START, String(newStart));
+        localStorage.setItem(STORAGE_LOOP_END, String(newEnd));
+      } catch (_) {
+      }
+    }
   }
   function detectBPM(buffer) {
     const sampleRate = buffer.sampleRate;
@@ -281,15 +360,20 @@
     }
     state.isPlaying = false;
     document.body.classList.remove("playing");
+    stopPlayhead();
   }
   function startSource(bufferPos) {
     const ctx = getAudioCtx();
     const buffer = state.originalBuffer;
     const ratio = state.targetBPM / state.detectedBPM;
-    const safePos = clamp(bufferPos, 0, buffer.duration - 0.01);
+    const lStart = loopStartSecs();
+    const lEnd = loopEndSecs();
+    const safePos = clamp(bufferPos, lStart, lEnd - 0.01);
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
+    source.loopStart = lStart;
+    source.loopEnd = lEnd;
     source.playbackRate.value = ratio;
     source.connect(state.rbNode);
     source.start(0, safePos);
@@ -300,6 +384,7 @@
     state.playStartWallTime = ctx.currentTime;
     state.isPlaying = true;
     document.body.classList.add("playing");
+    startPlayhead();
     source.onended = () => {
       if (state.currentSource === source) {
         state.isPlaying = false;
@@ -392,6 +477,43 @@
   volumeSection.addEventListener("pointermove", (e) => onPointerMove(e));
   volumeSection.addEventListener("pointerup", (e) => onPointerUp(e));
   volumeSection.addEventListener("pointercancel", (e) => onPointerUp(e));
+  var dragLoop = null;
+  function loopSecsFromClientX(clientX) {
+    const r = loopSection.getBoundingClientRect();
+    if (!state.originalBuffer) return 0;
+    return clamp((clientX - r.left) / r.width, 0, 1) * state.originalBuffer.duration;
+  }
+  function updateLoopDrag(clientX) {
+    const secs = loopSecsFromClientX(clientX);
+    const beat = Math.round(secs / beatDurationSecs());
+    if (dragLoop === "a") setLoopPoints(beat, state.loopEndBeats);
+    else setLoopPoints(state.loopStartBeats, beat);
+  }
+  loopSection.addEventListener("pointerdown", (e) => {
+    if (!state.originalBuffer) return;
+    loopSection.setPointerCapture(e.pointerId);
+    const secs = loopSecsFromClientX(e.clientX);
+    dragLoop = Math.abs(secs - loopStartSecs()) <= Math.abs(secs - loopEndSecs()) ? "a" : "b";
+    updateLoopDrag(e.clientX);
+    resetInactivityTimer();
+  });
+  loopSection.addEventListener("pointermove", (e) => {
+    if (dragLoop) updateLoopDrag(e.clientX);
+  });
+  loopSection.addEventListener("pointerup", (e) => {
+    dragLoop = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) {
+    }
+  });
+  loopSection.addEventListener("pointercancel", (e) => {
+    dragLoop = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) {
+    }
+  });
   var swallowFirstControlPointer = false;
   var absorbingRefocusClick = false;
   var swallowPointerTimer = null;
@@ -556,6 +678,18 @@
       } catch (_) {
         setTargetBPM(bpm);
       }
+      const total = Math.floor(decoded.duration * bpm / 60);
+      let startBeat = 0, endBeat = total;
+      try {
+        const s = parseInt(localStorage.getItem(STORAGE_LOOP_START) ?? "", 10);
+        const e = parseInt(localStorage.getItem(STORAGE_LOOP_END) ?? "", 10);
+        if (Number.isFinite(s) && Number.isFinite(e) && s >= 0 && e <= total && s < e) {
+          startBeat = s;
+          endBeat = e;
+        }
+      } catch (_) {
+      }
+      setLoopPoints(startBeat, endBeat, false);
       setStatus("Loading\u2026");
       await ensureNodes();
       const mins = Math.floor(decoded.duration / 60);
