@@ -6,42 +6,86 @@ const BPM_MIN = 40;
 const BPM_MAX = 300;
 const STORAGE_THEME = 'loop_theme';
 const STORAGE_VOLUME = 'loop_volume';
-const STORAGE_TARGET_BPM = 'loop_target_bpm';
-const STORAGE_LOOP_START = 'loop_start_beat';
-const STORAGE_LOOP_END = 'loop_end_beat';
+const STORAGE_METRONOME = 'loop_metronome';
+const STORAGE_LAST_FILE = 'loop_last_file';
 
 // IndexedDB helpers
 const DB_NAME = 'loop-player';
-const DB_STORE = 'files';
-const DB_KEY = 'last-audio';
+const DB_VERSION = 2;
+const DB_STORE_FILES = 'files';  // { id, buffer }
+const DB_STORE_META = 'meta';    // { id, name, addedAt }
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (db.objectStoreNames.contains(DB_STORE_FILES)) db.deleteObjectStore(DB_STORE_FILES);
+      if (db.objectStoreNames.contains(DB_STORE_META)) db.deleteObjectStore(DB_STORE_META);
+      db.createObjectStore(DB_STORE_FILES, { keyPath: 'id' });
+      const metaStore = db.createObjectStore(DB_STORE_META, { keyPath: 'id' });
+      metaStore.createIndex('addedAt', 'addedAt');
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string): Promise<void> {
+async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).put({ buffer: arrayBuffer, name }, DB_KEY);
+    const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readwrite');
+    const metaReq = tx.objectStore(DB_STORE_META).get(id);
+    metaReq.onsuccess = () => {
+      const existing = metaReq.result;
+      tx.objectStore(DB_STORE_META).put({ id, name, addedAt: existing?.addedAt ?? Date.now() });
+      tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
+    };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-async function loadSavedAudio(): Promise<{ buffer: ArrayBuffer; name: string } | null> {
+async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; addedAt: number }>> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readonly');
-    const req = tx.objectStore(DB_STORE).get(DB_KEY);
-    req.onsuccess = () => resolve(req.result ?? null);
+    const tx = db.transaction(DB_STORE_META, 'readonly');
+    const req = tx.objectStore(DB_STORE_META).getAll();
+    req.onsuccess = () => resolve(req.result ?? []);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function loadAudioById(id: string): Promise<{ buffer: ArrayBuffer; name: string } | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readonly');
+    const fileReq = tx.objectStore(DB_STORE_FILES).get(id);
+    const metaReq = tx.objectStore(DB_STORE_META).get(id);
+    let fileRec: any, metaRec: any;
+    fileReq.onsuccess = () => { fileRec = fileReq.result; };
+    metaReq.onsuccess = () => { metaRec = metaReq.result; };
+    tx.oncomplete = () => resolve(fileRec && metaRec ? { buffer: fileRec.buffer, name: metaRec.name } : null);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Per-file settings (BPM, loop points) stored in localStorage keyed by file id
+interface FileSettings { targetBPM?: number; loopStartBeats?: number; loopEndBeats?: number; }
+
+function loadFileSettings(id: string): FileSettings {
+  try { return JSON.parse(localStorage.getItem(`loop_file_${id}`) ?? '{}'); } catch (_) { return {}; }
+}
+
+function persistCurrentFileSettings() {
+  if (!state.currentFileId) return;
+  try {
+    localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
+      targetBPM: state.targetBPM,
+      loopStartBeats: state.loopStartBeats,
+      loopEndBeats: state.loopEndBeats,
+    }));
+  } catch (_) {}
 }
 
 // App state
@@ -60,6 +104,8 @@ interface AppState {
   playStartBufferPos: number;
   playStartWallTime: number;
   pausedBufferPos: number;
+  metronomeEnabled: boolean;
+  currentFileId: string | null;
 }
 
 const state: AppState = {
@@ -77,6 +123,8 @@ const state: AppState = {
   playStartBufferPos: 0,
   playStartWallTime: 0,
   pausedBufferPos: 0,
+  metronomeEnabled: false,
+  currentFileId: null,
 };
 
 function getAudioCtx(): AudioContext {
@@ -181,6 +229,11 @@ function stopPlayhead() {
 function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
   const total = totalBeats();
   if (total === 0) return;
+  // Snapshot position before loop bounds change so playhead modulo stays valid
+  if (state.isPlaying && state.audioCtx) {
+    state.playStartBufferPos = currentLoopedBufferPos();
+    state.playStartWallTime = state.audioCtx.currentTime;
+  }
   const newStart = clamp(startBeats, 0, total - 1);
   const newEnd = clamp(endBeats, newStart + 1, total);
   state.loopStartBeats = newStart;
@@ -190,12 +243,7 @@ function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
     state.currentSource.loopStart = loopStartSecs();
     state.currentSource.loopEnd = loopEndSecs();
   }
-  if (persist) {
-    try {
-      localStorage.setItem(STORAGE_LOOP_START, String(newStart));
-      localStorage.setItem(STORAGE_LOOP_END, String(newEnd));
-    } catch (_) {}
-  }
+  if (persist) persistCurrentFileSettings();
 }
 
 // BPM detection: onset envelope + autocorrelation
@@ -258,6 +306,60 @@ function currentBufferPos(): number {
   return state.playStartBufferPos + (state.audioCtx.currentTime - state.playStartWallTime) * ratio;
 }
 
+// Metronome click
+let metronomeNextClickTime = 0;
+let metronomeRaf: number | null = null;
+
+function metronomeNowSec(): number {
+  return performance.now() / 1000;
+}
+
+function playMetronomeClick(when: number) {
+  const el = document.getElementById('loop-click-audio') as HTMLAudioElement | null;
+  if (!el) return;
+  const delayMs = Math.max(0, (when - metronomeNowSec()) * 1000);
+  window.setTimeout(() => {
+    el.currentTime = 0;
+    void el.play().catch(() => {});
+  }, delayMs);
+}
+
+function scheduleMetronomeClicks() {
+  if (!state.metronomeEnabled || !state.isPlaying) return;
+  const lookahead = 0.08;
+  const now = metronomeNowSec();
+  while (metronomeNextClickTime < now + lookahead) {
+    if (metronomeNextClickTime >= now - 0.01) {
+      playMetronomeClick(metronomeNextClickTime);
+    }
+    metronomeNextClickTime += 60 / state.targetBPM;
+  }
+  metronomeRaf = requestAnimationFrame(scheduleMetronomeClicks);
+}
+
+function startMetronomeLoop() {
+  if (metronomeRaf !== null) return;
+  metronomeNextClickTime = metronomeNowSec() + 0.05;
+  metronomeRaf = requestAnimationFrame(scheduleMetronomeClicks);
+}
+
+function stopMetronomeLoop() {
+  if (metronomeRaf !== null) { cancelAnimationFrame(metronomeRaf); metronomeRaf = null; }
+}
+
+function toggleMetronome() {
+  state.metronomeEnabled = !state.metronomeEnabled;
+  const btn = document.getElementById('metronome-toggle');
+  if (btn) btn.classList.toggle('active', state.metronomeEnabled);
+  if (state.metronomeEnabled && state.isPlaying) {
+    startMetronomeLoop();
+  } else {
+    stopMetronomeLoop();
+  }
+  try { localStorage.setItem(STORAGE_METRONOME, state.metronomeEnabled ? '1' : '0'); } catch (_) {}
+}
+(window as any).toggleMetronome = toggleMetronome;
+
 function stopSource() {
   if (state.currentSource) {
     state.pausedBufferPos = currentBufferPos();
@@ -269,6 +371,7 @@ function stopSource() {
   state.isPlaying = false;
   document.body.classList.remove('playing');
   stopPlayhead();
+  stopMetronomeLoop();
 }
 
 function startSource(bufferPos: number) {
@@ -297,6 +400,7 @@ function startSource(bufferPos: number) {
   state.isPlaying = true;
   document.body.classList.add('playing');
   startPlayhead();
+  if (state.metronomeEnabled) startMetronomeLoop();
 
   source.onended = () => {
     if (state.currentSource === source) {
@@ -321,11 +425,11 @@ async function togglePlay() {
   else startSource(state.pausedBufferPos);
 }
 
-function setTargetBPM(bpm: number) {
+function setTargetBPM(bpm: number, persist = true) {
   const clamped = clamp(Math.round(bpm), BPM_MIN, BPM_MAX);
   state.targetBPM = clamped;
   setBpmDisplay(clamped);
-  try { localStorage.setItem(STORAGE_TARGET_BPM, String(clamped)); } catch (_) {}
+  if (persist) persistCurrentFileSettings();
 
   if (state.isPlaying && state.currentSource) {
     const ratio = clamped / state.detectedBPM;
@@ -422,8 +526,15 @@ loopSection.addEventListener('pointerdown', e => {
 });
 loopSection.addEventListener('pointermove', e => { if (dragLoop) updateLoopDrag(e.clientX); });
 loopSection.addEventListener('pointerup', e => {
+  const wasA = dragLoop === 'a';
   dragLoop = null;
   try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch (_) {}
+  if (wasA && state.originalBuffer && state.rbNode) {
+    const wasPlaying = state.isPlaying;
+    stopSource();
+    if (wasPlaying) startSource(loopStartSecs());
+    else state.pausedBufferPos = loopStartSecs();
+  }
 });
 loopSection.addEventListener('pointercancel', e => {
   dragLoop = null;
@@ -554,16 +665,70 @@ function toggleTheme() {
 }
 (window as any).toggleTheme = toggleTheme;
 
+function trimSilence(buffer: AudioBuffer, threshold = 0.0316): AudioBuffer {
+  const numChannels = buffer.numberOfChannels;
+  const length = buffer.length;
+  const channels: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) channels.push(buffer.getChannelData(c));
+
+  let startSample = 0;
+  scan_start: for (let i = 0; i < length; i++) {
+    for (let c = 0; c < numChannels; c++) {
+      if (Math.abs(channels[c][i]) > threshold) { startSample = i; break scan_start; }
+    }
+  }
+
+  let endSample = length;
+  scan_end: for (let i = length - 1; i >= startSample; i--) {
+    for (let c = 0; c < numChannels; c++) {
+      if (Math.abs(channels[c][i]) > threshold) { endSample = i + 1; break scan_end; }
+    }
+  }
+
+  if (startSample === 0 && endSample === length) return buffer;
+
+  const ctx = getAudioCtx();
+  const trimmed = ctx.createBuffer(numChannels, endSample - startSample, buffer.sampleRate);
+  for (let c = 0; c < numChannels; c++) {
+    trimmed.copyToChannel(channels[c].subarray(startSample, endSample), c);
+  }
+  return trimmed;
+}
+
+// File dropdown
+const fileSelect = document.getElementById('file-select') as HTMLSelectElement;
+
+async function refreshFileDropdown() {
+  const files = (await loadAllFilesMeta()).sort((a, b) => b.addedAt - a.addedAt);
+  fileSelect.innerHTML = '';
+  for (const f of files) {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.name;
+    fileSelect.appendChild(opt);
+  }
+  fileSelect.classList.toggle('has-files', files.length > 0);
+  if (state.currentFileId) fileSelect.value = state.currentFileId;
+}
+
+fileSelect.addEventListener('change', async () => {
+  const id = fileSelect.value;
+  const saved = await loadAudioById(id);
+  if (saved) processArrayBuffer(saved.buffer, saved.name, id);
+});
+
 // Audio file processing
-async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string) {
+async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = encodeURIComponent(name)) {
   stopSource();
   state.originalBuffer = null;
   state.pausedBufferPos = 0;
+  state.currentFileId = id;
   setStatus('Decoding…');
 
   try {
     const ctx = getAudioCtx();
-    const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const raw = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const decoded = trimSilence(raw);
     state.originalBuffer = decoded;
 
     setStatus('Detecting BPM…');
@@ -575,42 +740,36 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string) {
     detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
     detectedTick.style.display = 'block';
 
-    // Restore saved target BPM if available, otherwise fall back to detected
-    try {
-      const saved = localStorage.getItem(STORAGE_TARGET_BPM);
-      const savedBPM = saved ? parseInt(saved, 10) : NaN;
-      setTargetBPM(Number.isFinite(savedBPM) ? savedBPM : bpm);
-    } catch (_) {
-      setTargetBPM(bpm);
-    }
+    // Restore per-file settings, falling back to detected BPM / full range.
+    // Apply both without persisting so stale loop/bpm state can't overwrite each other,
+    // then save once with the fully-resolved values.
+    const settings = loadFileSettings(id);
+    setTargetBPM(settings.targetBPM ?? bpm, false);
 
-    // Restore or default loop points
     const total = Math.floor(decoded.duration * bpm / 60);
-    let startBeat = 0, endBeat = total;
-    try {
-      const s = parseInt(localStorage.getItem(STORAGE_LOOP_START) ?? '', 10);
-      const e = parseInt(localStorage.getItem(STORAGE_LOOP_END) ?? '', 10);
-      if (Number.isFinite(s) && Number.isFinite(e) && s >= 0 && e <= total && s < e) {
-        startBeat = s; endBeat = e;
-      }
-    } catch (_) {}
-    setLoopPoints(startBeat, endBeat, false);
+    const s = settings.loopStartBeats, e = settings.loopEndBeats;
+    const hasValidLoop = s != null && e != null && s >= 0 && e <= total && s < e;
+    setLoopPoints(hasValidLoop ? s! : 0, hasValidLoop ? e! : total, false);
+    persistCurrentFileSettings();
 
     setStatus('Loading…');
     await ensureNodes();
 
     const mins = Math.floor(decoded.duration / 60);
     const secs = Math.round(decoded.duration % 60).toString().padStart(2, '0');
-    setStatus(`${name} · ${mins}:${secs} · detected ${bpm} BPM`);
+    setStatus(`${mins}:${secs} · detected ${bpm} BPM`);
 
-    saveAudioFile(arrayBuffer, name).catch(() => {});
+    try { localStorage.setItem(STORAGE_LAST_FILE, id); } catch (_) {}
+    saveAudioFile(arrayBuffer, name, id).then(() => refreshFileDropdown()).catch(() => {});
+    fileSelect.value = id;
   } catch (e) {
     setStatus(`Error: ${(e as Error).message}`);
   }
 }
 
 async function processFile(file: File) {
-  await processArrayBuffer(await file.arrayBuffer(), file.name);
+  const id = encodeURIComponent(file.name);
+  await processArrayBuffer(await file.arrayBuffer(), file.name, id);
 }
 
 // Drag and drop
@@ -654,12 +813,28 @@ fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) processFi
     if (Number.isFinite(v)) state.volume = clamp(v, 0, 1);
   } catch (_) {}
 
+  try {
+    if (localStorage.getItem(STORAGE_METRONOME) === '1') {
+      state.metronomeEnabled = true;
+      const btn = document.getElementById('metronome-toggle');
+      if (btn) btn.classList.add('active');
+    }
+  } catch (_) {}
+
   setBpmDisplay(state.targetBPM);
   setVolumeDisplay(state.volume);
   syncWindowFocusClasses();
   resetInactivityTimer();
 
-  loadSavedAudio().then(saved => {
-    if (saved) processArrayBuffer(saved.buffer, saved.name);
+  loadAllFilesMeta().then(async files => {
+    refreshFileDropdown();
+    if (files.length === 0) return;
+    let lastId: string | null = null;
+    try { lastId = localStorage.getItem(STORAGE_LAST_FILE); } catch (_) {}
+    const target = (lastId && files.find(f => f.id === lastId))
+      ? lastId
+      : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
+    const saved = await loadAudioById(target);
+    if (saved) processArrayBuffer(saved.buffer, saved.name, target);
   }).catch(() => {});
 })();

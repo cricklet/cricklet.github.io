@@ -200,9 +200,27 @@
       max-width: 90%;
     }
 
+    #top-bar {
+      flex-shrink: 0;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      gap: 8px;
+      z-index: 10;
+      border-bottom: 1px solid var(--section-divider);
+    }
+
+    #top-bar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
     #theme-toggle {
       position: fixed;
-      bottom: calc(10vh + 16px);
+      bottom: 16px;
       right: 16px;
       width: 44px;
       height: 44px;
@@ -219,11 +237,60 @@
       padding: 0;
       border: none;
       z-index: 10;
+      transition: opacity 0.2s;
     }
 
     body:hover #theme-toggle { opacity: 1; }
     #theme-toggle:hover { transform: scale(1.08); }
     #theme-toggle:focus { outline: none; }
+
+    #file-select {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.75rem;
+      background: transparent;
+      color: rgba(128, 128, 128, 0.75);
+      border: none;
+      border-radius: 4px;
+      padding: 6px 10px;
+      cursor: pointer;
+      max-width: 220px;
+      outline: none;
+      display: none;
+      -webkit-appearance: none;
+      appearance: none;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    #file-select.has-files { display: block; }
+
+    #metronome-toggle {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 0;
+      border: 1.5px solid transparent;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    body:hover #metronome-toggle { opacity: 1; }
+    #metronome-toggle:hover { transform: scale(1.08); }
+    #metronome-toggle:focus { outline: none; }
+    #metronome-toggle.active {
+      opacity: 1;
+      background: var(--bg-color);
+      color: var(--text-color);
+      border-color: var(--text-color);
+    }
 
     body.drag-over::after {
       content: 'Drop audio file';
@@ -249,6 +316,15 @@
 <body>
   <input type="file" id="file-input" accept="audio/*" style="display:none">
 
+  <div id="top-bar">
+    <select id="file-select" aria-label="Loaded files"></select>
+    <div id="top-bar-right">
+      <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
+    </div>
+  </div>
+
+  <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+
   <div id="bpm-section" class="control-section" aria-label="BPM: drag horizontally">
     <div id="bpm-fill" class="fill" aria-hidden="true"></div>
     <div id="detected-tick" aria-hidden="true"></div>
@@ -268,7 +344,7 @@
     <div id="volume-readout" class="readout">100%</div>
   </div>
 
-  <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+  <audio id="loop-click-audio" src="click.mp3" preload="auto"></audio>
 
   <script src="dist/loop.js"></script>
 </body>
