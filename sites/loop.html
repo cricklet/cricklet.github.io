@@ -79,14 +79,21 @@
       touch-action: none;
     }
 
-    #bpm-section {
+    #main-area {
       flex: 9 1 0;
+      min-height: 0;
+      position: relative;
+      border-bottom: 1px solid var(--section-divider);
+    }
+
+    #bpm-section {
+      flex: 2 1 0;
       min-height: 0;
       border-bottom: 1px solid var(--section-divider);
     }
 
     #loop-section {
-      flex: 1 1 0;
+      flex: 2 1 0;
       min-height: 0;
       border-bottom: 1px solid var(--section-divider);
     }
@@ -107,10 +114,35 @@
       top: 50%;
       transform: translate(-50%, -50%);
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(0.55rem, 1.8vmin, 0.8rem);
+      font-size: clamp(1.1rem, 3.6vmin, 1.6rem);
       white-space: nowrap;
       color: var(--text-color);
       opacity: 0.5;
+      padding: 4px;
+      cursor: grab;
+      pointer-events: auto;
+    }
+
+    #loop-hint:active { cursor: grabbing; }
+
+    .loop-beat-label {
+      position: absolute;
+      top: 50%;
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.6rem, 2vmin, 0.85rem);
+      color: var(--text-color);
+      opacity: 0.5;
+      pointer-events: none;
+      z-index: 1;
+      white-space: nowrap;
+    }
+
+    #loop-start-label {
+      transform: translate(calc(-100% - 6px), -50%);
+    }
+
+    #loop-end-label {
+      transform: translate(6px, -50%);
     }
 
     #loop-playhead {
@@ -122,7 +154,10 @@
       opacity: 0.6;
       pointer-events: none;
       z-index: 2;
+      transition: opacity 0.2s;
     }
+
+    body:not(.playing) #loop-playhead { opacity: 0; }
 
     #volume-section {
       flex: 1 1 0;
@@ -172,7 +207,7 @@
     }
 
     #bpm-section .readout {
-      font-size: clamp(2.75rem, 14vmin, 7.5rem);
+      font-size: clamp(1.4rem, 5vmin, 2.5rem);
     }
 
     #volume-section .readout {
@@ -325,17 +360,22 @@
 
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
 
+  <div id="main-area">
+    <div id="status-hint">Drop an audio file anywhere</div>
+  </div>
+
   <div id="bpm-section" class="control-section" aria-label="BPM: drag horizontally">
     <div id="bpm-fill" class="fill" aria-hidden="true"></div>
     <div id="detected-tick" aria-hidden="true"></div>
     <div id="bpm-readout" class="readout">— BPM</div>
-    <div id="status-hint">Drop an audio file anywhere</div>
   </div>
 
   <div id="loop-section" class="control-section" aria-label="Loop points: click to set A/B">
     <div id="loop-between">
       <div id="loop-hint">—</div>
     </div>
+    <div id="loop-start-label" class="loop-beat-label"></div>
+    <div id="loop-end-label" class="loop-beat-label"></div>
     <div id="loop-playhead"></div>
   </div>
 

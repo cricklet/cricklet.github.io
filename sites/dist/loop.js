@@ -260,6 +260,8 @@
   var loopBetween = document.getElementById("loop-between");
   var loopHint = document.getElementById("loop-hint");
   var loopPlayhead = document.getElementById("loop-playhead");
+  var loopStartLabel = document.getElementById("loop-start-label");
+  var loopEndLabel = document.getElementById("loop-end-label");
   function setBpmDisplay(bpm) {
     bpmReadout.textContent = `${Math.round(bpm)} BPM`;
     const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
@@ -293,7 +295,11 @@
     const beats = state.loopEndBeats - state.loopStartBeats;
     loopBetween.style.left = `${startFrac * 100}%`;
     loopBetween.style.width = `${(endFrac - startFrac) * 100}%`;
-    loopHint.textContent = `${beats} beat${beats !== 1 ? "s" : ""}`;
+    loopHint.textContent = String(beats);
+    loopStartLabel.textContent = String(state.loopStartBeats);
+    loopStartLabel.style.left = `${startFrac * 100}%`;
+    loopEndLabel.textContent = String(state.loopEndBeats);
+    loopEndLabel.style.left = `${endFrac * 100}%`;
   }
   var playheadRaf = null;
   function currentLoopedBufferPos() {
@@ -343,11 +349,22 @@
   }
   function detectBPM(buffer) {
     const sampleRate = buffer.sampleRate;
-    const limit = Math.min(buffer.length, sampleRate * 30);
-    const data = buffer.getChannelData(0).subarray(0, limit);
-    const hopSize = 512;
-    const winSize = 2048;
-    const numFrames = Math.floor((data.length - winSize) / hopSize);
+    const windowSamples = Math.min(buffer.length, sampleRate * 20);
+    const midSample = Math.floor(buffer.length / 2);
+    const startSample = Math.max(0, midSample - Math.floor(windowSamples / 2));
+    const raw = buffer.getChannelData(0);
+    const dsRate = 4;
+    const dsLen = Math.floor(windowSamples / dsRate);
+    const data = new Float32Array(dsLen);
+    for (let i = 0; i < dsLen; i++) {
+      let s = 0;
+      for (let j = 0; j < dsRate; j++) s += raw[startSample + i * dsRate + j];
+      data[i] = s / dsRate;
+    }
+    const dsSampleRate = sampleRate / dsRate;
+    const hopSize = 128;
+    const winSize = 512;
+    const numFrames = Math.floor((dsLen - winSize) / hopSize);
     const envelope = new Float32Array(numFrames);
     let prevEnergy = 0;
     for (let i = 0; i < numFrames; i++) {
@@ -358,24 +375,36 @@
       envelope[i] = Math.max(0, energy - prevEnergy);
       prevEnergy = energy;
     }
-    const frameRate = sampleRate / hopSize;
-    const minLag = Math.round(frameRate * 60 / 200);
-    const maxLag = Math.round(frameRate * 60 / 60);
-    let bestLag = minLag, bestScore = -Infinity;
+    const frameRate = dsSampleRate / hopSize;
+    const minLag = Math.max(1, Math.round(frameRate * 60 / 215));
+    const maxLag = Math.round(frameRate * 60 / 55);
+    const acf = new Float32Array(maxLag + 1);
     for (let lag = minLag; lag <= maxLag; lag++) {
-      let score = 0;
       const n = envelope.length - lag;
-      for (let i = 0; i < n; i++) score += envelope[i] * envelope[i + lag];
-      score /= n;
+      if (n <= 0) continue;
+      let s = 0;
+      for (let i = 0; i < n; i++) s += envelope[i] * envelope[i + lag];
+      acf[lag] = s / n;
+    }
+    const binSum = {};
+    const binCnt = {};
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let bpm = frameRate * 60 / lag;
+      while (bpm > 160) bpm /= 2;
+      while (bpm < 80) bpm *= 2;
+      const b = Math.round(bpm);
+      binSum[b] = (binSum[b] ?? 0) + acf[lag];
+      binCnt[b] = (binCnt[b] ?? 0) + 1;
+    }
+    let bestBPM = 120, bestScore = -Infinity;
+    for (const b in binSum) {
+      const score = binSum[b] / binCnt[b];
       if (score > bestScore) {
         bestScore = score;
-        bestLag = lag;
+        bestBPM = +b;
       }
     }
-    let bpm = frameRate * 60 / bestLag;
-    while (bpm > 160) bpm /= 2;
-    while (bpm < 80) bpm *= 2;
-    return Math.round(bpm);
+    return bestBPM;
   }
   async function ensureNodes() {
     const ctx = getAudioCtx();
@@ -521,14 +550,49 @@
       state.playStartWallTime = state.audioCtx.currentTime;
     }
   }
-  function setVolume(v) {
+  function setVolume(v, persist = true) {
     state.volume = clamp(v, 0, 1);
     if (state.gainNode) state.gainNode.gain.value = state.volume;
     setVolumeDisplay(state.volume);
-    try {
+    if (persist) try {
       localStorage.setItem(STORAGE_VOLUME, String(state.volume));
     } catch (_) {
     }
+  }
+  var undoStack = [];
+  var redoStack = [];
+  var MAX_UNDO = 100;
+  function captureSnapshot() {
+    return { targetBPM: state.targetBPM, loopStartBeats: state.loopStartBeats, loopEndBeats: state.loopEndBeats, volume: state.volume };
+  }
+  function pushUndo() {
+    undoStack.push(captureSnapshot());
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function applySnapshot(snap) {
+    setTargetBPM(snap.targetBPM, false);
+    setLoopPoints(snap.loopStartBeats, snap.loopEndBeats, false);
+    setVolume(snap.volume, false);
+    persistCurrentFileSettings();
+    try {
+      localStorage.setItem(STORAGE_VOLUME, String(snap.volume));
+    } catch (_) {
+    }
+  }
+  function undo() {
+    if (undoStack.length === 0) return;
+    redoStack.push(captureSnapshot());
+    applySnapshot(undoStack.pop());
+  }
+  function redo() {
+    if (redoStack.length === 0) return;
+    undoStack.push(captureSnapshot());
+    applySnapshot(redoStack.pop());
+  }
+  function clearUndoHistory() {
+    undoStack.length = 0;
+    redoStack.length = 0;
   }
   var dragTarget = null;
   function bpmFromClientX(clientX) {
@@ -542,6 +606,7 @@
     return clamp(t, 0, 1);
   }
   function onPointerDown(e, target) {
+    pushUndo();
     dragTarget = target;
     if (target === "bpm") {
       setTargetBPM(bpmFromClientX(e.clientX));
@@ -576,6 +641,43 @@
   volumeSection.addEventListener("pointermove", (e) => onPointerMove(e));
   volumeSection.addEventListener("pointerup", (e) => onPointerUp(e));
   volumeSection.addEventListener("pointercancel", (e) => onPointerUp(e));
+  var dragLoopMoving = false;
+  var dragLoopMoveStartX = 0;
+  var dragLoopMoveStartBeats = 0;
+  var dragLoopMoveSpan = 0;
+  loopHint.addEventListener("pointerdown", (e) => {
+    if (!state.originalBuffer) return;
+    e.stopPropagation();
+    pushUndo();
+    loopHint.setPointerCapture(e.pointerId);
+    dragLoopMoving = true;
+    dragLoopMoveStartX = e.clientX;
+    dragLoopMoveStartBeats = state.loopStartBeats;
+    dragLoopMoveSpan = state.loopEndBeats - state.loopStartBeats;
+    resetInactivityTimer();
+  });
+  loopHint.addEventListener("pointermove", (e) => {
+    if (!dragLoopMoving) return;
+    const r = loopSection.getBoundingClientRect();
+    const total = totalBeats();
+    const deltaBeats = Math.round((e.clientX - dragLoopMoveStartX) / r.width * total);
+    const newStart = clamp(dragLoopMoveStartBeats + deltaBeats, 0, total - dragLoopMoveSpan);
+    setLoopPoints(newStart, newStart + dragLoopMoveSpan);
+  });
+  loopHint.addEventListener("pointerup", (e) => {
+    dragLoopMoving = false;
+    try {
+      loopHint.releasePointerCapture(e.pointerId);
+    } catch (_) {
+    }
+  });
+  loopHint.addEventListener("pointercancel", (e) => {
+    dragLoopMoving = false;
+    try {
+      loopHint.releasePointerCapture(e.pointerId);
+    } catch (_) {
+    }
+  });
   var dragLoop = null;
   function loopSecsFromClientX(clientX) {
     const r = loopSection.getBoundingClientRect();
@@ -590,6 +692,7 @@
   }
   loopSection.addEventListener("pointerdown", (e) => {
     if (!state.originalBuffer) return;
+    pushUndo();
     loopSection.setPointerCapture(e.pointerId);
     const secs = loopSecsFromClientX(e.clientX);
     dragLoop = Math.abs(secs - loopStartSecs()) <= Math.abs(secs - loopEndSecs()) ? "a" : "b";
@@ -728,7 +831,11 @@
     const tag = e.target.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     resetInactivityTimer();
-    if (e.key === " ") {
+    if (e.key === "z" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    } else if (e.key === " ") {
       e.preventDefault();
       if (e.shiftKey) {
         if (state.isPlaying) {
@@ -743,10 +850,19 @@
       stopSource();
       state.pausedBufferPos = 0;
       play();
-    } else if (e.key === "]") setTargetBPM(state.targetBPM + 5);
-    else if (e.key === "[") setTargetBPM(state.targetBPM - 5);
-    else if (e.key === "=") setTargetBPM(state.targetBPM + 1);
-    else if (e.key === "-") setTargetBPM(state.targetBPM - 1);
+    } else if (e.key === "]") {
+      pushUndo();
+      setTargetBPM(state.targetBPM + 5);
+    } else if (e.key === "[") {
+      pushUndo();
+      setTargetBPM(state.targetBPM - 5);
+    } else if (e.key === "=") {
+      pushUndo();
+      setTargetBPM(state.targetBPM + 1);
+    } else if (e.key === "-") {
+      pushUndo();
+      setTargetBPM(state.targetBPM - 1);
+    }
   });
   function setTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
@@ -812,6 +928,7 @@
   });
   async function processArrayBuffer(arrayBuffer, name, id = encodeURIComponent(name)) {
     stopSource();
+    clearUndoHistory();
     state.originalBuffer = null;
     state.pausedBufferPos = 0;
     state.currentFileId = id;
