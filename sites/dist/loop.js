@@ -8267,7 +8267,7 @@
   var waveformPeaks = null;
   function computeWaveform(buffer2) {
     const buckets = 1200;
-    const peaks = new Float32Array(buckets);
+    const raw = new Float32Array(buckets);
     const nCh = buffer2.numberOfChannels;
     const len = buffer2.length;
     const step = len / buckets;
@@ -8282,9 +8282,29 @@
           if (v > peak) peak = v;
         }
       }
-      peaks[b] = peak;
+      raw[b] = peak;
     }
-    waveformPeaks = peaks;
+    const radius = 18;
+    const sigma = radius / 2;
+    const kernel = [];
+    let kernelSum = 0;
+    for (let j = -radius; j <= radius; j++) {
+      const w = Math.exp(-0.5 * (j / sigma) ** 2);
+      kernel.push(w);
+      kernelSum += w;
+    }
+    for (let j = 0; j < kernel.length; j++) kernel[j] /= kernelSum;
+    const smoothed = new Float32Array(buckets);
+    for (let b = 0; b < buckets; b++) {
+      let v = 0;
+      for (let j = -radius; j <= radius; j++) {
+        const idx = clamp(b + j, 0, buckets - 1);
+        v += raw[idx] * kernel[j + radius];
+      }
+      smoothed[b] = v;
+    }
+    for (let b = 0; b < buckets; b++) smoothed[b] = smoothed[b] ** 1.5;
+    waveformPeaks = smoothed;
   }
   function drawWaveformOnCanvas(canvas) {
     if (!waveformPeaks) return;
@@ -9040,7 +9060,7 @@
       dlBtn.type = "button";
       dlBtn.className = "loop-icon-btn loop-download-btn";
       dlBtn.title = "Download loop";
-      dlBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v9M4 7l4 4 4-4M2 13h12"/></svg>`;
+      dlBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v9M4 7l4 4 4-4M2 13h12"/></svg>`;
       const loopId = loop.id;
       dlBtn.addEventListener("click", (e) => {
         e.stopPropagation();
