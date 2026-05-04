@@ -8261,6 +8261,9 @@
       tx.onerror = () => reject(tx.error);
     });
   }
+  function genId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
   function loadFileSettings(id) {
     try {
       return JSON.parse(localStorage.getItem(`loop_file_${id}`) ?? "{}");
@@ -8268,13 +8271,21 @@
       return {};
     }
   }
+  function syncStateToActiveLoop() {
+    const loop = state.loops.find((l) => l.id === state.activeLoopId);
+    if (loop) {
+      loop.startBeats = state.loopStartBeats;
+      loop.endBeats = state.loopEndBeats;
+      loop.targetBPM = state.targetBPM;
+    }
+  }
   function persistCurrentFileSettings() {
     if (!state.currentFileId) return;
+    syncStateToActiveLoop();
     try {
       localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
-        targetBPM: state.targetBPM,
-        loopStartBeats: state.loopStartBeats,
-        loopEndBeats: state.loopEndBeats
+        loops: state.loops,
+        activeLoopId: state.activeLoopId
       }));
     } catch (_) {
     }
@@ -8296,7 +8307,9 @@
     pausedBufferPos: 0,
     metronomeEnabled: false,
     currentFileId: null,
-    beatTicks: null
+    beatTicks: null,
+    loops: [],
+    activeLoopId: null
   };
   function getAudioCtx() {
     if (!state.audioCtx) state.audioCtx = new AudioContext();
@@ -8313,12 +8326,13 @@
   var volumeReadout = document.getElementById("volume-readout");
   var statusHint = document.getElementById("status-hint");
   var detectedTick = document.getElementById("detected-tick");
-  var loopSection = document.getElementById("loop-section");
-  var loopBetween = document.getElementById("loop-between");
-  var loopHint = document.getElementById("loop-hint");
-  var loopPlayhead = document.getElementById("loop-playhead");
-  var loopStartLabel = document.getElementById("loop-start-label");
-  var loopEndLabel = document.getElementById("loop-end-label");
+  var activeLoopCard = null;
+  var loopBetween = null;
+  var loopHint = null;
+  var loopPlayhead = null;
+  var loopStartLabel = null;
+  var loopEndLabel = null;
+  var loopLengthInput = null;
   function setBpmDisplay(bpm) {
     bpmReadout.textContent = `${Math.round(bpm)} BPM`;
     const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
@@ -8344,7 +8358,8 @@
   function loopEndSecs() {
     return state.loopEndBeats * beatDurationSecs();
   }
-  function updateLoopDisplay() {
+  function updateActiveLoopCardDisplay() {
+    if (!loopBetween || !loopHint || !loopStartLabel || !loopEndLabel) return;
     const total = totalBeats();
     if (total === 0) return;
     const startFrac = state.loopStartBeats / total;
@@ -8357,6 +8372,23 @@
     loopStartLabel.style.left = `${startFrac * 100}%`;
     loopEndLabel.textContent = String(state.loopEndBeats);
     loopEndLabel.style.left = `${endFrac * 100}%`;
+  }
+  function updateInactiveCardDisplay(card, loop) {
+    const between = card.querySelector(".loop-between");
+    const hint = card.querySelector(".loop-hint");
+    const startLbl = card.querySelector(".loop-start-label");
+    const endLbl = card.querySelector(".loop-end-label");
+    const total = totalBeats();
+    if (total === 0) return;
+    const startFrac = loop.startBeats / total;
+    const endFrac = loop.endBeats / total;
+    between.style.left = `${startFrac * 100}%`;
+    between.style.width = `${(endFrac - startFrac) * 100}%`;
+    hint.textContent = String(loop.endBeats - loop.startBeats);
+    startLbl.textContent = String(loop.startBeats);
+    startLbl.style.left = `${startFrac * 100}%`;
+    endLbl.textContent = String(loop.endBeats);
+    endLbl.style.left = `${endFrac * 100}%`;
   }
   var playheadRaf = null;
   function currentLoopedBufferPos() {
@@ -8373,7 +8405,7 @@
     if (!state.isPlaying || !state.originalBuffer) return;
     const pos = currentLoopedBufferPos();
     const frac = pos / state.originalBuffer.duration;
-    loopPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+    if (loopPlayhead) loopPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
     playheadRaf = requestAnimationFrame(tickPlayhead);
   }
   function startPlayhead() {
@@ -8397,7 +8429,7 @@
     const newEnd = clamp(endBeats, newStart + 1, total);
     state.loopStartBeats = newStart;
     state.loopEndBeats = newEnd;
-    updateLoopDisplay();
+    updateActiveLoopCardDisplay();
     if (state.currentSource) {
       state.currentSource.loopStart = loopStartSecs();
       state.currentSource.loopEnd = loopEndSecs();
@@ -8470,11 +8502,16 @@
     }
     return best;
   }
-  function downloadLoop() {
+  function downloadLoopById(id) {
     if (!state.originalBuffer) return;
+    const loop = state.loops.find((l) => l.id === id);
+    if (!loop) return;
     const buf = state.originalBuffer;
-    const startSnapped = Math.max(0, snapToNearestTick(loopStartSecs()));
-    const endSnapped = Math.min(buf.duration, snapToNearestTick(loopEndSecs()));
+    const beatDur = 60 / state.detectedBPM;
+    const startSecs = loop.startBeats * beatDur;
+    const endSecs = loop.endBeats * beatDur;
+    const startSnapped = Math.max(0, snapToNearestTick(startSecs));
+    const endSnapped = Math.min(buf.duration, snapToNearestTick(endSecs));
     const sr = buf.sampleRate;
     const startSample = Math.floor(startSnapped * sr);
     const endSample = Math.min(Math.ceil(endSnapped * sr), buf.length);
@@ -8491,11 +8528,15 @@
     const a = document.createElement("a");
     a.href = url;
     const name = (fileSelect.selectedOptions[0]?.textContent ?? "loop").replace(/\.[^.]+$/, "");
-    a.download = `${name}_loop.wav`;
+    const loopIdx = state.loops.findIndex((l) => l.id === id) + 1;
+    a.download = state.loops.length > 1 ? `${name}_loop${loopIdx}.wav` : `${name}_loop.wav`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1e4);
+  }
+  function downloadLoop() {
+    if (state.activeLoopId) downloadLoopById(state.activeLoopId);
   }
   window.downloadLoop = downloadLoop;
   async function ensureNodes() {
@@ -8771,62 +8812,14 @@
   var loopDragSpan = 0;
   var loopDragDidMove = false;
   var loopDragInitialTarget = null;
-  loopSection.addEventListener("pointerdown", (e) => {
-    if (!state.originalBuffer) return;
-    if (document.activeElement === loopLengthInput) return;
-    pushUndo();
-    loopSection.setPointerCapture(e.pointerId);
-    loopDragActive = true;
-    loopDragStartX = e.clientX;
-    loopDragStartBeats = state.loopStartBeats;
-    loopDragSpan = state.loopEndBeats - state.loopStartBeats;
-    loopDragDidMove = false;
-    loopDragInitialTarget = e.target;
-    loopSection.classList.add("dragging");
-    resetInactivityTimer();
-  });
-  loopSection.addEventListener("pointermove", (e) => {
-    if (!loopDragActive) return;
-    if (e.clientX !== loopDragStartX) loopDragDidMove = true;
-    if (!loopDragDidMove) return;
-    const r = loopSection.getBoundingClientRect();
-    const total = totalBeats();
-    const deltaBeats = Math.round((e.clientX - loopDragStartX) / r.width * total);
-    const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total - loopDragSpan);
-    setLoopPoints(newStart, newStart + loopDragSpan);
-  });
-  loopSection.addEventListener("pointerup", (e) => {
-    const didMove = loopDragDidMove;
-    const initialTarget = loopDragInitialTarget;
-    loopDragActive = false;
-    loopDragDidMove = false;
-    loopDragInitialTarget = null;
-    loopSection.classList.remove("dragging");
-    try {
-      loopSection.releasePointerCapture(e.pointerId);
-    } catch (_) {
-    }
-    if (!didMove && initialTarget?.closest("#loop-hint")) {
-      enterLoopLengthEdit();
-      return;
-    }
-    if (didMove && state.originalBuffer && state.rbNode) {
-      const wasPlaying = state.isPlaying;
-      stopSource();
-      if (wasPlaying) startSource(loopStartSecs());
-      else state.pausedBufferPos = loopStartSecs();
-    }
-  });
-  loopSection.addEventListener("pointercancel", (e) => {
-    loopDragActive = false;
-    loopDragDidMove = false;
-    loopDragInitialTarget = null;
-    loopSection.classList.remove("dragging");
-    try {
-      loopSection.releasePointerCapture(e.pointerId);
-    } catch (_) {
-    }
-  });
+  function enterLoopLengthEdit() {
+    if (!loopLengthInput || !loopHint) return;
+    loopLengthInput.value = String(state.loopEndBeats - state.loopStartBeats);
+    loopLengthInput.style.display = "block";
+    loopHint.style.visibility = "hidden";
+    loopLengthInput.focus();
+    loopLengthInput.select();
+  }
   function evalArithmetic(expr) {
     if (!/^[\d\s+\-*/.()]+$/.test(expr)) return null;
     try {
@@ -8836,36 +8829,227 @@
       return null;
     }
   }
-  function enterLoopLengthEdit() {
-    loopLengthInput.value = String(state.loopEndBeats - state.loopStartBeats);
-    loopLengthInput.style.display = "block";
-    loopHint.style.visibility = "hidden";
-    loopLengthInput.focus();
-    loopLengthInput.select();
-  }
   function commitLoopLengthEdit() {
-    if (loopLengthInput.style.display === "none") return;
+    if (!loopLengthInput || loopLengthInput.style.display === "none") return;
     const v = evalArithmetic(loopLengthInput.value.trim());
     if (v !== null && v >= 1) {
       pushUndo();
       setLoopPoints(state.loopStartBeats, state.loopStartBeats + Math.round(v));
     }
     loopLengthInput.style.display = "none";
-    loopHint.style.visibility = "";
+    if (loopHint) loopHint.style.visibility = "";
   }
-  var loopLengthInput = document.getElementById("loop-length-input");
-  loopLengthInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      commitLoopLengthEdit();
-      e.preventDefault();
+  function setupActiveCardDrag(card) {
+    card.addEventListener("pointerdown", (e) => {
+      if (!state.originalBuffer) return;
+      if (e.target.closest(".loop-icon-btn")) return;
+      if (loopLengthInput && document.activeElement === loopLengthInput) return;
+      pushUndo();
+      card.setPointerCapture(e.pointerId);
+      loopDragActive = true;
+      loopDragStartX = e.clientX;
+      loopDragStartBeats = state.loopStartBeats;
+      loopDragSpan = state.loopEndBeats - state.loopStartBeats;
+      loopDragDidMove = false;
+      loopDragInitialTarget = e.target;
+      card.classList.add("dragging");
+      resetInactivityTimer();
+    });
+    card.addEventListener("pointermove", (e) => {
+      if (!loopDragActive) return;
+      if (e.clientX !== loopDragStartX) loopDragDidMove = true;
+      if (!loopDragDidMove) return;
+      const r = card.getBoundingClientRect();
+      const total = totalBeats();
+      const deltaBeats = Math.round((e.clientX - loopDragStartX) / r.width * total);
+      const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total - loopDragSpan);
+      setLoopPoints(newStart, newStart + loopDragSpan);
+    });
+    card.addEventListener("pointerup", (e) => {
+      const didMove = loopDragDidMove;
+      const initialTarget = loopDragInitialTarget;
+      loopDragActive = false;
+      loopDragDidMove = false;
+      loopDragInitialTarget = null;
+      card.classList.remove("dragging");
+      try {
+        card.releasePointerCapture(e.pointerId);
+      } catch (_) {
+      }
+      if (!didMove && initialTarget?.closest(".loop-hint")) {
+        enterLoopLengthEdit();
+        return;
+      }
+      if (didMove && state.originalBuffer && state.rbNode) {
+        const wasPlaying = state.isPlaying;
+        stopSource();
+        if (wasPlaying) startSource(loopStartSecs());
+        else state.pausedBufferPos = loopStartSecs();
+      }
+    });
+    card.addEventListener("pointercancel", (e) => {
+      loopDragActive = false;
+      loopDragDidMove = false;
+      loopDragInitialTarget = null;
+      card.classList.remove("dragging");
+      try {
+        card.releasePointerCapture(e.pointerId);
+      } catch (_) {
+      }
+    });
+  }
+  function switchToLoop(id) {
+    if (id === state.activeLoopId) return;
+    commitLoopLengthEdit();
+    syncStateToActiveLoop();
+    state.activeLoopId = id;
+    const loop = state.loops.find((l) => l.id === id);
+    if (!loop) return;
+    clearUndoHistory();
+    setTargetBPM(loop.targetBPM, false);
+    setLoopPoints(loop.startBeats, loop.endBeats, false);
+    const wasPlaying = state.isPlaying;
+    stopSource();
+    if (wasPlaying) startSource(loopStartSecs());
+    else state.pausedBufferPos = loopStartSecs();
+    persistCurrentFileSettings();
+    renderLoopCards();
+  }
+  function addLoop() {
+    if (!state.originalBuffer) return;
+    syncStateToActiveLoop();
+    const active = state.loops.find((l) => l.id === state.activeLoopId);
+    const newId = genId();
+    const newLoop = active ? { id: newId, startBeats: active.startBeats, endBeats: active.endBeats, targetBPM: active.targetBPM } : { id: newId, startBeats: 0, endBeats: totalBeats(), targetBPM: state.detectedBPM };
+    state.loops.push(newLoop);
+    state.activeLoopId = newId;
+    clearUndoHistory();
+    setTargetBPM(newLoop.targetBPM, false);
+    setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
+    persistCurrentFileSettings();
+    renderLoopCards();
+  }
+  function deleteLoop(id) {
+    if (state.loops.length <= 1) return;
+    const idx = state.loops.findIndex((l) => l.id === id);
+    if (idx === -1) return;
+    state.loops.splice(idx, 1);
+    if (state.activeLoopId === id) {
+      const newActive = state.loops[Math.min(idx, state.loops.length - 1)];
+      state.activeLoopId = newActive.id;
+      clearUndoHistory();
+      setTargetBPM(newActive.targetBPM, false);
+      setLoopPoints(newActive.startBeats, newActive.endBeats, false);
+      const wasPlaying = state.isPlaying;
+      stopSource();
+      if (wasPlaying) startSource(loopStartSecs());
+      else state.pausedBufferPos = loopStartSecs();
     }
-    if (e.key === "Escape") {
+    persistCurrentFileSettings();
+    renderLoopCards();
+  }
+  function renderLoopCards() {
+    const container = document.getElementById("loops-container");
+    const addRow = document.getElementById("add-loop-row");
+    if (loopLengthInput && loopLengthInput.style.display !== "none") {
+      const v = evalArithmetic(loopLengthInput.value.trim());
+      if (v !== null && v >= 1) setLoopPoints(state.loopStartBeats, state.loopStartBeats + Math.round(v));
       loopLengthInput.style.display = "none";
-      loopHint.style.visibility = "";
     }
-  });
-  loopLengthInput.addEventListener("blur", commitLoopLengthEdit);
-  loopLengthInput.addEventListener("pointerdown", (e) => e.stopPropagation());
+    activeLoopCard = null;
+    loopBetween = null;
+    loopHint = null;
+    loopPlayhead = null;
+    loopStartLabel = null;
+    loopEndLabel = null;
+    loopLengthInput = null;
+    container.innerHTML = "";
+    for (const loop of state.loops) {
+      const isActive = loop.id === state.activeLoopId;
+      const card = document.createElement("div");
+      card.className = "loop-card" + (isActive ? " active" : "");
+      card.dataset.loopId = loop.id;
+      const between = document.createElement("div");
+      between.className = "loop-between";
+      const hint = document.createElement("div");
+      hint.className = "loop-hint";
+      between.appendChild(hint);
+      const input = document.createElement("input");
+      input.className = "loop-length-input";
+      input.type = "text";
+      input.inputMode = "numeric";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.style.display = "none";
+      between.appendChild(input);
+      card.appendChild(between);
+      const startLbl = document.createElement("div");
+      startLbl.className = "loop-beat-label loop-start-label";
+      card.appendChild(startLbl);
+      const endLbl = document.createElement("div");
+      endLbl.className = "loop-beat-label loop-end-label";
+      card.appendChild(endLbl);
+      const playhead = document.createElement("div");
+      playhead.className = "loop-playhead";
+      card.appendChild(playhead);
+      const icons = document.createElement("div");
+      icons.className = "loop-card-icons";
+      const dlBtn = document.createElement("button");
+      dlBtn.type = "button";
+      dlBtn.className = "loop-icon-btn loop-download-btn";
+      dlBtn.title = "Download loop";
+      dlBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v9M4 7l4 4 4-4M2 13h12"/></svg>`;
+      const loopId = loop.id;
+      dlBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        downloadLoopById(loopId);
+      });
+      icons.appendChild(dlBtn);
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "loop-icon-btn loop-delete-btn";
+      delBtn.title = "Delete loop";
+      delBtn.innerHTML = "&times;";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteLoop(loopId);
+      });
+      icons.appendChild(delBtn);
+      card.appendChild(icons);
+      if (isActive) {
+        activeLoopCard = card;
+        loopBetween = between;
+        loopHint = hint;
+        loopPlayhead = playhead;
+        loopStartLabel = startLbl;
+        loopEndLabel = endLbl;
+        loopLengthInput = input;
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            commitLoopLengthEdit();
+            e.preventDefault();
+          }
+          if (e.key === "Escape") {
+            if (loopLengthInput) loopLengthInput.style.display = "none";
+            if (loopHint) loopHint.style.visibility = "";
+          }
+        });
+        input.addEventListener("blur", commitLoopLengthEdit);
+        input.addEventListener("pointerdown", (e) => e.stopPropagation());
+        setupActiveCardDrag(card);
+        updateActiveLoopCardDisplay();
+      } else {
+        card.addEventListener("pointerdown", (e) => {
+          if (e.target.closest(".loop-icon-btn")) return;
+          e.preventDefault();
+          switchToLoop(loopId);
+        });
+        updateInactiveCardDisplay(card, loop);
+      }
+      container.appendChild(card);
+    }
+    addRow.style.display = state.originalBuffer ? "flex" : "none";
+  }
   var swallowFirstControlPointer = false;
   var absorbingRefocusClick = false;
   var swallowPointerTimer = null;
@@ -8988,7 +9172,7 @@
           play();
         }
       } else togglePlay();
-    } else if (e.key === "r" || e.key === "R") {
+    } else if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       stopSource();
       state.pausedBufferPos = 0;
@@ -9087,6 +9271,9 @@
     state.originalBuffer = null;
     state.pausedBufferPos = 0;
     state.currentFileId = id;
+    state.loops = [];
+    state.activeLoopId = null;
+    renderLoopCards();
     setStatus("Decoding\u2026");
     try {
       const ctx = getAudioCtx();
@@ -9110,19 +9297,35 @@
       const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
       detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
       detectedTick.style.display = "block";
-      const settings = loadFileSettings(id);
-      setTargetBPM(settings.targetBPM ?? bpm, false);
       const total = Math.floor(decoded.duration * bpm / 60);
-      const s = settings.loopStartBeats, e = settings.loopEndBeats;
-      const hasValidLoop = s != null && e != null && s >= 0 && e <= total && s < e;
-      setLoopPoints(hasValidLoop ? s : 0, hasValidLoop ? e : total, false);
+      const settings = loadFileSettings(id);
+      if (settings.loops && settings.loops.length > 0) {
+        state.loops = settings.loops;
+        const savedActiveId = settings.activeLoopId;
+        const activeExists = savedActiveId && state.loops.some((l) => l.id === savedActiveId);
+        state.activeLoopId = activeExists ? savedActiveId : state.loops[0].id;
+      } else {
+        const s = settings.loopStartBeats, e = settings.loopEndBeats;
+        const hasValidLoop = s != null && e != null && s >= 0 && e <= total && s < e;
+        const loopId = genId();
+        state.loops = [{
+          id: loopId,
+          startBeats: hasValidLoop ? s : 0,
+          endBeats: hasValidLoop ? e : total,
+          targetBPM: settings.targetBPM ?? bpm
+        }];
+        state.activeLoopId = loopId;
+      }
+      const activeLoop = state.loops.find((l) => l.id === state.activeLoopId);
+      setTargetBPM(activeLoop.targetBPM, false);
+      setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
       persistCurrentFileSettings();
       setStatus("Loading\u2026");
       await ensureNodes();
       const mins = Math.floor(decoded.duration / 60);
       const secs = Math.round(decoded.duration % 60).toString().padStart(2, "0");
       setStatus(`${mins}:${secs} \xB7 detected ${bpm} BPM`);
-      document.getElementById("download-btn")?.classList.add("visible");
+      renderLoopCards();
       try {
         localStorage.setItem(STORAGE_LAST_FILE, id);
       } catch (_) {
@@ -9160,6 +9363,7 @@
   fileInput.addEventListener("change", () => {
     if (fileInput.files?.[0]) processFile(fileInput.files[0]);
   });
+  document.getElementById("add-loop-btn").addEventListener("click", addLoop);
   (function init() {
     try {
       const saved = localStorage.getItem(STORAGE_THEME);
@@ -9189,6 +9393,7 @@
     }
     setBpmDisplay(state.targetBPM);
     setVolumeDisplay(state.volume);
+    renderLoopCards();
     syncWindowFocusClasses();
     resetInactivityTimer();
     loadAllFilesMeta().then(async (files) => {

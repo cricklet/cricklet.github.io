@@ -80,25 +80,80 @@
     }
 
     #main-area {
-      flex: 9 1 0;
+      flex: 1 1 0;
       min-height: 0;
       position: relative;
       border-bottom: 1px solid var(--section-divider);
     }
 
     #bpm-section {
-      flex: 2 1 0;
-      min-height: 0;
+      flex: 0 0 72px;
       border-bottom: 1px solid var(--section-divider);
     }
 
-    #loop-section {
-      flex: 2 1 0;
-      min-height: 0;
+    #volume-section {
+      flex: 0 0 52px;
+    }
+
+    /* Loops container */
+    #loops-container {
+      flex: 0 0 auto;
+      overflow-y: auto;
+      max-height: 320px;
+    }
+
+    #add-loop-row {
+      flex: 0 0 auto;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      padding: 5px 0;
       border-bottom: 1px solid var(--section-divider);
     }
 
-    #loop-between {
+    #add-loop-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.1);
+      border: none;
+      color: rgba(128, 128, 128, 0.55);
+      font-size: 1.15rem;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      transition: background 0.15s;
+    }
+
+    #add-loop-btn:hover {
+      background: rgba(128, 128, 128, 0.28);
+    }
+
+    #add-loop-btn:focus { outline: none; }
+
+    /* Loop cards */
+    .loop-card {
+      position: relative;
+      height: 54px;
+      width: 100%;
+      flex-shrink: 0;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+      border-bottom: 1px solid var(--section-divider);
+      background: var(--section-track);
+    }
+
+    .loop-card.dragging { cursor: grabbing; }
+
+    .loop-card:not(.active) {
+      opacity: 0.42;
+    }
+
+    .loop-between {
       position: absolute;
       top: 0;
       bottom: 0;
@@ -108,18 +163,14 @@
       z-index: 0;
     }
 
-    #loop-section { cursor: grab; }
-    #loop-section.dragging { cursor: grabbing; }
-
-    #loop-hint {
+    .loop-hint {
       position: absolute;
       left: 50%;
       top: 50%;
       transform: translate(-50%, -50%);
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(1.1rem, 3.6vmin, 1.6rem);
+      font-size: clamp(1rem, 3.2vmin, 1.5rem);
       white-space: nowrap;
-      color: var(--text-color);
       opacity: 0.5;
       padding: 4px 8px;
       cursor: text;
@@ -128,12 +179,21 @@
       transition: border-color 0.15s, opacity 0.15s;
     }
 
-    #loop-hint:hover {
+    .loop-card.active .loop-hint {
+      color: #2a2a2a;
       opacity: 0.8;
+    }
+
+    .loop-card.active .loop-hint:hover {
+      opacity: 1;
       border-bottom-color: currentColor;
     }
 
-    #loop-length-input {
+    .loop-card:not(.active) .loop-hint {
+      opacity: 0.35;
+    }
+
+    .loop-length-input {
       display: none;
       position: absolute;
       left: 50%;
@@ -141,7 +201,7 @@
       transform: translate(-50%, -50%);
       width: 8em;
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(1.1rem, 3.6vmin, 1.6rem);
+      font-size: clamp(1rem, 3.2vmin, 1.5rem);
       font-weight: inherit;
       background: var(--bg-color);
       color: var(--text-color);
@@ -159,23 +219,26 @@
       position: absolute;
       top: 50%;
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(0.6rem, 2vmin, 0.85rem);
-      color: var(--text-color);
+      font-size: clamp(0.55rem, 1.8vmin, 0.8rem);
       opacity: 0.5;
       pointer-events: none;
       z-index: 1;
       white-space: nowrap;
     }
 
-    #loop-start-label {
+    .loop-card.active .loop-beat-label {
+      color: #2a2a2a;
+    }
+
+    .loop-start-label {
       transform: translate(calc(-100% - 6px), -50%);
     }
 
-    #loop-end-label {
+    .loop-end-label {
       transform: translate(6px, -50%);
     }
 
-    #loop-playhead {
+    .loop-playhead {
       position: absolute;
       top: 0;
       bottom: 0;
@@ -187,12 +250,45 @@
       transition: opacity 0.2s;
     }
 
-    body:not(.playing) #loop-playhead { opacity: 0; }
+    body:not(.playing) .loop-playhead { opacity: 0; }
 
-    #volume-section {
-      flex: 1 1 0;
-      min-height: 0;
+    /* Loop card hover icons */
+    .loop-card-icons {
+      position: absolute;
+      top: 5px;
+      right: 6px;
+      display: none;
+      align-items: center;
+      gap: 3px;
+      z-index: 4;
     }
+
+    .loop-card:hover .loop-card-icons {
+      display: flex;
+    }
+
+    .loop-icon-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.18);
+      border: none;
+      cursor: pointer;
+      color: rgba(80, 80, 80, 0.9);
+      padding: 0;
+      font-size: 0.75rem;
+      line-height: 1;
+      transition: background 0.12s;
+    }
+
+    .loop-icon-btn:hover {
+      background: rgba(128, 128, 128, 0.38);
+    }
+
+    .loop-icon-btn:focus { outline: none; }
 
     #detected-tick {
       position: absolute;
@@ -238,14 +334,12 @@
 
     #bpm-section .readout {
       font-size: clamp(1.4rem, 5vmin, 2.5rem);
+      color: #2a2a2a;
     }
 
     #volume-section .readout {
       font-size: clamp(1.25rem, 4vmin, 2.25rem);
-    }
-
-    body:not(.playing) .readout {
-      opacity: 0.35;
+      color: #2a2a2a;
     }
 
     #status-hint {
@@ -357,27 +451,6 @@
       border-color: var(--text-color);
     }
 
-    #download-btn {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      background: rgba(128, 128, 128, 0.25);
-      color: rgba(128, 128, 128, 0.75);
-      cursor: pointer;
-      padding: 0;
-      border: 1.5px solid transparent;
-      opacity: 0;
-      transition: opacity 0.2s;
-    }
-
-    #download-btn.visible { display: inline-flex; }
-    body:hover #download-btn.visible { opacity: 1; }
-    #download-btn:hover { transform: scale(1.08); }
-    #download-btn:focus { outline: none; }
-
     body.drag-over::after {
       content: 'Drop audio file';
       position: fixed;
@@ -406,15 +479,15 @@
     <select id="file-select" aria-label="Loaded files"></select>
     <div id="top-bar-right">
       <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
-      <button type="button" id="download-btn" onclick="downloadLoop()" title="Download loop as WAV">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 1v9M4 7l4 4 4-4M2 13h12"/>
-        </svg>
-      </button>
     </div>
   </div>
 
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+
+  <div id="loops-container"></div>
+  <div id="add-loop-row">
+    <button type="button" id="add-loop-btn" title="Add loop">+</button>
+  </div>
 
   <div id="main-area">
     <div id="status-hint">Drop an audio file anywhere</div>
@@ -424,16 +497,6 @@
     <div id="bpm-fill" class="fill" aria-hidden="true"></div>
     <div id="detected-tick" aria-hidden="true"></div>
     <div id="bpm-readout" class="readout">— BPM</div>
-  </div>
-
-  <div id="loop-section" class="control-section" aria-label="Loop points: click to set A/B">
-    <div id="loop-between">
-      <div id="loop-hint">—</div>
-      <input id="loop-length-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
-    </div>
-    <div id="loop-start-label" class="loop-beat-label"></div>
-    <div id="loop-end-label" class="loop-beat-label"></div>
-    <div id="loop-playhead"></div>
   </div>
 
   <div id="volume-section" class="control-section" aria-label="Volume: drag horizontally">
