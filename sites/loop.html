@@ -108,6 +108,9 @@
       z-index: 0;
     }
 
+    #loop-section { cursor: grab; }
+    #loop-section.dragging { cursor: grabbing; }
+
     #loop-hint {
       position: absolute;
       left: 50%;
@@ -118,12 +121,39 @@
       white-space: nowrap;
       color: var(--text-color);
       opacity: 0.5;
-      padding: 4px;
-      cursor: grab;
+      padding: 4px 8px;
+      cursor: text;
       pointer-events: auto;
+      border-bottom: 1px dashed transparent;
+      transition: border-color 0.15s, opacity 0.15s;
     }
 
-    #loop-hint:active { cursor: grabbing; }
+    #loop-hint:hover {
+      opacity: 0.8;
+      border-bottom-color: currentColor;
+    }
+
+    #loop-length-input {
+      display: none;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 8em;
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(1.1rem, 3.6vmin, 1.6rem);
+      font-weight: inherit;
+      background: var(--bg-color);
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 2px 6px;
+      text-align: center;
+      outline: none;
+      z-index: 3;
+      user-select: text;
+      -webkit-user-select: text;
+    }
 
     .loop-beat-label {
       position: absolute;
@@ -327,6 +357,27 @@
       border-color: var(--text-color);
     }
 
+    #download-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
+      cursor: pointer;
+      padding: 0;
+      border: 1.5px solid transparent;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    #download-btn.visible { display: inline-flex; }
+    body:hover #download-btn.visible { opacity: 1; }
+    #download-btn:hover { transform: scale(1.08); }
+    #download-btn:focus { outline: none; }
+
     body.drag-over::after {
       content: 'Drop audio file';
       position: fixed;
@@ -355,6 +406,11 @@
     <select id="file-select" aria-label="Loaded files"></select>
     <div id="top-bar-right">
       <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
+      <button type="button" id="download-btn" onclick="downloadLoop()" title="Download loop as WAV">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 1v9M4 7l4 4 4-4M2 13h12"/>
+        </svg>
+      </button>
     </div>
   </div>
 
@@ -373,6 +429,7 @@
   <div id="loop-section" class="control-section" aria-label="Loop points: click to set A/B">
     <div id="loop-between">
       <div id="loop-hint">—</div>
+      <input id="loop-length-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
     </div>
     <div id="loop-start-label" class="loop-beat-label"></div>
     <div id="loop-end-label" class="loop-beat-label"></div>

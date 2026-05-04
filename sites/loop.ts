@@ -1,6 +1,29 @@
 import { createRubberBandNode, RubberBandNode } from 'rubberband-web';
 // @ts-ignore — esbuild inlines this as a string via --loader:.txt=text
 import processorSrc from './rubberband-processor.txt';
+// @ts-ignore
+import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
+// @ts-ignore
+import EssentiaCore from 'essentia.js/dist/essentia.js-core.es.js';
+
+// Essentia singleton — lazily initialized on first audio load.
+// essentia-wasm.es.js uses onRuntimeInitialized (not .ready), and with inlined
+// base64 WASM it usually finishes synchronously before our code runs.
+let essentiaPromise: Promise<any> | null = null;
+function getEssentia(): Promise<any> {
+  if (!essentiaPromise) {
+    essentiaPromise = new Promise<any>(resolve => {
+      if ((EssentiaWASM as any).EssentiaJS) {
+        resolve(new EssentiaCore(EssentiaWASM));
+      } else {
+        (EssentiaWASM as any)['onRuntimeInitialized'] = () => {
+          resolve(new EssentiaCore(EssentiaWASM));
+        };
+      }
+    });
+  }
+  return essentiaPromise;
+}
 
 const BPM_MIN = 40;
 const BPM_MAX = 300;
@@ -11,24 +34,51 @@ const STORAGE_LAST_FILE = 'loop_last_file';
 
 // IndexedDB helpers
 const DB_NAME = 'loop-player';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const DB_STORE_FILES = 'files';  // { id, buffer }
 const DB_STORE_META = 'meta';    // { id, name, addedAt }
+const DB_STORE_BEATS = 'beats';  // { id, bpm, ticks: Float32Array }
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (e) => {
       const db = req.result;
+      // v2→v3: recreate files+meta (same schema) and add beats store
       if (db.objectStoreNames.contains(DB_STORE_FILES)) db.deleteObjectStore(DB_STORE_FILES);
       if (db.objectStoreNames.contains(DB_STORE_META)) db.deleteObjectStore(DB_STORE_META);
+      if (db.objectStoreNames.contains(DB_STORE_BEATS)) db.deleteObjectStore(DB_STORE_BEATS);
       db.createObjectStore(DB_STORE_FILES, { keyPath: 'id' });
       const metaStore = db.createObjectStore(DB_STORE_META, { keyPath: 'id' });
       metaStore.createIndex('addedAt', 'addedAt');
+      db.createObjectStore(DB_STORE_BEATS, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function loadBeatCache(id: string): Promise<{ bpm: number; ticks: Float32Array } | null> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(DB_STORE_BEATS, 'readonly').objectStore(DB_STORE_BEATS).get(id);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch { return null; }
+}
+
+async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE_BEATS, 'readwrite');
+      tx.objectStore(DB_STORE_BEATS).put({ id, bpm, ticks });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* non-fatal */ }
 }
 
 async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string): Promise<void> {
@@ -106,6 +156,7 @@ interface AppState {
   pausedBufferPos: number;
   metronomeEnabled: boolean;
   currentFileId: string | null;
+  beatTicks: Float32Array | null;
 }
 
 const state: AppState = {
@@ -125,6 +176,7 @@ const state: AppState = {
   pausedBufferPos: 0,
   metronomeEnabled: false,
   currentFileId: null,
+  beatTicks: null,
 };
 
 function getAudioCtx(): AudioContext {
@@ -252,75 +304,102 @@ function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
   if (persist) persistCurrentFileSettings();
 }
 
-// BPM detection: low-pass downsample → onset envelope → folded-tempogram autocorrelation
-function detectBPM(buffer: AudioBuffer): number {
-  const sampleRate = buffer.sampleRate;
-  const windowSamples = Math.min(buffer.length, sampleRate * 20);
-  const midSample = Math.floor(buffer.length / 2);
-  const startSample = Math.max(0, midSample - Math.floor(windowSamples / 2));
-  const raw = buffer.getChannelData(0);
+// BPM + beat detection via Essentia RhythmExtractor2013 (multifeature).
+// Analyzes the full buffer so ticks cover the entire track for metronome sync.
+async function detectRhythm(buffer: AudioBuffer): Promise<{ bpm: number; ticks: Float32Array }> {
+  const essentia = await getEssentia();
+  const ctx = getAudioCtx();
 
-  // Block-average downsample by 4 — crude low-pass that emphasises kick/bass
-  const dsRate = 4;
-  const dsLen = Math.floor(windowSamples / dsRate);
-  const data = new Float32Array(dsLen);
-  for (let i = 0; i < dsLen; i++) {
-    let s = 0;
-    for (let j = 0; j < dsRate; j++) s += raw[startSample + i * dsRate + j];
-    data[i] = s / dsRate;
-  }
-  const dsSampleRate = sampleRate / dsRate;
+  // Suspend the AudioContext so the renderer doesn't crash while WASM blocks the main thread
+  const wasSuspended = ctx.state === 'suspended';
+  if (ctx.state === 'running') await ctx.suspend();
 
-  const hopSize = 128;
-  const winSize = 512;
-  const numFrames = Math.floor((dsLen - winSize) / hopSize);
-  const envelope = new Float32Array(numFrames);
-  let prevEnergy = 0;
-  for (let i = 0; i < numFrames; i++) {
-    const start = i * hopSize;
-    let energy = 0;
-    for (let j = start; j < start + winSize; j++) energy += data[j] * data[j];
-    energy /= winSize;
-    envelope[i] = Math.max(0, energy - prevEnergy);
-    prevEnergy = energy;
+  let bpm: number;
+  let ticks: Float32Array;
+  try {
+    const mono = essentia.audioBufferToMonoSignal(buffer);
+    const signal = essentia.arrayToVector(mono);
+    const result = essentia.RhythmExtractor2013(signal, 208, 'multifeature', 40);
+    bpm = Math.round(result.bpm);
+    ticks = essentia.vectorToArray(result.ticks);
+  } finally {
+    if (!wasSuspended) await ctx.resume();
   }
 
-  // Search wide enough (55–215 BPM) so octave pairs like 65+130 and 88+176
-  // both fall within the search range and can contribute to the same bin.
-  const frameRate = dsSampleRate / hopSize;
-  const minLag = Math.max(1, Math.round((frameRate * 60) / 215));
-  const maxLag = Math.round((frameRate * 60) / 55);
-
-  const acf = new Float32Array(maxLag + 1);
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    const n = envelope.length - lag;
-    if (n <= 0) continue;
-    let s = 0;
-    for (let i = 0; i < n; i++) s += envelope[i] * envelope[i + lag];
-    acf[lag] = s / n;
-  }
-
-  // Folded tempogram: map every lag to its [80–160] BPM equivalent and
-  // accumulate evidence. Average per bin so denser slow-BPM bins don't
-  // unfairly dominate.
-  const binSum: Record<number, number> = {};
-  const binCnt: Record<number, number> = {};
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    let bpm = (frameRate * 60) / lag;
-    while (bpm > 160) bpm /= 2;
-    while (bpm < 80) bpm *= 2;
-    const b = Math.round(bpm);
-    binSum[b] = (binSum[b] ?? 0) + acf[lag];
-    binCnt[b] = (binCnt[b] ?? 0) + 1;
-  }
-
-  let bestBPM = 120, bestScore = -Infinity;
-  for (const b in binSum) {
-    const score = binSum[b] / binCnt[b];
-    if (score > bestScore) { bestScore = score; bestBPM = +b; }
-  }
-  return bestBPM;
+  return { bpm, ticks };
 }
+
+// WAV export helpers
+function writeStr(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+function encodeWav(segment: AudioBuffer): ArrayBuffer {
+  const nCh = segment.numberOfChannels;
+  const sr = segment.sampleRate;
+  const n = segment.length;
+  const dataSize = n * nCh * 2;
+  const buf = new ArrayBuffer(44 + dataSize);
+  const v = new DataView(buf);
+  writeStr(v, 0, 'RIFF'); v.setUint32(4, 36 + dataSize, true);
+  writeStr(v, 8, 'WAVE'); writeStr(v, 12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, nCh, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * nCh * 2, true); v.setUint16(32, nCh * 2, true);
+  v.setUint16(34, 16, true); writeStr(v, 36, 'data');
+  v.setUint32(40, dataSize, true);
+  const chs: Float32Array[] = [];
+  for (let c = 0; c < nCh; c++) chs.push(segment.getChannelData(c));
+  let off = 44;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < nCh; c++) {
+      const s = Math.max(-1, Math.min(1, chs[c][i]));
+      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      off += 2;
+    }
+  }
+  return buf;
+}
+
+function snapToNearestTick(secs: number): number {
+  const ticks = state.beatTicks;
+  if (!ticks || ticks.length === 0) return secs;
+  let best = ticks[0], bestDist = Math.abs(ticks[0] - secs);
+  for (let i = 1; i < ticks.length; i++) {
+    const d = Math.abs(ticks[i] - secs);
+    if (d < bestDist) { bestDist = d; best = ticks[i]; }
+  }
+  return best;
+}
+
+function downloadLoop() {
+  if (!state.originalBuffer) return;
+  const buf = state.originalBuffer;
+  const startSnapped = Math.max(0, snapToNearestTick(loopStartSecs()));
+  const endSnapped = Math.min(buf.duration, snapToNearestTick(loopEndSecs()));
+  const sr = buf.sampleRate;
+  const startSample = Math.floor(startSnapped * sr);
+  const endSample = Math.min(Math.ceil(endSnapped * sr), buf.length);
+  const length = Math.max(1, endSample - startSample);
+  const nCh = buf.numberOfChannels;
+  const ctx = getAudioCtx();
+  const segment = ctx.createBuffer(nCh, length, sr);
+  for (let c = 0; c < nCh; c++) {
+    segment.copyToChannel(buf.getChannelData(c).subarray(startSample, endSample), c);
+  }
+  const wavBuf = encodeWav(segment);
+  const blob = new Blob([wavBuf], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const name = (fileSelect.selectedOptions[0]?.textContent ?? 'loop').replace(/\.[^.]+$/, '');
+  a.download = `${name}_loop.wav`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+(window as any).downloadLoop = downloadLoop;
 
 async function ensureNodes(): Promise<{ rb: RubberBandNode; gain: GainNode }> {
   const ctx = getAudioCtx();
@@ -348,39 +427,80 @@ function currentBufferPos(): number {
 }
 
 // Metronome click
+// All times are in audioCtx.currentTime space so they align with playStartWallTime.
 let metronomeNextClickTime = 0;
 let metronomeRaf: number | null = null;
 
-function metronomeNowSec(): number {
-  return performance.now() / 1000;
-}
-
 function playMetronomeClick(when: number) {
+  const ctx = state.audioCtx;
+  if (!ctx) return;
   const el = document.getElementById('loop-click-audio') as HTMLAudioElement | null;
   if (!el) return;
-  const delayMs = Math.max(0, (when - metronomeNowSec()) * 1000);
+  const delayMs = Math.max(0, (when - ctx.currentTime) * 1000);
   window.setTimeout(() => {
     el.currentTime = 0;
     void el.play().catch(() => {});
   }, delayMs);
 }
 
-function scheduleMetronomeClicks() {
-  if (!state.metronomeEnabled || !state.isPlaying) return;
-  const lookahead = 0.08;
-  const now = metronomeNowSec();
-  while (metronomeNextClickTime < now + lookahead) {
-    if (metronomeNextClickTime >= now - 0.01) {
-      playMetronomeClick(metronomeNextClickTime);
+// Given a wall time, return the wall time of the next beat tick after it.
+// Uses state.beatTicks (actual beat positions from Essentia) mapped through the
+// loop range and playback-rate ratio. Falls back to a uniform BPM grid if ticks
+// aren't available.
+function nextTickWallTimeAfter(wallTime: number): number {
+  const ticks = state.beatTicks;
+  const lStart = loopStartSecs();
+  const lEnd = loopEndSecs();
+  const loopLen = lEnd - lStart;
+  const ratio = state.targetBPM / state.detectedBPM;
+
+  if (!ticks || ticks.length === 0 || loopLen <= 0 || !state.audioCtx) {
+    return wallTime + 60 / state.targetBPM;
+  }
+
+  // Buffer position at wallTime, accounting for looping
+  const linear = state.playStartBufferPos + (wallTime - state.playStartWallTime) * ratio;
+  const bufPos = lStart + ((linear - lStart) % loopLen + loopLen) % loopLen;
+
+  // Find the next tick inside the loop range that is strictly after bufPos
+  let nextBuf: number | null = null;
+  for (let i = 0; i < ticks.length; i++) {
+    if (ticks[i] >= lStart && ticks[i] < lEnd && ticks[i] > bufPos + 0.005) {
+      nextBuf = ticks[i]; break;
     }
-    metronomeNextClickTime += 60 / state.targetBPM;
+  }
+
+  let bufDelta: number;
+  if (nextBuf === null) {
+    // Past the last tick in the loop — wrap to first tick of next cycle
+    let firstBuf: number | null = null;
+    for (let i = 0; i < ticks.length; i++) {
+      if (ticks[i] >= lStart && ticks[i] < lEnd) { firstBuf = ticks[i]; break; }
+    }
+    if (firstBuf === null) return wallTime + 60 / state.targetBPM;
+    bufDelta = firstBuf - bufPos + loopLen;
+  } else {
+    bufDelta = nextBuf - bufPos;
+  }
+
+  return wallTime + bufDelta / ratio;
+}
+
+function scheduleMetronomeClicks() {
+  if (!state.metronomeEnabled || !state.isPlaying || !state.audioCtx) return;
+  const lookahead = 0.08;
+  const now = state.audioCtx.currentTime;
+  while (metronomeNextClickTime < now + lookahead) {
+    if (metronomeNextClickTime >= now - 0.01) playMetronomeClick(metronomeNextClickTime);
+    metronomeNextClickTime = nextTickWallTimeAfter(metronomeNextClickTime);
   }
   metronomeRaf = requestAnimationFrame(scheduleMetronomeClicks);
 }
 
 function startMetronomeLoop() {
   if (metronomeRaf !== null) return;
-  metronomeNextClickTime = metronomeNowSec() + 0.05;
+  const ctx = state.audioCtx!;
+  metronomeNextClickTime = nextTickWallTimeAfter(ctx.currentTime);
   metronomeRaf = requestAnimationFrame(scheduleMetronomeClicks);
 }
 
@@ -421,7 +541,7 @@ function startSource(bufferPos: number) {
   const ratio = state.targetBPM / state.detectedBPM;
   const lStart = loopStartSecs();
   const lEnd = loopEndSecs();
-  const safePos = clamp(bufferPos, lStart, lEnd - 0.01);
+  const safePos = clamp(bufferPos, lStart, Math.max(lStart, lEnd - 0.01));
 
   const source = ctx.createBufferSource();
   source.buffer = buffer;
@@ -584,71 +704,54 @@ volumeSection.addEventListener('pointermove', e => onPointerMove(e));
 volumeSection.addEventListener('pointerup', e => onPointerUp(e));
 volumeSection.addEventListener('pointercancel', e => onPointerUp(e));
 
-// Loop hint drag (moves both endpoints together)
-let dragLoopMoving = false;
-let dragLoopMoveStartX = 0;
-let dragLoopMoveStartBeats = 0;
-let dragLoopMoveSpan = 0;
-
-loopHint.addEventListener('pointerdown', e => {
-  if (!state.originalBuffer) return;
-  e.stopPropagation();
-  pushUndo();
-  loopHint.setPointerCapture(e.pointerId);
-  dragLoopMoving = true;
-  dragLoopMoveStartX = e.clientX;
-  dragLoopMoveStartBeats = state.loopStartBeats;
-  dragLoopMoveSpan = state.loopEndBeats - state.loopStartBeats;
-  resetInactivityTimer();
-});
-loopHint.addEventListener('pointermove', e => {
-  if (!dragLoopMoving) return;
-  const r = loopSection.getBoundingClientRect();
-  const total = totalBeats();
-  const deltaBeats = Math.round((e.clientX - dragLoopMoveStartX) / r.width * total);
-  const newStart = clamp(dragLoopMoveStartBeats + deltaBeats, 0, total - dragLoopMoveSpan);
-  setLoopPoints(newStart, newStart + dragLoopMoveSpan);
-});
-loopHint.addEventListener('pointerup', e => {
-  dragLoopMoving = false;
-  try { loopHint.releasePointerCapture(e.pointerId); } catch (_) {}
-});
-loopHint.addEventListener('pointercancel', e => {
-  dragLoopMoving = false;
-  try { loopHint.releasePointerCapture(e.pointerId); } catch (_) {}
-});
-
-// Loop section pointer
-let dragLoop: 'a' | 'b' | null = null;
-
-function loopSecsFromClientX(clientX: number): number {
-  const r = loopSection.getBoundingClientRect();
-  if (!state.originalBuffer) return 0;
-  return clamp((clientX - r.left) / r.width, 0, 1) * state.originalBuffer.duration;
-}
-
-function updateLoopDrag(clientX: number) {
-  const secs = loopSecsFromClientX(clientX);
-  const beat = Math.round(secs / beatDurationSecs());
-  if (dragLoop === 'a') setLoopPoints(beat, state.loopEndBeats);
-  else setLoopPoints(state.loopStartBeats, beat);
-}
+// Loop section: drag anywhere to move the loop window; tap the hint label to edit length.
+// We use pointerup (not click) to detect a hint tap because setPointerCapture redirects
+// pointerup to the section element, which prevents click from ever firing on the hint.
+let loopDragActive = false;
+let loopDragStartX = 0;
+let loopDragStartBeats = 0;
+let loopDragSpan = 0;
+let loopDragDidMove = false;
+let loopDragInitialTarget: Element | null = null;
 
 loopSection.addEventListener('pointerdown', e => {
   if (!state.originalBuffer) return;
+  if (document.activeElement === loopLengthInput) return;
   pushUndo();
   loopSection.setPointerCapture(e.pointerId);
-  const secs = loopSecsFromClientX(e.clientX);
-  dragLoop = Math.abs(secs - loopStartSecs()) <= Math.abs(secs - loopEndSecs()) ? 'a' : 'b';
-  updateLoopDrag(e.clientX);
+  loopDragActive = true;
+  loopDragStartX = e.clientX;
+  loopDragStartBeats = state.loopStartBeats;
+  loopDragSpan = state.loopEndBeats - state.loopStartBeats;
+  loopDragDidMove = false;
+  loopDragInitialTarget = e.target as Element;
+  loopSection.classList.add('dragging');
   resetInactivityTimer();
 });
-loopSection.addEventListener('pointermove', e => { if (dragLoop) updateLoopDrag(e.clientX); });
+loopSection.addEventListener('pointermove', e => {
+  if (!loopDragActive) return;
+  if (e.clientX !== loopDragStartX) loopDragDidMove = true;
+  if (!loopDragDidMove) return;
+  const r = loopSection.getBoundingClientRect();
+  const total = totalBeats();
+  const deltaBeats = Math.round((e.clientX - loopDragStartX) / r.width * total);
+  const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total - loopDragSpan);
+  setLoopPoints(newStart, newStart + loopDragSpan);
+});
 loopSection.addEventListener('pointerup', e => {
-  const wasA = dragLoop === 'a';
-  dragLoop = null;
-  try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch (_) {}
-  if (wasA && state.originalBuffer && state.rbNode) {
+  const didMove = loopDragDidMove;
+  const initialTarget = loopDragInitialTarget;
+  loopDragActive = false;
+  loopDragDidMove = false;
+  loopDragInitialTarget = null;
+  loopSection.classList.remove('dragging');
+  try { loopSection.releasePointerCapture(e.pointerId); } catch (_) {}
+
+  if (!didMove && initialTarget?.closest('#loop-hint')) {
+    enterLoopLengthEdit();
+    return;
+  }
+  if (didMove && state.originalBuffer && state.rbNode) {
     const wasPlaying = state.isPlaying;
     stopSource();
     if (wasPlaying) startSource(loopStartSecs());
@@ -656,9 +759,47 @@ loopSection.addEventListener('pointerup', e => {
   }
 });
 loopSection.addEventListener('pointercancel', e => {
-  dragLoop = null;
-  try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch (_) {}
+  loopDragActive = false;
+  loopDragDidMove = false;
+  loopDragInitialTarget = null;
+  loopSection.classList.remove('dragging');
+  try { loopSection.releasePointerCapture(e.pointerId); } catch (_) {}
 });
+
+function evalArithmetic(expr: string): number | null {
+  if (!/^[\d\s+\-*/.()]+$/.test(expr)) return null;
+  try {
+    const v = Function('"use strict"; return (' + expr + ')')();
+    return typeof v === 'number' && isFinite(v) ? v : null;
+  } catch { return null; }
+}
+
+function enterLoopLengthEdit() {
+  loopLengthInput.value = String(state.loopEndBeats - state.loopStartBeats);
+  loopLengthInput.style.display = 'block';
+  loopHint.style.visibility = 'hidden';
+  loopLengthInput.focus();
+  loopLengthInput.select();
+}
+
+function commitLoopLengthEdit() {
+  if (loopLengthInput.style.display === 'none') return;
+  const v = evalArithmetic(loopLengthInput.value.trim());
+  if (v !== null && v >= 1) {
+    pushUndo();
+    setLoopPoints(state.loopStartBeats, state.loopStartBeats + Math.round(v));
+  }
+  loopLengthInput.style.display = 'none';
+  loopHint.style.visibility = '';
+}
+
+const loopLengthInput = document.getElementById('loop-length-input') as HTMLInputElement;
+loopLengthInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { commitLoopLengthEdit(); e.preventDefault(); }
+  if (e.key === 'Escape') { loopLengthInput.style.display = 'none'; loopHint.style.visibility = ''; }
+});
+loopLengthInput.addEventListener('blur', commitLoopLengthEdit);
+loopLengthInput.addEventListener('pointerdown', e => e.stopPropagation());
 
 // Focus/unfocus (exact same logic as metronome.html)
 let swallowFirstControlPointer = false;
@@ -774,6 +915,19 @@ document.addEventListener('keydown', e => {
   else if (e.key === '[') { pushUndo(); setTargetBPM(state.targetBPM - 5); }
   else if (e.key === '=') { pushUndo(); setTargetBPM(state.targetBPM + 1); }
   else if (e.key === '-') { pushUndo(); setTargetBPM(state.targetBPM - 1); }
+  else if (e.key === '.' || e.key === ',') {
+    if (!state.originalBuffer) return;
+    e.preventDefault();
+    const span = state.loopEndBeats - state.loopStartBeats;
+    const delta = e.key === '.' ? 1 : -1;
+    const newStart = clamp(state.loopStartBeats + delta, 0, totalBeats() - span);
+    pushUndo();
+    setLoopPoints(newStart, newStart + span);
+    const wasPlaying = state.isPlaying;
+    stopSource();
+    if (wasPlaying) startSource(loopStartSecs());
+    else state.pausedBufferPos = loopStartSecs();
+  }
 });
 
 // Theme
@@ -855,11 +1009,19 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
     const decoded = trimSilence(raw);
     state.originalBuffer = decoded;
 
-    setStatus('Detecting BPM…');
-    await new Promise(r => setTimeout(r, 0));
-
-    const bpm = detectBPM(decoded);
+    const cached = await loadBeatCache(id);
+    let bpm: number, ticks: Float32Array;
+    if (cached) {
+      ({ bpm, ticks } = cached);
+      setStatus('Loading…');
+    } else {
+      setStatus('Detecting BPM…');
+      await new Promise(r => setTimeout(r, 0));
+      ({ bpm, ticks } = await detectRhythm(decoded));
+      saveBeatCache(id, bpm, ticks).catch(() => {});
+    }
     state.detectedBPM = bpm;
+    state.beatTicks = ticks;
     const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
     detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
     detectedTick.style.display = 'block';
@@ -883,6 +1045,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
     const secs = Math.round(decoded.duration % 60).toString().padStart(2, '0');
     setStatus(`${mins}:${secs} · detected ${bpm} BPM`);
 
+    document.getElementById('download-btn')?.classList.add('visible');
     try { localStorage.setItem(STORAGE_LAST_FILE, id); } catch (_) {}
     saveAudioFile(arrayBuffer, name, id).then(() => refreshFileDropdown()).catch(() => {});
     fileSelect.value = id;
