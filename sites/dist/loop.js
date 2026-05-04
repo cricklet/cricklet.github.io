@@ -8264,6 +8264,42 @@
   function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
+  var waveformPeaks = null;
+  function computeWaveform(buffer2) {
+    const buckets = 1200;
+    const peaks = new Float32Array(buckets);
+    const nCh = buffer2.numberOfChannels;
+    const len = buffer2.length;
+    const step = len / buckets;
+    for (let b = 0; b < buckets; b++) {
+      const start = Math.floor(b * step);
+      const end = Math.floor((b + 1) * step);
+      let peak = 0;
+      for (let c = 0; c < nCh; c++) {
+        const ch = buffer2.getChannelData(c);
+        for (let i = start; i < end; i++) {
+          const v = Math.abs(ch[i]);
+          if (v > peak) peak = v;
+        }
+      }
+      peaks[b] = peak;
+    }
+    waveformPeaks = peaks;
+  }
+  function drawWaveformOnCanvas(canvas) {
+    if (!waveformPeaks) return;
+    const peaks = waveformPeaks;
+    const w = canvas.width;
+    const h = canvas.height;
+    const ctx2d = canvas.getContext("2d");
+    ctx2d.clearRect(0, 0, w, h);
+    ctx2d.fillStyle = "rgba(128, 128, 128, 0.18)";
+    for (let x = 0; x < w; x++) {
+      const b = Math.floor(x / w * peaks.length);
+      const barH = Math.max(1, peaks[b] * h * 0.92);
+      ctx2d.fillRect(x, h - barH, 1, barH);
+    }
+  }
   function loadFileSettings(id) {
     try {
       return JSON.parse(localStorage.getItem(`loop_file_${id}`) ?? "{}");
@@ -8969,6 +9005,12 @@
       const card = document.createElement("div");
       card.className = "loop-card" + (isActive ? " active" : "");
       card.dataset.loopId = loop.id;
+      const waveCanvas = document.createElement("canvas");
+      waveCanvas.className = "loop-waveform";
+      waveCanvas.width = 1200;
+      waveCanvas.height = 54;
+      drawWaveformOnCanvas(waveCanvas);
+      card.appendChild(waveCanvas);
       const between = document.createElement("div");
       between.className = "loop-between";
       const hint = document.createElement("div");
@@ -9280,6 +9322,8 @@
       const raw = await ctx.decodeAudioData(arrayBuffer.slice(0));
       const decoded = trimSilence(raw);
       state.originalBuffer = decoded;
+      waveformPeaks = null;
+      computeWaveform(decoded);
       const cached = await loadBeatCache(id);
       let bpm, ticks;
       if (cached) {
