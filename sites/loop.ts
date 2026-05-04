@@ -848,7 +848,6 @@ function setupActiveCardDrag(card: HTMLElement) {
     loopDragDidMove = false;
     loopDragInitialTarget = e.target as Element;
     card.classList.add('dragging');
-    resetInactivityTimer();
   });
 
   card.addEventListener('pointermove', e => {
@@ -1074,106 +1073,10 @@ function renderLoopCards() {
   addRow.style.display = state.originalBuffer ? 'flex' : 'none';
 }
 
-// Focus/unfocus
-let swallowFirstControlPointer = false;
-let absorbingRefocusClick = false;
-let swallowPointerTimer: ReturnType<typeof setTimeout> | null = null;
-let documentJustBecameVisible = false;
-let windowEverBlurred = false;
-const SWALLOW_POINTER_FALLBACK_MS = 400;
-const INACTIVITY_TIMEOUT_MS = 10000;
-let lastInteractionTime = Date.now();
-let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-
-function syncWindowFocusClasses() {
-  const windowFocused =
-    typeof document.hasFocus === 'function' &&
-    document.hasFocus() &&
-    document.visibilityState === 'visible';
-  const inactive = Date.now() - lastInteractionTime >= INACTIVITY_TIMEOUT_MS;
-  const hasFocus = windowFocused && !inactive;
-  document.body.classList.toggle('focused', hasFocus);
-  document.body.classList.toggle('unfocused', !hasFocus);
-}
-
-function resetInactivityTimer() {
-  lastInteractionTime = Date.now();
-  if (inactivityTimer != null) clearTimeout(inactivityTimer);
-  inactivityTimer = setTimeout(() => {
-    inactivityTimer = null;
-    syncWindowFocusClasses();
-  }, INACTIVITY_TIMEOUT_MS);
-  syncWindowFocusClasses();
-}
-
-function tryAbsorbRefocusPointerEvent(e: PointerEvent | MouseEvent): boolean {
-  const onControl = (e.target as Element).closest?.('.control-section');
-  if (swallowFirstControlPointer && onControl) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    swallowFirstControlPointer = false;
-    if (swallowPointerTimer != null) { clearTimeout(swallowPointerTimer); swallowPointerTimer = null; }
-    absorbingRefocusClick = true;
-    return true;
-  }
-  if (absorbingRefocusClick && onControl) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    return true;
-  }
-  return false;
-}
-
-document.addEventListener('pointerdown', e => {
-  if (document.body.classList.contains('unfocused')) {
-    resetInactivityTimer();
-    if ((e.target as Element).closest?.('.control-section')) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      absorbingRefocusClick = true;
-    }
-    return;
-  }
-  tryAbsorbRefocusPointerEvent(e);
-}, true);
-document.addEventListener('mousedown', e => tryAbsorbRefocusPointerEvent(e as any), true);
-document.addEventListener('pointerup', () => { absorbingRefocusClick = false; }, true);
-document.addEventListener('pointercancel', () => { absorbingRefocusClick = false; }, true);
-
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    documentJustBecameVisible = false;
-    syncWindowFocusClasses();
-  } else {
-    documentJustBecameVisible = true;
-    swallowFirstControlPointer = false;
-    if (swallowPointerTimer != null) { clearTimeout(swallowPointerTimer); swallowPointerTimer = null; }
-  }
-});
-
-window.addEventListener('blur', () => {
-  windowEverBlurred = true;
-  syncWindowFocusClasses();
-  swallowFirstControlPointer = false;
-  if (swallowPointerTimer != null) { clearTimeout(swallowPointerTimer); swallowPointerTimer = null; }
-});
-
-window.addEventListener('focus', () => {
-  if (!windowEverBlurred) { swallowFirstControlPointer = false; documentJustBecameVisible = false; return; }
-  if (documentJustBecameVisible) { swallowFirstControlPointer = false; documentJustBecameVisible = false; return; }
-  swallowFirstControlPointer = true;
-  if (swallowPointerTimer != null) clearTimeout(swallowPointerTimer);
-  swallowPointerTimer = setTimeout(() => {
-    swallowFirstControlPointer = false;
-    swallowPointerTimer = null;
-  }, SWALLOW_POINTER_FALLBACK_MS);
-});
-
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
   const tag = (e.target as HTMLElement).tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-  resetInactivityTimer();
   if (e.key === 'z' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (e.shiftKey) redo(); else undo();
@@ -1400,8 +1303,6 @@ document.getElementById('add-loop-btn')!.addEventListener('click', addLoop);
   setBpmDisplay(state.targetBPM);
   setVolumeDisplay(state.volume);
   renderLoopCards();
-  syncWindowFocusClasses();
-  resetInactivityTimer();
 
   loadAllFilesMeta().then(async files => {
     refreshFileDropdown();
