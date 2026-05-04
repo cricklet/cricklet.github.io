@@ -151,7 +151,7 @@ function computeWaveform(buffer: AudioBuffer) {
   }
 
   // Gaussian smooth
-  const radius = 18;
+  const radius = 8;
   const sigma = radius / 2;
   const kernel: number[] = [];
   let kernelSum = 0;
@@ -185,7 +185,7 @@ function drawWaveformOnCanvas(canvas: HTMLCanvasElement) {
   ctx2d.fillStyle = 'rgba(128, 128, 128, 0.18)';
   for (let x = 0; x < w; x++) {
     const b = Math.floor(x / w * peaks.length);
-    const barH = Math.max(1, peaks[b] * h * 0.92);
+    const barH = Math.max(1, peaks[b] * (h - 2) * 0.92);
     ctx2d.fillRect(x, h - barH, 1, barH);
   }
 }
