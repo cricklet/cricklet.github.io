@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tuner</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reddit+Mono&display=swap">
+  <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.5/build/cjs/vexflow.js"></script>
+
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: rgba(255, 255, 255, 0.87);
+      --border-color: rgba(255, 255, 255, 0.35);
+      --section-fill: rgba(255, 255, 255, 0.07);
+      --section-divider: rgba(255, 255, 255, 0.1);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --text-color: #000000;
+      --border-color: rgba(0, 0, 0, 0.28);
+      --section-fill: rgba(0, 0, 0, 0.045);
+      --section-divider: rgba(0, 0, 0, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* ── Layout ── */
+    #main {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      overflow: hidden;
+    }
+
+    #tuner-left {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #tuner-content {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: clamp(4px, 1.8vh, 10px);
+      padding: min(52px, 9vh) 8px 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #meter-wrap {
+      /* width-based height cap: aspect-ratio 2:1 so 58vh wide → 29vh tall */
+      width: min(92%, 480px, 58vh);
+      flex-shrink: 0;
+    }
+
+    #meter-canvas {
+      width: 100%;
+      aspect-ratio: 2 / 1;
+      display: block;
+    }
+
+    #meter-labels {
+      width: min(92%, 480px, 58vh);
+      display: flex;
+      justify-content: space-between;
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.6rem, 2vmin, 0.75rem);
+      opacity: 0.28;
+      padding: 0 4%;
+      margin-top: -4px;
+      flex-shrink: 0;
+    }
+
+    #note-area {
+      text-align: center;
+      font-family: 'Reddit Mono', monospace;
+      flex-shrink: 0;
+    }
+
+    #note-display {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 1px;
+      line-height: 1;
+    }
+
+    #note-letter {
+      font-size: clamp(2rem, 15vmin, 7rem);
+      font-weight: 700;
+    }
+
+    #note-accidental {
+      font-size: clamp(1rem, 7.5vmin, 3.5rem);
+      font-weight: 700;
+      align-self: flex-start;
+      margin-top: 0.18em;
+    }
+
+    #note-octave {
+      font-size: clamp(0.85rem, 5.5vmin, 2.25rem);
+      font-weight: 400;
+      opacity: 0.45;
+      align-self: flex-end;
+      margin-bottom: 0.12em;
+    }
+
+    #freq-display {
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.65rem, 2.2vmin, 1.1rem);
+      opacity: 0.45;
+      min-height: 1.2em;
+      flex-shrink: 0;
+    }
+
+    #cents-display {
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.65rem, 2.2vmin, 1.1rem);
+      min-height: 1.2em;
+      flex-shrink: 0;
+      transition: color 0.12s;
+    }
+
+    #cents-display.in-tune      { color: #3ccc6a; }
+    #cents-display.slightly-off { color: #f0b400; }
+    #cents-display.out-of-tune  { color: #e84040; }
+
+    #status-hint {
+      position: absolute;
+      bottom: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.7rem, 2vmin, 0.9rem);
+      color: var(--text-color);
+      opacity: 0.3;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ── Right: staff ── */
+    #staff-panel {
+      flex: 0 0 clamp(120px, 22vw, 170px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-left: 0.5px solid var(--section-divider);
+      overflow: hidden;
+      padding: 0 10px 39px;
+    }
+
+    #staff-container {
+      width: 100%;
+      height: min(220px, 65vh);
+    }
+
+    #staff-container svg { display: block; }
+
+    /* ── dB section ── */
+    #db-section {
+      position: relative;
+      flex: 0 0 39px;
+      border-top: 0.5px solid var(--section-divider);
+      overflow: hidden;
+      cursor: ew-resize;
+      touch-action: none;
+    }
+
+    #db-fill {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 0%;
+      background: var(--section-fill);
+      pointer-events: none;
+      transition: width 0.05s linear;
+    }
+
+    #db-threshold-line {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 1px;
+      margin-left: -1px;
+      background: var(--text-color);
+      opacity: 0.2;
+      pointer-events: none;
+    }
+
+    #db-readout {
+      position: absolute;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-align: center;
+      pointer-events: none;
+      white-space: nowrap;
+      text-shadow:
+        0 0 12px var(--bg-color),
+        0 0 6px var(--bg-color);
+    }
+
+    /* ── Top-left icon buttons ── */
+    .icon-btn {
+      position: fixed;
+      top: 10px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      border: 1px solid transparent;
+      z-index: 10;
+      opacity: 0;
+      transition: opacity 0.2s;
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
+    }
+
+    body:hover .icon-btn { opacity: 1; }
+    .icon-btn:hover { transform: scale(1.08); }
+    .icon-btn:focus { outline: none; }
+
+    #trumpet-btn { left: 10px; font-size: 0.7rem; }
+
+    #flats-btn {
+      left: 48px;
+      font-family: Georgia, serif;
+      font-size: 0.8rem;
+      line-height: 1;
+    }
+
+    #theme-toggle { left: 86px; font-size: 0.75rem; }
+
+    .icon-btn.active {
+      opacity: 1;
+      background: var(--bg-color);
+      color: rgba(128, 128, 128, 0.75);
+      border-color: rgba(128, 128, 128, 0.5);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="main">
+    <div id="tuner-left">
+      <div id="tuner-content">
+        <div id="meter-wrap">
+          <canvas id="meter-canvas" width="600" height="300"></canvas>
+        </div>
+        <div id="meter-labels">
+          <span>♭ flat</span>
+          <span>sharp ♯</span>
+        </div>
+
+        <div id="note-area">
+          <div id="note-display">
+            <span id="note-letter">—</span><span id="note-accidental"></span><span id="note-octave"></span>
+          </div>
+          <div id="freq-display"></div>
+          <div id="cents-display"></div>
+        </div>
+
+        <div id="status-hint">Tap anywhere to start</div>
+      </div>
+
+      <div id="db-section">
+        <div id="db-fill"></div>
+        <div id="db-threshold-line"></div>
+        <div id="db-readout">— dB</div>
+      </div>
+    </div>
+
+    <div id="staff-panel">
+      <div id="staff-container"></div>
+    </div>
+  </div>
+
+  <button type="button" id="trumpet-btn" class="icon-btn" onclick="toggleTrumpet()" title="Bb trumpet (transposing)">🎺</button>
+  <button type="button" id="flats-btn"   class="icon-btn" onclick="toggleFlats()"   title="Show flats">♭</button>
+  <button type="button" id="theme-toggle" class="icon-btn" onclick="toggleTheme()"  title="Theme">◑</button>
+
+  <script src="dist/tuner.js"></script>
+</body>
+
+</html>

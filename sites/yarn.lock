@@ -299,6 +299,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"fft.js@npm:^4.0.4":
+  version: 4.0.4
+  resolution: "fft.js@npm:4.0.4"
+  checksum: 10c0/ea9bf9df38204281078629e32e0176035e8121410bb8db67b5544520faa6f567734774afb87eafc31cb43339995295d3d72202917b4f43942be4eca8dd54b226
+  languageName: node
+  linkType: hard
+
 "kenrick-sites@workspace:.":
   version: 0.0.0-use.local
   resolution: "kenrick-sites@workspace:."
@@ -306,6 +313,7 @@ __metadata:
     decimal.js: "npm:^10.5.0"
     esbuild: "npm:^0.25.5"
     essentia.js: "npm:^0.1.3"
+    pitchy: "npm:^4.1.0"
     prettier: "npm:^3.5.3"
     rubberband-web: "npm:^0.2.1"
   languageName: unknown
@@ -315,6 +323,15 @@ __metadata:
   version: 0.0.2
   resolution: "node-wav@npm:0.0.2"
   checksum: 10c0/58be3f0c735d0c4c1ca14da011bd06fd6a43847542e3d82ffa2230a48c69875b5f4af33656271ba1729742e254a492a4a7cb87d94b537157878541cc0446e53f
+  languageName: node
+  linkType: hard
+
+"pitchy@npm:^4.1.0":
+  version: 4.1.0
+  resolution: "pitchy@npm:4.1.0"
+  dependencies:
+    fft.js: "npm:^4.0.4"
+  checksum: 10c0/e3c3b2774a0885cb0c51d15508f5e11b8f0d294175385fe5db2c1311757a6d7ca0e4b6742012d25ba25e674e9549e06a92e7d61231d74ea9804b5e8b1ed4db03
   languageName: node
   linkType: hard
 
