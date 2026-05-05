@@ -41,7 +41,7 @@
       background: var(--bg-color);
       color: var(--text-color);
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       min-height: 100dvh;
       height: 100dvh;
       overflow: hidden;
@@ -49,39 +49,8 @@
       -webkit-user-select: none;
     }
 
-    /*
-     * Colors only reflect window focus (.focused / .unfocused). Playing does not change the palette.
-     * First click after click-to-focus is swallowed in JS so it doesn’t move BPM / volume / start.
-     */
-    :root[data-theme="light"] body.focused {
-      --bg-color: #f2f2f4;
-      --text-color: rgba(0, 0, 0, 0.82);
-      --section-fill: rgba(0, 0, 0, 0.05);
-      --section-divider: rgba(0, 0, 0, 0.09);
-    }
-
-    :root[data-theme="light"] body.unfocused {
-      --bg-color: #ddd;
-      --text-color: #666;
-    }
-
-    :root[data-theme="dark"] body.focused {
-      --bg-color: #252528;
-      --text-color: rgba(255, 255, 255, 0.84);
-      --section-fill: rgba(255, 255, 255, 0.07);
-      --section-divider: rgba(255, 255, 255, 0.12);
-    }
-
-    :root[data-theme="dark"] body.unfocused {
-      --bg-color: #1f1f23;
-      --text-color: rgba(255, 255, 255, 0.58);
-      --section-fill: rgba(255, 255, 255, 0.05);
-      --section-divider: rgba(255, 255, 255, 0.078);
-    }
-
     .control-section {
       position: relative;
-      width: 100%;
       flex-shrink: 0;
       background: var(--section-track);
       overflow: hidden;
@@ -89,23 +58,49 @@
       touch-action: none;
     }
 
+    #main-area {
+      flex: 1 1 0;
+      min-width: 0;
+      position: relative;
+      border-right: 1px solid transparent;
+      transition: border-right-color 0.2s;
+    }
+
+    body:hover #main-area {
+      border-right-color: var(--section-divider);
+    }
+
+    #right-panel {
+      display: flex;
+      flex-direction: row;
+      flex-shrink: 0;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    body:hover #right-panel {
+      opacity: 1;
+    }
+
     #bpm-section {
-      flex: 9 1 0;
-      min-height: 0;
-      border-bottom: 1px solid var(--section-divider);
+      flex: 0 0 44px;
+      height: 100%;
+      border-right: 1px solid var(--section-divider);
     }
 
     #volume-section {
-      flex: 1 1 0;
-      min-height: 0;
+      flex: 0 0 44px;
+      height: 100%;
     }
 
     .fill {
       position: absolute;
       left: 0;
-      top: 0;
+      right: 0;
       bottom: 0;
-      width: 0%;
+      top: auto;
+      width: 100%;
+      height: 0%;
       background: var(--section-fill);
       z-index: 0;
       pointer-events: none;
@@ -131,40 +126,76 @@
         0 1px 2px var(--bg-color);
     }
 
-    #bpm-section .readout {
-      font-size: clamp(2.75rem, 14vmin, 7.5rem);
+    #main-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25em;
+    }
+
+    #bpm-readout {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: clamp(4rem, 30vmin, 18rem);
+      width: auto;
+    }
+
+    #bpm-section .readout,
+    #volume-section .readout {
+      font-size: clamp(0.7rem, 1.8vmin, 1rem);
+      color: rgba(128, 128, 128, 0.7);
+    }
+
+    @keyframes bpm-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .bpm-cursor {
+      display: inline-block;
+      width: 0;
+      overflow: visible;
+      position: relative;
+    }
+    .bpm-cursor::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 10%;
+      height: 80%;
+      width: 3px;
+      background: currentColor;
+      transform: translateX(-50%);
+      animation: bpm-blink 1s step-end infinite;
     }
 
     .readout {
       transition: opacity 0.3s ease;
     }
 
-    body:not(.running) .readout {
+    body:not(.running) #bpm-readout {
       opacity: 0.35;
-    }
-
-    #volume-section .readout {
-      font-size: clamp(1.25rem, 4vmin, 2.25rem);
     }
 
     #theme-toggle {
       position: fixed;
-      bottom: calc(10vh + 16px);
-      right: 16px;
+      bottom: 8px;
+      left: 8px;
       width: 44px;
       height: 44px;
       border-radius: 50%;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: var(--text-color);
-      color: var(--bg-color);
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
       opacity: 0;
       cursor: pointer;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-      font-size: 1.5rem;
+      font-size: 1.25rem;
       padding: 0;
-      border: none;
+      border: 1.5px solid transparent;
       z-index: 10;
     }
 
@@ -183,7 +214,6 @@
     #jazz-toggle,
     #eighths-toggle {
       position: fixed;
-      top: 16px;
       width: 44px;
       height: 44px;
       border-radius: 50%;
@@ -202,11 +232,13 @@
     }
 
     #jazz-toggle {
-      right: 72px;
+      left: 8px;
+      top: 60px;
     }
 
     #eighths-toggle {
-      right: 16px;
+      left: 8px;
+      top: 8px;
     }
 
     body:hover #jazz-toggle,
@@ -226,10 +258,14 @@
 
     #jazz-toggle.active,
     #eighths-toggle.active {
-      opacity: 1;
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
+    }
+
+    body:hover #jazz-toggle.active,
+    body:hover #eighths-toggle.active {
+      opacity: 0.3;
     }
 
     .hint {
@@ -250,30 +286,34 @@
     }
 
     #stopwatch-hint {
-      position: absolute;
-      bottom: 8px;
+      position: fixed;
+      bottom: 16px;
       left: 50%;
       transform: translateX(-50%);
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(1.2rem, 3.6vmin, 1.7rem);
+      font-size: clamp(1rem, 3vmin, 1.4rem);
       color: var(--text-color);
       opacity: 0.3;
       pointer-events: none;
-      z-index: 1;
       white-space: nowrap;
     }
   </style>
 </head>
 
 <body>
-  <div id="bpm-section" class="control-section" aria-label="Tempo: drag horizontally">
-    <div id="bpm-fill" class="fill" aria-hidden="true"></div>
-    <div id="bpm-readout" class="readout">120 BPM</div>
+  <div id="main-area">
+    <div id="bpm-readout" class="readout">120</div>
     <div id="stopwatch-hint">00:00</div>
   </div>
-  <div id="volume-section" class="control-section" aria-label="Volume: drag horizontally">
-    <div id="volume-fill" class="fill" aria-hidden="true"></div>
-    <div id="volume-readout" class="readout">100%</div>
+  <div id="right-panel">
+    <div id="bpm-section" class="control-section" aria-label="Tempo: drag vertically">
+      <div id="bpm-fill" class="fill" aria-hidden="true"></div>
+      <div id="bpm-strip-readout" class="readout">120 BPM</div>
+    </div>
+    <div id="volume-section" class="control-section" aria-label="Volume: drag vertically">
+      <div id="volume-fill" class="fill" aria-hidden="true"></div>
+      <div id="volume-readout" class="readout">100%</div>
+    </div>
   </div>
 
   <!-- <span class="hint">Space — start / stop · T — tap tempo</span> -->
@@ -296,6 +336,7 @@
     const bpmFill = document.getElementById('bpm-fill');
     const volumeFill = document.getElementById('volume-fill');
     const bpmReadout = document.getElementById('bpm-readout');
+    const bpmStripReadout = document.getElementById('bpm-strip-readout');
     const volumeReadout = document.getElementById('volume-readout');
 
     let bpm = 120;
@@ -316,26 +357,53 @@
 
     let dragTarget = null;
 
-    let swallowFirstControlPointer = false;
-    /** After swallowing pointerdown, block mousedown/click in the same gesture (those still fire). */
-    let absorbingRefocusClick = false;
-    let swallowPointerTimer = null;
-    /**
-     * Set when the tab/document just became visible (tab switch). If focus runs in the same
-     * activation, we must not arm swallow so the first tap still controls the metronome.
-     * Cleared on focus after handling, or on hidden.
-     */
-    let documentJustBecameVisible = false;
-    let windowEverBlurred = false;
-    const SWALLOW_POINTER_FALLBACK_MS = 400;
-    const INACTIVITY_TIMEOUT_MS = 10000;
-
-    let lastInteractionTime = Date.now();
-    let inactivityTimer = null;
-
     let tapTempoTimes = [];
     const TAP_TEMPO_TIMEOUT_MS = 2000;
     const TAP_TEMPO_MAX_SAMPLES = 8;
+
+    let bpmTypingBuffer = '';
+    let bpmTypingTimer = null;
+    const BPM_TYPING_COMMIT_MS = 1500;
+
+    function commitTypedBpm() {
+      if (bpmTypingTimer != null) {
+        clearTimeout(bpmTypingTimer);
+        bpmTypingTimer = null;
+      }
+      if (bpmTypingBuffer.length > 0) {
+        const val = parseInt(bpmTypingBuffer, 10);
+        bpmTypingBuffer = '';
+        if (Number.isFinite(val) && val >= BPM_MIN && val <= BPM_MAX) {
+          setBpm(val);
+          persistBpm();
+        } else {
+          setBpm(bpm); // restore display if out of range
+        }
+      }
+    }
+
+    function showBpmTyping() {
+      bpmReadout.innerHTML = `${bpmTypingBuffer}<span class="bpm-cursor"></span>`;
+      if (bpmTypingTimer != null) clearTimeout(bpmTypingTimer);
+      bpmTypingTimer = setTimeout(commitTypedBpm, BPM_TYPING_COMMIT_MS);
+    }
+
+    function handleBpmDigit(digit) {
+      bpmTypingBuffer += digit;
+      if (bpmTypingBuffer.length > 3) bpmTypingBuffer = bpmTypingBuffer.slice(-3);
+      showBpmTyping();
+    }
+
+    function handleBpmBackspace() {
+      if (bpmTypingBuffer.length === 0) return;
+      bpmTypingBuffer = bpmTypingBuffer.slice(0, -1);
+      if (bpmTypingBuffer.length === 0) {
+        if (bpmTypingTimer != null) { clearTimeout(bpmTypingTimer); bpmTypingTimer = null; }
+        setBpm(bpm);
+      } else {
+        showBpmTyping();
+      }
+    }
 
     function clamp(v, lo, hi) {
       return Math.min(hi, Math.max(lo, v));
@@ -387,29 +455,6 @@
       return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
     }
 
-    function syncWindowFocusClasses() {
-      const windowFocused =
-        typeof document.hasFocus === 'function' &&
-        document.hasFocus() &&
-        document.visibilityState === 'visible';
-      const inactive = Date.now() - lastInteractionTime >= INACTIVITY_TIMEOUT_MS;
-      const hasFocus = windowFocused && !inactive;
-      document.body.classList.toggle('focused', hasFocus);
-      document.body.classList.toggle('unfocused', !hasFocus);
-    }
-
-    function resetInactivityTimer() {
-      lastInteractionTime = Date.now();
-      if (inactivityTimer != null) {
-        clearTimeout(inactivityTimer);
-      }
-      inactivityTimer = setTimeout(() => {
-        inactivityTimer = null;
-        syncWindowFocusClasses();
-      }, INACTIVITY_TIMEOUT_MS);
-      syncWindowFocusClasses();
-    }
-
     function handleTapTempo() {
       const now = performance.now();
       if (
@@ -437,29 +482,34 @@
       startMetronome();
     }
 
-    function bpmFromClientX(clientX) {
+    function bpmFromClientY(clientY) {
       const r = bpmSection.getBoundingClientRect();
-      const t = r.width <= 0 ? 0.5 : (clientX - r.left) / r.width;
+      const t = r.height <= 0 ? 0.5 : (r.bottom - clientY) / r.height;
       return BPM_MIN + clamp(t, 0, 1) * (BPM_MAX - BPM_MIN);
     }
 
-    function volumeFromClientX(clientX) {
+    function volumeFromClientY(clientY) {
       const r = volumeSection.getBoundingClientRect();
-      const t = r.width <= 0 ? 1 : (clientX - r.left) / r.width;
+      const t = r.height <= 0 ? 1 : (r.bottom - clientY) / r.height;
       return clamp(t, 0, 1) * 100;
     }
 
-    function setBpm(next) {
+    function setBpm(next, fromDrag) {
+      if (fromDrag && bpmTypingBuffer.length > 0) {
+        bpmTypingBuffer = '';
+        if (bpmTypingTimer != null) { clearTimeout(bpmTypingTimer); bpmTypingTimer = null; }
+      }
       bpm = clamp(next, BPM_MIN, BPM_MAX);
-      bpmReadout.textContent = `${Math.round(bpm)} BPM`;
+      bpmReadout.textContent = `${Math.round(bpm)}`;
+      bpmStripReadout.textContent = `${Math.round(bpm)}`;
       const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
-      bpmFill.style.width = `${clamp(frac, 0, 1) * 100}%`;
+      bpmFill.style.height = `${clamp(frac, 0, 1) * 100}%`;
     }
 
     function setVolumePct(next) {
       volumePct = clamp(next, 0, 100);
       volumeReadout.textContent = `${Math.round(volumePct)}%`;
-      volumeFill.style.width = `${volumePct}%`;
+      volumeFill.style.height = `${volumePct}%`;
       document.getElementById('click-audio').volume = volumePct / 100;
       document.getElementById('click-soft-audio').volume = volumePct / 100;
     }
@@ -553,20 +603,20 @@
     function onPointerDown(e, target) {
       dragTarget = target;
       if (target === 'bpm') {
-        setBpm(bpmFromClientX(e.clientX));
+        setBpm(bpmFromClientY(e.clientY), true);
         startMetronome();
       } else {
-        setVolumePct(volumeFromClientX(e.clientX));
+        setVolumePct(volumeFromClientY(e.clientY));
       }
     }
 
     function onPointerMove(e) {
       if (!dragTarget) return;
       if (dragTarget === 'bpm') {
-        setBpm(bpmFromClientX(e.clientX));
+        setBpm(bpmFromClientY(e.clientY), true);
         startMetronome();
       } else {
-        setVolumePct(volumeFromClientX(e.clientX));
+        setVolumePct(volumeFromClientY(e.clientY));
       }
     }
 
@@ -587,61 +637,6 @@
       }
     }
 
-    function clearSwallowPointerTimer() {
-      if (swallowPointerTimer != null) {
-        clearTimeout(swallowPointerTimer);
-        swallowPointerTimer = null;
-      }
-    }
-
-    function tryAbsorbRefocusPointerEvent(e) {
-      const onControl = e.target.closest?.('.control-section');
-      if (swallowFirstControlPointer && onControl) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        swallowFirstControlPointer = false;
-        clearSwallowPointerTimer();
-        absorbingRefocusClick = true;
-        return true;
-      }
-      if (absorbingRefocusClick && onControl) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        return true;
-      }
-      return false;
-    }
-
-    document.addEventListener('pointerdown', e => {
-      if (document.body.classList.contains('unfocused')) {
-        resetInactivityTimer();
-        const onControl = e.target.closest?.('.control-section');
-        if (onControl) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          absorbingRefocusClick = true;
-        }
-        return;
-      }
-      tryAbsorbRefocusPointerEvent(e);
-    }, true);
-    document.addEventListener('mousedown', e => tryAbsorbRefocusPointerEvent(e), true);
-
-    document.addEventListener(
-      'pointerup',
-      () => {
-        absorbingRefocusClick = false;
-      },
-      true
-    );
-    document.addEventListener(
-      'pointercancel',
-      () => {
-        absorbingRefocusClick = false;
-      },
-      true
-    );
-
     bpmSection.addEventListener('pointerdown', e => {
       bpmSection.setPointerCapture(e.pointerId);
       onPointerDown(e, 'bpm');
@@ -660,49 +655,67 @@
 
     document.addEventListener('keydown', e => {
       if (isTypingTarget(e.target)) return;
+      if (e.key >= '0' && e.key <= '9' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        handleBpmDigit(e.key);
+        return;
+      }
+      if (e.key === 'Backspace' && bpmTypingBuffer.length > 0) {
+        e.preventDefault();
+        handleBpmBackspace();
+        return;
+      }
+      if (e.key === 'Enter' && bpmTypingBuffer.length > 0) {
+        e.preventDefault();
+        commitTypedBpm();
+        startMetronome();
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (bpmTypingBuffer.length > 0) {
+          e.preventDefault();
+          bpmTypingBuffer = '';
+          if (bpmTypingTimer != null) { clearTimeout(bpmTypingTimer); bpmTypingTimer = null; }
+          setBpm(bpm);
+        }
+        return;
+      }
       if (e.code === 'Space' || e.key === 'p' || e.key === 'P') {
         e.preventDefault();
-        resetInactivityTimer();
         toggleMetronome();
         return;
       }
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
-        resetInactivityTimer();
         handleTapTempo();
         return;
       }
       if (e.key === '=' || e.key === '+') {
         e.preventDefault();
-        resetInactivityTimer();
         setBpm(Math.round(bpm) + 1);
         persistBpm();
         return;
       }
       if (e.key === '-' || e.key === '_') {
         e.preventDefault();
-        resetInactivityTimer();
         setBpm(Math.round(bpm) - 1);
         persistBpm();
         return;
       }
       if (e.key === ']' || e.key === '}') {
         e.preventDefault();
-        resetInactivityTimer();
         setBpm(Math.round(bpm) + 5);
         persistBpm();
         return;
       }
       if (e.key === '[' || e.key === '{') {
         e.preventDefault();
-        resetInactivityTimer();
         setBpm(Math.round(bpm) - 5);
         persistBpm();
         return;
       }
       if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
-        resetInactivityTimer();
         resetStopwatch();
         return;
       }
@@ -752,55 +765,6 @@
     }
 
     loadInitialTheme();
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        documentJustBecameVisible = false;
-        syncWindowFocusClasses();
-      } else {
-        documentJustBecameVisible = true;
-        swallowFirstControlPointer = false;
-        if (swallowPointerTimer != null) {
-          clearTimeout(swallowPointerTimer);
-          swallowPointerTimer = null;
-        }
-      }
-    });
-
-    window.addEventListener('blur', () => {
-      windowEverBlurred = true;
-      syncWindowFocusClasses();
-      swallowFirstControlPointer = false;
-      if (swallowPointerTimer != null) {
-        clearTimeout(swallowPointerTimer);
-        swallowPointerTimer = null;
-      }
-    });
-
-    window.addEventListener('focus', () => {
-      if (!windowEverBlurred) {
-        swallowFirstControlPointer = false;
-        documentJustBecameVisible = false;
-        return;
-      }
-      if (documentJustBecameVisible) {
-        swallowFirstControlPointer = false;
-        documentJustBecameVisible = false;
-        return;
-      }
-      swallowFirstControlPointer = true;
-      if (swallowPointerTimer != null) clearTimeout(swallowPointerTimer);
-      swallowPointerTimer = setTimeout(() => {
-        swallowFirstControlPointer = false;
-        swallowPointerTimer = null;
-      }, SWALLOW_POINTER_FALLBACK_MS);
-    });
-
-    syncWindowFocusClasses();
-
-
-    // Start the initial inactivity countdown
-    resetInactivityTimer();
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
       try {

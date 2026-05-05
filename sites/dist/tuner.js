@@ -786,40 +786,60 @@
   var trumpetMode = false;
   var sinewaveMode = false;
   var TRUMPET_OFFSETS = {
-    // 3rd / 6th partial (ratio 3:2) → +2 cents
-    63: 2,
-    // Eb4 — Ab series (1st valve)
-    64: 2,
-    // E4  — A series (2nd valve)
-    65: 2,
-    // F4  — Bb series (open)
-    75: 2,
-    // Eb5 — Ab series
-    76: 2,
-    // E5  — A series
-    77: 2,
-    // F5  — Bb series (open)
-    // 5th partial (ratio 5:4) → −14 cents  (major 3rd of each series)
-    71: -14,
-    // B4  — G series (3rd valve or 1+2)
-    72: -14,
-    // C5  — Ab series (1st valve)
-    73: -14,
-    // C#5 — A series (2nd valve)
-    74: -14,
-    // D5  — Bb series (open)  ← the famous flat note
-    // 7th partial (ratio 7:4) → −31 cents
-    78: -31,
-    // Gb5 — Ab series (1st valve)
-    79: -31,
-    // G5  — A series (2nd valve)
-    80: -31,
-    // Ab5 — Bb series (open)
-    // Upper harmonics
-    84: 4,
-    // C6  — Bb series, 9th partial
-    86: -14
-    // D6  — Bb series, 10th partial
+    // ── below the staff ──────────────────────────────────────
+    // F#3/Gb3 (54): 1-2-3, normally ~+35¢ — slide corrected → 0
+    // G3      (55): 1-3,   normally ~+27¢ — slide corrected → 0
+    56: 12,
+    // Ab3  — 2-3
+    57: 5,
+    // A3   — 1-2
+    58: 5,
+    // Bb3  — 1st valve
+    // B3 (59): 2nd valve, ~0¢
+    // C4 (60): open, ~0¢
+    // ── in the staff ─────────────────────────────────────────
+    // C#4/Db4 (61): 1-2-3, normally ~+35¢ — slide corrected → 0
+    // D4      (62): 1-3,   normally ~+27¢ — slide corrected → 0
+    63: 12,
+    // Eb4  — 2-3
+    64: 5,
+    // E4   — 1-2
+    65: 5,
+    // F4   — 1st valve
+    // F#4 (66): 2nd valve, ~0¢
+    67: 2,
+    // G4   — open (3rd partial of Bb series)
+    68: 10,
+    // Ab4  — 2-3
+    69: 5,
+    // A4   — 1-2
+    70: 5,
+    // Bb4  — 1st valve
+    // B4 (71): 2nd valve, ~0¢
+    // C5 (72): open, ~0¢
+    // ── top of staff and above ────────────────────────────────
+    73: 5,
+    // C#5  — 1-2
+    74: 7,
+    // D5   — 1st valve (+5 to +10¢)
+    75: 10,
+    // Eb5  — 2-3
+    76: -14,
+    // E5   — open (5th partial of Bb series) ← the famous flat note
+    77: 5,
+    // F5   — 1st valve
+    // F#5 (78): 2nd valve, ~0¢
+    79: 2,
+    // G5   — open (6th partial of Bb series)
+    80: 10,
+    // Ab5  — 2-3
+    81: 5,
+    // A5   — 1-2
+    82: 5,
+    // Bb5  — 1st valve (open 7th partial ≈−31¢ is unusable, never used)
+    // B5 (83): 2nd valve, ~0¢
+    84: 2
+    // C6   — open
   };
   var DB_MIN = -60;
   var DB_MAX = -10;
