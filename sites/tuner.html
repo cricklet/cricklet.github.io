@@ -143,9 +143,7 @@
       transition: color 0.12s;
     }
 
-    #cents-display.in-tune      { color: #3ccc6a; }
-    #cents-display.slightly-off { color: #f0b400; }
-    #cents-display.out-of-tune  { color: #e84040; }
+    #cents-display { transition: color 0.08s; }
 
     #status-hint {
       position: absolute;
@@ -248,14 +246,14 @@
 
     #trumpet-btn { left: 10px; font-size: 0.7rem; }
 
-    #flats-btn {
-      left: 48px;
-      font-family: Georgia, serif;
-      font-size: 0.8rem;
-      line-height: 1;
+    #sinewave-btn {
+      left: 10px;
+      top: 48px;
+      font-size: 0.85rem;
+      display: none;
     }
 
-    #theme-toggle { left: 86px; font-size: 0.75rem; }
+    #theme-toggle { left: 48px; font-size: 0.75rem; }
 
     .icon-btn.active {
       opacity: 1;
@@ -301,9 +299,9 @@
     </div>
   </div>
 
-  <button type="button" id="trumpet-btn" class="icon-btn" onclick="toggleTrumpet()" title="Bb trumpet (transposing)">🎺</button>
-  <button type="button" id="flats-btn"   class="icon-btn" onclick="toggleFlats()"   title="Show flats">♭</button>
-  <button type="button" id="theme-toggle" class="icon-btn" onclick="toggleTheme()"  title="Theme">◑</button>
+  <button type="button" id="trumpet-btn"  class="icon-btn" onclick="toggleTrumpet()"  title="Bb trumpet (transposing)">🎺</button>
+  <button type="button" id="sinewave-btn" class="icon-btn" onclick="toggleSinewave()" title="Theoretical trumpet tuning">∿</button>
+  <button type="button" id="theme-toggle" class="icon-btn" onclick="toggleTheme()"   title="Theme">◑</button>
 
   <script src="dist/tuner.js"></script>
 </body>

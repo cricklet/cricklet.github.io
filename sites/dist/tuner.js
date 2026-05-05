@@ -784,6 +784,43 @@
   ];
   var useFlats = false;
   var trumpetMode = false;
+  var sinewaveMode = false;
+  var TRUMPET_OFFSETS = {
+    // 3rd / 6th partial (ratio 3:2) → +2 cents
+    63: 2,
+    // Eb4 — Ab series (1st valve)
+    64: 2,
+    // E4  — A series (2nd valve)
+    65: 2,
+    // F4  — Bb series (open)
+    75: 2,
+    // Eb5 — Ab series
+    76: 2,
+    // E5  — A series
+    77: 2,
+    // F5  — Bb series (open)
+    // 5th partial (ratio 5:4) → −14 cents  (major 3rd of each series)
+    71: -14,
+    // B4  — G series (3rd valve or 1+2)
+    72: -14,
+    // C5  — Ab series (1st valve)
+    73: -14,
+    // C#5 — A series (2nd valve)
+    74: -14,
+    // D5  — Bb series (open)  ← the famous flat note
+    // 7th partial (ratio 7:4) → −31 cents
+    78: -31,
+    // Gb5 — Ab series (1st valve)
+    79: -31,
+    // G5  — A series (2nd valve)
+    80: -31,
+    // Ab5 — Bb series (open)
+    // Upper harmonics
+    84: 4,
+    // C6  — Bb series, 9th partial
+    86: -14
+    // D6  — Bb series, 10th partial
+  };
   var DB_MIN = -60;
   var DB_MAX = -10;
   var dbThreshold = -40;
@@ -796,7 +833,32 @@
   var lastFreq = null;
   var noSignalFrames = 0;
   var NO_SIGNAL_THRESHOLD = 12;
-  var staffRenderedMidi = "dirty";
+  var staffRenderedKey = "dirty";
+  function lerpRgb(a, b, t) {
+    const r = Math.round(a[0] + (b[0] - a[0]) * t);
+    const g = Math.round(a[1] + (b[1] - a[1]) * t);
+    const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+    return `rgb(${r},${g},${bl})`;
+  }
+  function tuningColor(cents, alpha = 1) {
+    if (cents === null || Math.abs(cents) <= 5) {
+      const [r, g, b] = [50, 200, 100];
+      return alpha === 1 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${alpha})`;
+    }
+    const TEAL_DARK = [160, 130, 0];
+    const TEAL_BRIGHT = [255, 210, 0];
+    const RED_DARK = [160, 20, 20];
+    const RED_BRIGHT = [255, 55, 55];
+    const t = Math.min(1, (Math.abs(cents) - 5) / 25);
+    const color = cents < 0 ? lerpRgb(TEAL_DARK, TEAL_BRIGHT, t) : lerpRgb(RED_DARK, RED_BRIGHT, t);
+    if (alpha === 1) return color;
+    return color.replace("rgb(", "rgba(").replace(")", `,${alpha})`);
+  }
+  function staffKey(midi, cents) {
+    if (midi === null) return "null";
+    const q = cents === null ? "n" : Math.round(cents / 2);
+    return `${midi}:${q}`;
+  }
   var canvas = document.getElementById("meter-canvas");
   var noteLetter = document.getElementById("note-letter");
   var noteAccidental = document.getElementById("note-accidental");
@@ -805,7 +867,7 @@
   var centsDisplay = document.getElementById("cents-display");
   var statusHint = document.getElementById("status-hint");
   var trumpetBtn = document.getElementById("trumpet-btn");
-  var flatsBtn = document.getElementById("flats-btn");
+  var sinewaveBtn = document.getElementById("sinewave-btn");
   var dbSection = document.getElementById("db-section");
   var dbFill = document.getElementById("db-fill");
   var dbThreshLine = document.getElementById("db-threshold-line");
@@ -887,7 +949,7 @@
     const gs = 5 / 50 * (Math.PI / 2);
     ctx2d.beginPath();
     ctx2d.arc(cx, cy, r, -Math.PI / 2 - gs, -Math.PI / 2 + gs, false);
-    ctx2d.strokeStyle = "rgba(60,200,100,0.32)";
+    ctx2d.strokeStyle = "rgba(50,200,100,0.3)";
     ctx2d.lineWidth = 12;
     ctx2d.stroke();
     for (const c of [-50, -25, 0, 25, 50]) {
@@ -908,7 +970,7 @@
       ctx2d.beginPath();
       ctx2d.moveTo(cx, cy);
       ctx2d.lineTo(cx + (r - 22) * Math.cos(angle), cy + (r - 22) * Math.sin(angle));
-      ctx2d.strokeStyle = abs <= 5 ? "#3ccc6a" : abs <= 20 ? "#f0b400" : "#e84040";
+      ctx2d.strokeStyle = tuningColor(cents);
       ctx2d.lineWidth = 2.5;
       ctx2d.lineCap = "round";
       ctx2d.stroke();
@@ -918,9 +980,10 @@
     ctx2d.fillStyle = pivotColor;
     ctx2d.fill();
   }
-  function renderStaff(midi) {
-    if (midi === staffRenderedMidi) return;
-    staffRenderedMidi = midi ?? "dirty";
+  function renderStaff(midi, cents) {
+    const key = staffKey(midi, cents);
+    if (key === staffRenderedKey) return;
+    staffRenderedKey = key;
     if (typeof Vex === "undefined") return;
     const container = document.getElementById("staff-container");
     container.innerHTML = "";
@@ -933,16 +996,19 @@
     const renderer = new Renderer(container, Renderer.Backends.SVG);
     renderer.resize(W, H);
     const vctx = renderer.getContext();
-    const color = getComputedStyle(document.documentElement).getPropertyValue("--text-color").trim() || "rgba(255,255,255,0.87)";
-    vctx.setFillStyle(color);
-    vctx.setStrokeStyle(color);
+    const themeColor = getComputedStyle(document.documentElement).getPropertyValue("--text-color").trim() || "rgba(255,255,255,0.87)";
+    vctx.setFillStyle(themeColor);
+    vctx.setStrokeStyle(themeColor);
     const stave = new Stave(staveX, staveY, STAVE_W);
     stave.addClef("treble");
     stave.setContext(vctx).draw();
     if (midi === null) return;
+    const noteColor = tuningColor(cents);
+    vctx.setFillStyle(noteColor);
+    vctx.setStrokeStyle(noteColor);
     const vfMap = useFlats ? VF_FLAT : VF_SHARP;
-    const { key, acc } = vfMap[(midi % 12 + 12) % 12];
-    const keyStr = `${key}/${Math.floor(midi / 12) - 1}`;
+    const { key: noteKey, acc } = vfMap[(midi % 12 + 12) % 12];
+    const keyStr = `${noteKey}/${Math.floor(midi / 12) - 1}`;
     try {
       const staveNote = new StaveNote({ keys: [keyStr], duration: "w" });
       if (acc) staveNote.addModifier(new Accidental(acc), 0);
@@ -957,7 +1023,7 @@
       noteOctave.textContent = "";
       freqDisplay.textContent = "";
       centsDisplay.textContent = "";
-      centsDisplay.className = "";
+      centsDisplay.style.color = "";
       return;
     }
     noteLetter.textContent = info.letter;
@@ -966,20 +1032,23 @@
     if (freq !== void 0) freqDisplay.textContent = `${freq.toFixed(1)} Hz`;
     const sign = info.cents > 0 ? "+" : "";
     centsDisplay.textContent = `${sign}${info.cents} cents`;
-    const abs = Math.abs(info.cents);
-    centsDisplay.className = abs <= 5 ? "in-tune" : abs <= 20 ? "slightly-off" : "out-of-tune";
+    centsDisplay.style.color = tuningColor(info.cents);
+  }
+  function displayCents(rawCents, displayMidi) {
+    return rawCents - (sinewaveMode ? TRUMPET_OFFSETS[displayMidi] ?? 0 : 0);
   }
   function rerenderCurrent() {
-    staffRenderedMidi = "dirty";
+    staffRenderedKey = "dirty";
     const dm = currentDisplayMidi();
     if (dm === null || lastCents === null) {
       updateDisplay(null);
       drawMeter(null);
-      renderStaff(null);
+      renderStaff(null, null);
     } else {
-      updateDisplay(midiToNoteInfo(dm, lastCents), lastFreq ?? void 0);
-      drawMeter(lastCents);
-      renderStaff(dm);
+      const dc = displayCents(lastCents, dm);
+      updateDisplay(midiToNoteInfo(dm, dc), lastFreq ?? void 0);
+      drawMeter(dc);
+      renderStaff(dm, dc);
     }
   }
   function tick() {
@@ -997,9 +1066,10 @@
       lastCents = cents;
       lastFreq = freq;
       const dm = midi + (trumpetMode ? 2 : 0);
-      updateDisplay(midiToNoteInfo(dm, cents), freq);
-      drawMeter(cents);
-      renderStaff(dm);
+      const dc = displayCents(cents, dm);
+      updateDisplay(midiToNoteInfo(dm, dc), freq);
+      drawMeter(dc);
+      renderStaff(dm, dc);
     } else {
       noSignalFrames++;
       if (noSignalFrames > NO_SIGNAL_THRESHOLD) {
@@ -1008,7 +1078,7 @@
         lastFreq = null;
         updateDisplay(null);
         drawMeter(null);
-        renderStaff(null);
+        renderStaff(null, null);
       }
     }
     requestAnimationFrame(tick);
@@ -1033,7 +1103,13 @@
   }
   function toggleTrumpet() {
     trumpetMode = !trumpetMode;
+    useFlats = trumpetMode;
     trumpetBtn.classList.toggle("active", trumpetMode);
+    sinewaveBtn.style.display = trumpetMode ? "inline-flex" : "none";
+    if (!trumpetMode) {
+      sinewaveMode = false;
+      sinewaveBtn.classList.remove("active");
+    }
     try {
       localStorage.setItem("tuner_trumpet", trumpetMode ? "1" : "0");
     } catch (_) {
@@ -1041,16 +1117,13 @@
     rerenderCurrent();
   }
   window.toggleTrumpet = toggleTrumpet;
-  function toggleFlats() {
-    useFlats = !useFlats;
-    flatsBtn.classList.toggle("active", useFlats);
-    try {
-      localStorage.setItem("tuner_flats", useFlats ? "1" : "0");
-    } catch (_) {
-    }
+  function toggleSinewave() {
+    if (!trumpetMode) return;
+    sinewaveMode = !sinewaveMode;
+    sinewaveBtn.classList.toggle("active", sinewaveMode);
     rerenderCurrent();
   }
-  window.toggleFlats = toggleFlats;
+  window.toggleSinewave = toggleSinewave;
   function setTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
     const btn = document.getElementById("theme-toggle");
@@ -1060,8 +1133,10 @@
     } catch (_) {
     }
     drawMeter(lastCents);
-    staffRenderedMidi = "dirty";
-    renderStaff(currentDisplayMidi());
+    staffRenderedKey = "dirty";
+    const _dm = currentDisplayMidi();
+    const _dc = _dm !== null && lastCents !== null ? displayCents(lastCents, _dm) : null;
+    renderStaff(_dm, _dc);
   }
   function toggleTheme() {
     setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
@@ -1077,18 +1152,16 @@
     try {
       if (localStorage.getItem("tuner_trumpet") === "1") {
         trumpetMode = true;
-        trumpetBtn.classList.add("active");
-      }
-      if (localStorage.getItem("tuner_flats") === "1") {
         useFlats = true;
-        flatsBtn.classList.add("active");
+        trumpetBtn.classList.add("active");
+        sinewaveBtn.style.display = "inline-flex";
       }
       const saved = parseFloat(localStorage.getItem("tuner_db_threshold") ?? "");
       if (Number.isFinite(saved)) dbThreshold = clamp(saved, DB_MIN, DB_MAX);
     } catch (_) {
     }
     drawMeter(null);
-    renderStaff(null);
+    renderStaff(null, null);
     updateDbDisplay(DB_MIN);
     document.addEventListener("click", () => start(), { once: true });
   })();
