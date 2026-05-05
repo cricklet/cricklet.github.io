@@ -194,6 +194,7 @@ function drawWaveformOnCanvas(canvas: HTMLCanvasElement) {
 interface FileSettings {
   loops?: LoopData[];
   activeLoopId?: string | null;
+  volume?: number;
   // Legacy fields
   targetBPM?: number;
   loopStartBeats?: number;
@@ -220,6 +221,7 @@ function persistCurrentFileSettings() {
     localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
       loops: state.loops,
       activeLoopId: state.activeLoopId,
+      volume: state.volume,
     }));
   } catch (_) {}
 }
@@ -701,7 +703,10 @@ function setVolume(v: number, persist = true) {
   state.volume = clamp(v, 0, 1);
   if (state.gainNode) state.gainNode.gain.value = state.volume;
   setVolumeDisplay(state.volume);
-  if (persist) try { localStorage.setItem(STORAGE_VOLUME, String(state.volume)); } catch (_) {}
+  if (persist) {
+    try { localStorage.setItem(STORAGE_VOLUME, String(state.volume)); } catch (_) {}
+    persistCurrentFileSettings();
+  }
 }
 
 // Undo / redo
@@ -1225,6 +1230,9 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
     const activeLoop = state.loops.find(l => l.id === state.activeLoopId)!;
     setTargetBPM(activeLoop.targetBPM, false);
     setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
+    if (settings.volume != null && Number.isFinite(settings.volume)) {
+      setVolume(clamp(settings.volume, 0, 1), false);
+    }
     persistCurrentFileSettings();
 
     setStatus('Loading…');

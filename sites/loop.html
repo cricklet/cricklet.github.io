@@ -61,19 +61,19 @@
     }
 
     #bpm-section {
-      flex: 0 0 72px;
+      flex: 0 0 clamp(72px, 9dvh, 112px);
       border-bottom: 1px solid var(--section-divider);
     }
 
     #volume-section {
-      flex: 0 0 52px;
+      flex: 0 0 clamp(52px, 6.5dvh, 80px);
     }
 
     /* Loops container */
     #loops-container {
       flex: 0 0 auto;
       overflow-y: auto;
-      max-height: 432px;
+      max-height: min(55dvh, 560px);
     }
 
     #add-loop-row {
@@ -111,7 +111,7 @@
     /* Loop cards */
     .loop-card {
       position: relative;
-      height: 72px;
+      height: clamp(72px, 9dvh, 112px);
       width: 100%;
       flex-shrink: 0;
       overflow: hidden;

@@ -8341,7 +8341,8 @@
     try {
       localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
         loops: state.loops,
-        activeLoopId: state.activeLoopId
+        activeLoopId: state.activeLoopId,
+        volume: state.volume
       }));
     } catch (_) {
     }
@@ -8775,9 +8776,12 @@
     state.volume = clamp(v, 0, 1);
     if (state.gainNode) state.gainNode.gain.value = state.volume;
     setVolumeDisplay(state.volume);
-    if (persist) try {
-      localStorage.setItem(STORAGE_VOLUME, String(state.volume));
-    } catch (_) {
+    if (persist) {
+      try {
+        localStorage.setItem(STORAGE_VOLUME, String(state.volume));
+      } catch (_) {
+      }
+      persistCurrentFileSettings();
     }
   }
   var undoStack = [];
@@ -8909,7 +8913,6 @@
       loopDragDidMove = false;
       loopDragInitialTarget = e.target;
       card.classList.add("dragging");
-      resetInactivityTimer();
     });
     card.addEventListener("pointermove", (e) => {
       if (!loopDragActive) return;
@@ -9112,114 +9115,9 @@
     }
     addRow.style.display = state.originalBuffer ? "flex" : "none";
   }
-  var swallowFirstControlPointer = false;
-  var absorbingRefocusClick = false;
-  var swallowPointerTimer = null;
-  var documentJustBecameVisible = false;
-  var windowEverBlurred = false;
-  var SWALLOW_POINTER_FALLBACK_MS = 400;
-  var INACTIVITY_TIMEOUT_MS = 1e4;
-  var lastInteractionTime = Date.now();
-  var inactivityTimer = null;
-  function syncWindowFocusClasses() {
-    const windowFocused = typeof document.hasFocus === "function" && document.hasFocus() && document.visibilityState === "visible";
-    const inactive = Date.now() - lastInteractionTime >= INACTIVITY_TIMEOUT_MS;
-    const hasFocus = windowFocused && !inactive;
-    document.body.classList.toggle("focused", hasFocus);
-    document.body.classList.toggle("unfocused", !hasFocus);
-  }
-  function resetInactivityTimer() {
-    lastInteractionTime = Date.now();
-    if (inactivityTimer != null) clearTimeout(inactivityTimer);
-    inactivityTimer = setTimeout(() => {
-      inactivityTimer = null;
-      syncWindowFocusClasses();
-    }, INACTIVITY_TIMEOUT_MS);
-    syncWindowFocusClasses();
-  }
-  function tryAbsorbRefocusPointerEvent(e) {
-    const onControl = e.target.closest?.(".control-section");
-    if (swallowFirstControlPointer && onControl) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      swallowFirstControlPointer = false;
-      if (swallowPointerTimer != null) {
-        clearTimeout(swallowPointerTimer);
-        swallowPointerTimer = null;
-      }
-      absorbingRefocusClick = true;
-      return true;
-    }
-    if (absorbingRefocusClick && onControl) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      return true;
-    }
-    return false;
-  }
-  document.addEventListener("pointerdown", (e) => {
-    if (document.body.classList.contains("unfocused")) {
-      resetInactivityTimer();
-      if (e.target.closest?.(".control-section")) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        absorbingRefocusClick = true;
-      }
-      return;
-    }
-    tryAbsorbRefocusPointerEvent(e);
-  }, true);
-  document.addEventListener("mousedown", (e) => tryAbsorbRefocusPointerEvent(e), true);
-  document.addEventListener("pointerup", () => {
-    absorbingRefocusClick = false;
-  }, true);
-  document.addEventListener("pointercancel", () => {
-    absorbingRefocusClick = false;
-  }, true);
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      documentJustBecameVisible = false;
-      syncWindowFocusClasses();
-    } else {
-      documentJustBecameVisible = true;
-      swallowFirstControlPointer = false;
-      if (swallowPointerTimer != null) {
-        clearTimeout(swallowPointerTimer);
-        swallowPointerTimer = null;
-      }
-    }
-  });
-  window.addEventListener("blur", () => {
-    windowEverBlurred = true;
-    syncWindowFocusClasses();
-    swallowFirstControlPointer = false;
-    if (swallowPointerTimer != null) {
-      clearTimeout(swallowPointerTimer);
-      swallowPointerTimer = null;
-    }
-  });
-  window.addEventListener("focus", () => {
-    if (!windowEverBlurred) {
-      swallowFirstControlPointer = false;
-      documentJustBecameVisible = false;
-      return;
-    }
-    if (documentJustBecameVisible) {
-      swallowFirstControlPointer = false;
-      documentJustBecameVisible = false;
-      return;
-    }
-    swallowFirstControlPointer = true;
-    if (swallowPointerTimer != null) clearTimeout(swallowPointerTimer);
-    swallowPointerTimer = setTimeout(() => {
-      swallowFirstControlPointer = false;
-      swallowPointerTimer = null;
-    }, SWALLOW_POINTER_FALLBACK_MS);
-  });
   document.addEventListener("keydown", (e) => {
     const tag = e.target.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
-    resetInactivityTimer();
     if (e.key === "z" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (e.shiftKey) redo();
@@ -9383,6 +9281,9 @@
       const activeLoop = state.loops.find((l) => l.id === state.activeLoopId);
       setTargetBPM(activeLoop.targetBPM, false);
       setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
+      if (settings.volume != null && Number.isFinite(settings.volume)) {
+        setVolume(clamp(settings.volume, 0, 1), false);
+      }
       persistCurrentFileSettings();
       setStatus("Loading\u2026");
       await ensureNodes();
@@ -9458,8 +9359,6 @@
     setBpmDisplay(state.targetBPM);
     setVolumeDisplay(state.volume);
     renderLoopCards();
-    syncWindowFocusClasses();
-    resetInactivityTimer();
     loadAllFilesMeta().then(async (files) => {
       refreshFileDropdown();
       if (files.length === 0) return;
