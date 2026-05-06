@@ -8387,9 +8387,17 @@
   var loopBetween = null;
   var loopHint = null;
   var loopPlayhead = null;
+  var loopPausedPlayhead = null;
   var loopStartLabel = null;
   var loopEndLabel = null;
   var loopLengthInput = null;
+  function setPausedPos(pos) {
+    state.pausedBufferPos = pos;
+    if (loopPausedPlayhead && state.originalBuffer) {
+      const frac = pos / state.originalBuffer.duration;
+      loopPausedPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+    }
+  }
   function setBpmDisplay(bpm) {
     bpmReadout.textContent = `${Math.round(bpm)} BPM`;
     const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
@@ -8703,7 +8711,7 @@
   window.toggleMetronome = toggleMetronome;
   function stopSource() {
     if (state.currentSource) {
-      state.pausedBufferPos = currentBufferPos();
+      setPausedPos(currentBufferPos());
       state.currentSource.onended = null;
       state.currentSource.stop();
       state.currentSource.disconnect();
@@ -8741,7 +8749,7 @@
     source.onended = () => {
       if (state.currentSource === source) {
         state.isPlaying = false;
-        state.pausedBufferPos = 0;
+        setPausedPos(0);
         state.currentSource = null;
         document.body.classList.remove("playing");
       }
@@ -8943,7 +8951,7 @@
         const wasPlaying = state.isPlaying;
         stopSource();
         if (wasPlaying) startSource(loopStartSecs());
-        else state.pausedBufferPos = loopStartSecs();
+        else setPausedPos(loopStartSecs());
       }
     });
     card.addEventListener("pointercancel", (e) => {
@@ -8970,7 +8978,7 @@
     const wasPlaying = state.isPlaying;
     stopSource();
     if (wasPlaying) startSource(loopStartSecs());
-    else state.pausedBufferPos = loopStartSecs();
+    else setPausedPos(loopStartSecs());
     persistCurrentFileSettings();
     renderLoopCards();
   }
@@ -9002,7 +9010,7 @@
       const wasPlaying = state.isPlaying;
       stopSource();
       if (wasPlaying) startSource(loopStartSecs());
-      else state.pausedBufferPos = loopStartSecs();
+      else setPausedPos(loopStartSecs());
     }
     persistCurrentFileSettings();
     renderLoopCards();
@@ -9019,6 +9027,7 @@
     loopBetween = null;
     loopHint = null;
     loopPlayhead = null;
+    loopPausedPlayhead = null;
     loopStartLabel = null;
     loopEndLabel = null;
     loopLengthInput = null;
@@ -9057,6 +9066,9 @@
       const playhead = document.createElement("div");
       playhead.className = "loop-playhead";
       card.appendChild(playhead);
+      const pausedPlayhead = document.createElement("div");
+      pausedPlayhead.className = "loop-paused-playhead";
+      card.appendChild(pausedPlayhead);
       const icons = document.createElement("div");
       icons.className = "loop-card-icons";
       const dlBtn = document.createElement("button");
@@ -9086,6 +9098,8 @@
         loopBetween = between;
         loopHint = hint;
         loopPlayhead = playhead;
+        loopPausedPlayhead = pausedPlayhead;
+        setPausedPos(state.pausedBufferPos);
         loopStartLabel = startLbl;
         loopEndLabel = endLbl;
         loopLengthInput = input;
@@ -9128,14 +9142,14 @@
         if (state.isPlaying) {
           stopSource();
         } else {
-          state.pausedBufferPos = 0;
+          setPausedPos(0);
           play();
         }
       } else togglePlay();
     } else if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       stopSource();
-      state.pausedBufferPos = 0;
+      setPausedPos(0);
       play();
     } else if (e.key === "]") {
       pushUndo();
@@ -9149,6 +9163,15 @@
     } else if (e.key === "-") {
       pushUndo();
       setTargetBPM(state.targetBPM - 1);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      if (!state.originalBuffer) return;
+      e.preventDefault();
+      const delta = (e.key === "ArrowRight" ? 4 : -4) * beatDurationSecs();
+      const pos = clamp(currentBufferPos() + delta, 0, state.originalBuffer.duration);
+      if (state.isPlaying) {
+        stopSource();
+        startSource(pos);
+      } else setPausedPos(pos);
     } else if (e.key === "." || e.key === ",") {
       if (!state.originalBuffer) return;
       e.preventDefault();
@@ -9160,7 +9183,7 @@
       const wasPlaying = state.isPlaying;
       stopSource();
       if (wasPlaying) startSource(loopStartSecs());
-      else state.pausedBufferPos = loopStartSecs();
+      else setPausedPos(loopStartSecs());
     }
   });
   function setTheme(theme) {
@@ -9207,6 +9230,27 @@
     }
     return trimmed;
   }
+  function normalizeAudio(buffer2, targetPeak = 0.95) {
+    const numChannels = buffer2.numberOfChannels;
+    let peak = 0;
+    for (let c = 0; c < numChannels; c++) {
+      const data = buffer2.getChannelData(c);
+      for (let i = 0; i < data.length; i++) {
+        const abs = Math.abs(data[i]);
+        if (abs > peak) peak = abs;
+      }
+    }
+    if (peak === 0 || peak >= targetPeak) return buffer2;
+    const scale = targetPeak / peak;
+    const ctx = getAudioCtx();
+    const normalized = ctx.createBuffer(numChannels, buffer2.length, buffer2.sampleRate);
+    for (let c = 0; c < numChannels; c++) {
+      const src = buffer2.getChannelData(c);
+      const dst = normalized.getChannelData(c);
+      for (let i = 0; i < src.length; i++) dst[i] = src[i] * scale;
+    }
+    return normalized;
+  }
   var fileSelect = document.getElementById("file-select");
   async function refreshFileDropdown() {
     const files = (await loadAllFilesMeta()).sort((a, b) => b.addedAt - a.addedAt);
@@ -9238,7 +9282,7 @@
     try {
       const ctx = getAudioCtx();
       const raw = await ctx.decodeAudioData(arrayBuffer.slice(0));
-      const decoded = trimSilence(raw);
+      const decoded = normalizeAudio(trimSilence(raw));
       state.originalBuffer = decoded;
       waveformPeaks = null;
       computeWaveform(decoded);

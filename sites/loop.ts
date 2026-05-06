@@ -295,9 +295,18 @@ let activeLoopCard: HTMLElement | null = null;
 let loopBetween: HTMLElement | null = null;
 let loopHint: HTMLElement | null = null;
 let loopPlayhead: HTMLElement | null = null;
+let loopPausedPlayhead: HTMLElement | null = null;
 let loopStartLabel: HTMLElement | null = null;
 let loopEndLabel: HTMLElement | null = null;
 let loopLengthInput: HTMLInputElement | null = null;
+
+function setPausedPos(pos: number) {
+  state.pausedBufferPos = pos;
+  if (loopPausedPlayhead && state.originalBuffer) {
+    const frac = pos / state.originalBuffer.duration;
+    loopPausedPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+  }
+}
 
 function setBpmDisplay(bpm: number) {
   bpmReadout.textContent = `${Math.round(bpm)} BPM`;
@@ -625,7 +634,7 @@ function toggleMetronome() {
 
 function stopSource() {
   if (state.currentSource) {
-    state.pausedBufferPos = currentBufferPos();
+    setPausedPos(currentBufferPos());
     state.currentSource.onended = null;
     state.currentSource.stop();
     state.currentSource.disconnect();
@@ -664,7 +673,7 @@ function startSource(bufferPos: number) {
   source.onended = () => {
     if (state.currentSource === source) {
       state.isPlaying = false;
-      state.pausedBufferPos = 0;
+      setPausedPos(0);
       state.currentSource = null;
       document.body.classList.remove('playing');
     }
@@ -883,7 +892,7 @@ function setupActiveCardDrag(card: HTMLElement) {
       const wasPlaying = state.isPlaying;
       stopSource();
       if (wasPlaying) startSource(loopStartSecs());
-      else state.pausedBufferPos = loopStartSecs();
+      else setPausedPos(loopStartSecs());
     }
   });
 
@@ -910,7 +919,7 @@ function switchToLoop(id: string) {
   const wasPlaying = state.isPlaying;
   stopSource();
   if (wasPlaying) startSource(loopStartSecs());
-  else state.pausedBufferPos = loopStartSecs();
+  else setPausedPos(loopStartSecs());
   persistCurrentFileSettings();
   renderLoopCards();
 }
@@ -946,7 +955,7 @@ function deleteLoop(id: string) {
     const wasPlaying = state.isPlaying;
     stopSource();
     if (wasPlaying) startSource(loopStartSecs());
-    else state.pausedBufferPos = loopStartSecs();
+    else setPausedPos(loopStartSecs());
   }
   persistCurrentFileSettings();
   renderLoopCards();
@@ -968,6 +977,7 @@ function renderLoopCards() {
   loopBetween = null;
   loopHint = null;
   loopPlayhead = null;
+  loopPausedPlayhead = null;
   loopStartLabel = null;
   loopEndLabel = null;
   loopLengthInput = null;
@@ -1019,6 +1029,10 @@ function renderLoopCards() {
     playhead.className = 'loop-playhead';
     card.appendChild(playhead);
 
+    const pausedPlayhead = document.createElement('div');
+    pausedPlayhead.className = 'loop-paused-playhead';
+    card.appendChild(pausedPlayhead);
+
     // Hover icons
     const icons = document.createElement('div');
     icons.className = 'loop-card-icons';
@@ -1047,6 +1061,8 @@ function renderLoopCards() {
       loopBetween = between;
       loopHint = hint;
       loopPlayhead = playhead;
+      loopPausedPlayhead = pausedPlayhead;
+      setPausedPos(state.pausedBufferPos);
       loopStartLabel = startLbl;
       loopEndLabel = endLbl;
       loopLengthInput = input;
@@ -1088,14 +1104,22 @@ document.addEventListener('keydown', e => {
   }
   else if (e.key === ' ') {
     e.preventDefault();
-    if (e.shiftKey) { if (state.isPlaying) { stopSource(); } else { state.pausedBufferPos = 0; play(); } }
+    if (e.shiftKey) { if (state.isPlaying) { stopSource(); } else { setPausedPos(0); play(); } }
     else togglePlay();
   }
-  else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); stopSource(); state.pausedBufferPos = 0; play(); }
+  else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); stopSource(); setPausedPos(0); play(); }
   else if (e.key === ']') { pushUndo(); setTargetBPM(state.targetBPM + 5); }
   else if (e.key === '[') { pushUndo(); setTargetBPM(state.targetBPM - 5); }
   else if (e.key === '=') { pushUndo(); setTargetBPM(state.targetBPM + 1); }
   else if (e.key === '-') { pushUndo(); setTargetBPM(state.targetBPM - 1); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (!state.originalBuffer) return;
+    e.preventDefault();
+    const delta = (e.key === 'ArrowRight' ? 4 : -4) * beatDurationSecs();
+    const pos = clamp(currentBufferPos() + delta, 0, state.originalBuffer.duration);
+    if (state.isPlaying) { stopSource(); startSource(pos); }
+    else setPausedPos(pos);
+  }
   else if (e.key === '.' || e.key === ',') {
     if (!state.originalBuffer) return;
     e.preventDefault();
@@ -1107,7 +1131,7 @@ document.addEventListener('keydown', e => {
     const wasPlaying = state.isPlaying;
     stopSource();
     if (wasPlaying) startSource(loopStartSecs());
-    else state.pausedBufferPos = loopStartSecs();
+    else setPausedPos(loopStartSecs());
   }
 });
 
@@ -1149,6 +1173,28 @@ function trimSilence(buffer: AudioBuffer, threshold = 0.0316): AudioBuffer {
   return trimmed;
 }
 
+function normalizeAudio(buffer: AudioBuffer, targetPeak = 0.95): AudioBuffer {
+  const numChannels = buffer.numberOfChannels;
+  let peak = 0;
+  for (let c = 0; c < numChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > peak) peak = abs;
+    }
+  }
+  if (peak === 0 || peak >= targetPeak) return buffer;
+  const scale = targetPeak / peak;
+  const ctx = getAudioCtx();
+  const normalized = ctx.createBuffer(numChannels, buffer.length, buffer.sampleRate);
+  for (let c = 0; c < numChannels; c++) {
+    const src = buffer.getChannelData(c);
+    const dst = normalized.getChannelData(c);
+    for (let i = 0; i < src.length; i++) dst[i] = src[i] * scale;
+  }
+  return normalized;
+}
+
 const fileSelect = document.getElementById('file-select') as HTMLSelectElement;
 
 async function refreshFileDropdown() {
@@ -1184,7 +1230,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   try {
     const ctx = getAudioCtx();
     const raw = await ctx.decodeAudioData(arrayBuffer.slice(0));
-    const decoded = trimSilence(raw);
+    const decoded = normalizeAudio(trimSilence(raw));
     state.originalBuffer = decoded;
     waveformPeaks = null;
     computeWaveform(decoded);

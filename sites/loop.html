@@ -57,6 +57,7 @@
       flex: 1 1 0;
       min-height: 0;
       position: relative;
+      overflow: hidden;
       border-bottom: 1px solid var(--section-divider);
     }
 
@@ -224,6 +225,19 @@
     }
 
     body:not(.playing) .loop-playhead { opacity: 0; }
+
+    .loop-paused-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: #888;
+      opacity: 0.7;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    body.playing .loop-paused-playhead { opacity: 0; }
 
     .loop-waveform {
       position: absolute;
