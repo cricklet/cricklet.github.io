@@ -167,13 +167,12 @@
       opacity: 0.35;
     }
 
-    .loop-length-input {
+    .loop-length-input,
+    .loop-start-input,
+    .loop-end-input {
       display: none;
       position: absolute;
-      left: 50%;
       top: 50%;
-      transform: translate(-50%, -50%);
-      width: 8em;
       font-family: 'Reddit Mono', monospace;
       font-size: clamp(1rem, 3.2vmin, 1.5rem);
       font-weight: inherit;
@@ -189,6 +188,22 @@
       -webkit-user-select: text;
     }
 
+    .loop-length-input {
+      width: 3.5em;
+      transform: translate(-50%, -50%);
+    }
+
+    .loop-start-input,
+    .loop-end-input {
+      width: 5em;
+      font-size: clamp(0.65rem, 2vmin, 0.9rem);
+    }
+
+    .loop-start-input,
+    .loop-end-input {
+      transform: translate(-50%, -50%);
+    }
+
     .loop-beat-label {
       position: absolute;
       top: 50%;
@@ -201,7 +216,15 @@
     }
 
     .loop-card.active .loop-beat-label {
-      /* inherits var(--text-color) — theme handles light/dark/unfocused */
+      pointer-events: auto;
+      cursor: text;
+      border-bottom: 1px dashed transparent;
+      transition: border-color 0.15s, opacity 0.15s;
+    }
+
+    .loop-card.active .loop-beat-label:hover {
+      opacity: 0.8;
+      border-bottom-color: currentColor;
     }
 
     .loop-start-label {

@@ -8391,6 +8391,8 @@
   var loopStartLabel = null;
   var loopEndLabel = null;
   var loopLengthInput = null;
+  var loopStartInput = null;
+  var loopEndInput = null;
   function setPausedPos(pos) {
     state.pausedBufferPos = pos;
     if (loopPausedPlayhead && state.originalBuffer) {
@@ -8882,11 +8884,29 @@
   var loopDragInitialTarget = null;
   function enterLoopLengthEdit() {
     if (!loopLengthInput || !loopHint) return;
+    commitLoopStartEdit();
+    commitLoopEndEdit();
+    const card = loopHint.closest(".loop-card");
+    const cardRect = card.getBoundingClientRect();
+    const hintRect = loopHint.getBoundingClientRect();
+    loopLengthInput.style.left = `${(hintRect.left + hintRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
     loopLengthInput.value = String(state.loopEndBeats - state.loopStartBeats);
     loopLengthInput.style.display = "block";
     loopHint.style.visibility = "hidden";
     loopLengthInput.focus();
     loopLengthInput.select();
+  }
+  function evalRelative(expr, current) {
+    const trimmed = expr.trim();
+    if (trimmed.startsWith("+")) {
+      const delta = evalArithmetic(trimmed.slice(1));
+      return delta !== null ? current + delta : null;
+    }
+    if (trimmed.startsWith("-")) {
+      const delta = evalArithmetic(trimmed.slice(1));
+      return delta !== null ? current - delta : null;
+    }
+    return evalArithmetic(trimmed);
   }
   function evalArithmetic(expr) {
     if (!/^[\d\s+\-*/.()]+$/.test(expr)) return null;
@@ -8907,11 +8927,77 @@
     loopLengthInput.style.display = "none";
     if (loopHint) loopHint.style.visibility = "";
   }
+  function enterLoopStartEdit() {
+    if (!loopStartInput || !loopStartLabel) return;
+    commitLoopLengthEdit();
+    commitLoopEndEdit();
+    const card = loopStartLabel.closest(".loop-card");
+    const cardRect = card.getBoundingClientRect();
+    const lblRect = loopStartLabel.getBoundingClientRect();
+    loopStartInput.style.left = `${(lblRect.left + lblRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
+    loopStartInput.value = String(state.loopStartBeats);
+    loopStartInput.style.display = "block";
+    loopStartLabel.style.visibility = "hidden";
+    loopStartInput.focus();
+    loopStartInput.select();
+  }
+  function commitLoopStartEdit() {
+    if (!loopStartInput || loopStartInput.style.display === "none") return;
+    const raw = loopStartInput.value.trim();
+    const isRelative = raw.startsWith("+") || raw.startsWith("-");
+    const v = evalRelative(raw, state.loopStartBeats);
+    if (v !== null) {
+      const newStart = Math.round(v);
+      if (newStart !== state.loopStartBeats) {
+        if (isRelative) {
+          const delta = newStart - state.loopStartBeats;
+          const newEnd = state.loopEndBeats + delta;
+          if (newStart >= 0 && newEnd <= totalBeats()) {
+            pushUndo();
+            setLoopPoints(newStart, newEnd);
+          }
+        } else if (newStart < state.loopEndBeats) {
+          pushUndo();
+          setLoopPoints(newStart, state.loopEndBeats);
+        }
+      }
+    }
+    loopStartInput.style.display = "none";
+    if (loopStartLabel) loopStartLabel.style.visibility = "";
+  }
+  function enterLoopEndEdit() {
+    if (!loopEndInput || !loopEndLabel) return;
+    commitLoopLengthEdit();
+    commitLoopStartEdit();
+    const card = loopEndLabel.closest(".loop-card");
+    const cardRect = card.getBoundingClientRect();
+    const lblRect = loopEndLabel.getBoundingClientRect();
+    loopEndInput.style.left = `${(lblRect.left + lblRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
+    loopEndInput.value = String(state.loopEndBeats);
+    loopEndInput.style.display = "block";
+    loopEndLabel.style.visibility = "hidden";
+    loopEndInput.focus();
+    loopEndInput.select();
+  }
+  function commitLoopEndEdit() {
+    if (!loopEndInput || loopEndInput.style.display === "none") return;
+    const v = evalRelative(loopEndInput.value.trim(), state.loopEndBeats);
+    if (v !== null) {
+      const newEnd = Math.round(v);
+      if (newEnd !== state.loopEndBeats && newEnd > state.loopStartBeats) {
+        pushUndo();
+        setLoopPoints(state.loopStartBeats, newEnd);
+      }
+    }
+    loopEndInput.style.display = "none";
+    if (loopEndLabel) loopEndLabel.style.visibility = "";
+  }
   function setupActiveCardDrag(card) {
     card.addEventListener("pointerdown", (e) => {
       if (!state.originalBuffer) return;
-      if (e.target.closest(".loop-icon-btn")) return;
-      if (loopLengthInput && document.activeElement === loopLengthInput) return;
+      if (e.target.closest(".loop-icon-btn, .loop-beat-label")) return;
+      const focused = document.activeElement;
+      if (focused === loopLengthInput || focused === loopStartInput || focused === loopEndInput) return;
       pushUndo();
       card.setPointerCapture(e.pointerId);
       loopDragActive = true;
@@ -9018,11 +9104,9 @@
   function renderLoopCards() {
     const container = document.getElementById("loops-container");
     const addRow = document.getElementById("add-loop-row");
-    if (loopLengthInput && loopLengthInput.style.display !== "none") {
-      const v = evalArithmetic(loopLengthInput.value.trim());
-      if (v !== null && v >= 1) setLoopPoints(state.loopStartBeats, state.loopStartBeats + Math.round(v));
-      loopLengthInput.style.display = "none";
-    }
+    commitLoopLengthEdit();
+    commitLoopStartEdit();
+    commitLoopEndEdit();
     activeLoopCard = null;
     loopBetween = null;
     loopHint = null;
@@ -9031,6 +9115,8 @@
     loopStartLabel = null;
     loopEndLabel = null;
     loopLengthInput = null;
+    loopStartInput = null;
+    loopEndInput = null;
     container.innerHTML = "";
     for (const loop of state.loops) {
       const isActive = loop.id === state.activeLoopId;
@@ -9055,8 +9141,8 @@
       input.autocomplete = "off";
       input.spellcheck = false;
       input.style.display = "none";
-      between.appendChild(input);
       card.appendChild(between);
+      card.appendChild(input);
       const startLbl = document.createElement("div");
       startLbl.className = "loop-beat-label loop-start-label";
       card.appendChild(startLbl);
@@ -9111,10 +9197,68 @@
           if (e.key === "Escape") {
             if (loopLengthInput) loopLengthInput.style.display = "none";
             if (loopHint) loopHint.style.visibility = "";
+            input.blur();
+            e.preventDefault();
           }
         });
         input.addEventListener("blur", commitLoopLengthEdit);
         input.addEventListener("pointerdown", (e) => e.stopPropagation());
+        const startInput = document.createElement("input");
+        startInput.className = "loop-start-input";
+        startInput.type = "text";
+        startInput.inputMode = "numeric";
+        startInput.autocomplete = "off";
+        startInput.spellcheck = false;
+        startInput.style.display = "none";
+        card.appendChild(startInput);
+        loopStartInput = startInput;
+        const endInput = document.createElement("input");
+        endInput.className = "loop-end-input";
+        endInput.type = "text";
+        endInput.inputMode = "numeric";
+        endInput.autocomplete = "off";
+        endInput.spellcheck = false;
+        endInput.style.display = "none";
+        card.appendChild(endInput);
+        loopEndInput = endInput;
+        startInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            commitLoopStartEdit();
+            e.preventDefault();
+          } else if (e.key === "Tab" && !e.shiftKey) {
+            e.preventDefault();
+            commitLoopStartEdit();
+            enterLoopEndEdit();
+          } else if (e.key === "Escape") {
+            startInput.style.display = "none";
+            if (loopStartLabel) loopStartLabel.style.visibility = "";
+            startInput.blur();
+            e.preventDefault();
+          }
+        });
+        startInput.addEventListener("blur", commitLoopStartEdit);
+        startInput.addEventListener("pointerdown", (e) => e.stopPropagation());
+        endInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            commitLoopEndEdit();
+            e.preventDefault();
+          } else if (e.key === "Tab" && e.shiftKey) {
+            e.preventDefault();
+            commitLoopEndEdit();
+            enterLoopStartEdit();
+          } else if (e.key === "Escape") {
+            endInput.style.display = "none";
+            if (loopEndLabel) loopEndLabel.style.visibility = "";
+            endInput.blur();
+            e.preventDefault();
+          }
+        });
+        endInput.addEventListener("blur", commitLoopEndEdit);
+        endInput.addEventListener("pointerdown", (e) => e.stopPropagation());
+        startLbl.addEventListener("pointerdown", (e) => e.stopPropagation());
+        startLbl.addEventListener("click", () => enterLoopStartEdit());
+        endLbl.addEventListener("pointerdown", (e) => e.stopPropagation());
+        endLbl.addEventListener("click", () => enterLoopEndEdit());
         setupActiveCardDrag(card);
         updateActiveLoopCardDisplay();
       } else {
@@ -9131,7 +9275,30 @@
   }
   document.addEventListener("keydown", (e) => {
     const tag = e.target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    const inInput = tag === "INPUT" || tag === "TEXTAREA";
+    if (e.ctrlKey && !e.metaKey && !inInput) {
+      if (e.key === "a" && state.originalBuffer) {
+        e.preventDefault();
+        enterLoopStartEdit();
+        return;
+      }
+      if (e.key === "e" && state.originalBuffer) {
+        e.preventDefault();
+        enterLoopEndEdit();
+        return;
+      }
+      if (e.key === "j" && state.originalBuffer) {
+        e.preventDefault();
+        enterLoopLengthEdit();
+        return;
+      }
+    }
+    if (inInput) return;
+    if (e.key === "Enter" && state.originalBuffer) {
+      e.preventDefault();
+      enterLoopLengthEdit();
+      return;
+    }
     if (e.key === "z" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (e.shiftKey) redo();
