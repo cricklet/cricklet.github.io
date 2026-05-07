@@ -211,6 +211,57 @@
       outline: none;
     }
 
+    #visual-toggle {
+      position: fixed;
+      bottom: 60px;
+      left: 8px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
+      opacity: 0;
+      cursor: pointer;
+      font-size: 1.25rem;
+      padding: 0;
+      border: 1.5px solid transparent;
+      z-index: 10;
+      filter: grayscale(1);
+    }
+
+    body:hover #visual-toggle {
+      opacity: 1;
+    }
+
+    #visual-toggle:hover {
+      transform: scale(1.08);
+    }
+
+    #visual-toggle:focus {
+      outline: none;
+    }
+
+    #visual-toggle.active {
+      background: var(--bg-color);
+      color: var(--text-color);
+      border-color: var(--text-color);
+    }
+
+    body:hover #visual-toggle.active {
+      opacity: 0.3;
+    }
+
+    body.visual-mode #bpm-readout {
+      transition: opacity 0.04s ease;
+    }
+
+    body.visual-mode #bpm-readout.beat-dim {
+      opacity: 0.62;
+    }
+
     #jazz-toggle,
     #eighths-toggle {
       position: fixed;
@@ -318,6 +369,7 @@
 
   <!-- <span class="hint">Space — start / stop · T — tap tempo</span> -->
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+  <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode">👁️</button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
   <button type="button" id="eighths-toggle" onclick="toggleEighths()" title="Eighths offbeat">♪</button>
   <audio id="click-audio" src="click.mp3" preload="auto"></audio>
@@ -330,6 +382,9 @@
     const STORAGE_VOLUME = 'metronome_volume';
     const STORAGE_THEME = 'metronome_theme';
     const STORAGE_STOPWATCH = 'metronome_stopwatch_start';
+    const STORAGE_JAZZ = 'metronome_jazz';
+    const STORAGE_EIGHTHS = 'metronome_eighths';
+    const STORAGE_VISUAL = 'metronome_visual';
 
     const bpmSection = document.getElementById('bpm-section');
     const volumeSection = document.getElementById('volume-section');
@@ -350,6 +405,9 @@
     let jazzMode = false;
     let eighthsMode = false;
     let nextIsOffbeat = false;
+    let visualMode = false;
+    let nextVisualTime = 0;
+    let visualPhase = false;
 
     function clickNowSec() {
       return performance.now() / 1000;
@@ -546,6 +604,13 @@
       }, delayMs);
     }
 
+    function flashVisualBeat(when, phase) {
+      const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
+      window.setTimeout(() => {
+        bpmReadout.classList.toggle('beat-dim', phase);
+      }, delayMs);
+    }
+
     function scheduleLoop() {
       if (!running) return;
       const lookahead = 0.08;
@@ -567,6 +632,13 @@
           beatNumber = (beatNumber % 4) + 1;
         }
       }
+      if (visualMode) {
+        while (nextVisualTime < now + lookahead) {
+          flashVisualBeat(nextVisualTime, visualPhase);
+          visualPhase = !visualPhase;
+          nextVisualTime += 60 / bpm / 2;
+        }
+      }
       scheduleRaf = requestAnimationFrame(scheduleLoop);
     }
 
@@ -578,6 +650,9 @@
         beatNumber = 1;
         nextIsOffbeat = false;
         nextClickTime = clickNowSec() + 0.05;
+        nextVisualTime = nextClickTime;
+        visualPhase = false;
+        bpmReadout.classList.remove('beat-dim');
         scheduleLoop();
       };
       void waitClickReady().then(begin, begin);
@@ -586,6 +661,7 @@
     function stopMetronome() {
       running = false;
       document.body.classList.remove('running');
+      bpmReadout.classList.remove('beat-dim');
       if (scheduleRaf != null) {
         cancelAnimationFrame(scheduleRaf);
         scheduleRaf = null;
@@ -741,12 +817,27 @@
     function toggleJazz() {
       jazzMode = !jazzMode;
       document.getElementById('jazz-toggle').classList.toggle('active', jazzMode);
+      try { localStorage.setItem(STORAGE_JAZZ, jazzMode ? '1' : '0'); } catch (_) {}
     }
 
     function toggleEighths() {
       eighthsMode = !eighthsMode;
       nextIsOffbeat = false;
       document.getElementById('eighths-toggle').classList.toggle('active', eighthsMode);
+      try { localStorage.setItem(STORAGE_EIGHTHS, eighthsMode ? '1' : '0'); } catch (_) {}
+    }
+
+    function toggleVisual() {
+      visualMode = !visualMode;
+      document.getElementById('visual-toggle').classList.toggle('active', visualMode);
+      document.body.classList.toggle('visual-mode', visualMode);
+      if (!visualMode) {
+        bpmReadout.classList.remove('beat-dim');
+      } else if (running) {
+        nextVisualTime = clickNowSec();
+        visualPhase = false;
+      }
+      try { localStorage.setItem(STORAGE_VISUAL, visualMode ? '1' : '0'); } catch (_) {}
     }
 
 
@@ -765,6 +856,22 @@
     }
 
     loadInitialTheme();
+
+    try {
+      if (localStorage.getItem(STORAGE_JAZZ) === '1') {
+        jazzMode = true;
+        document.getElementById('jazz-toggle').classList.add('active');
+      }
+      if (localStorage.getItem(STORAGE_EIGHTHS) === '1') {
+        eighthsMode = true;
+        document.getElementById('eighths-toggle').classList.add('active');
+      }
+      if (localStorage.getItem(STORAGE_VISUAL) === '1') {
+        visualMode = true;
+        document.getElementById('visual-toggle').classList.add('active');
+        document.body.classList.add('visual-mode');
+      }
+    } catch (_) {}
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
       try {
