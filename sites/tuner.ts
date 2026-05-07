@@ -270,7 +270,7 @@ function renderStaff(midi: number | null, cents: number | null) {
   const H = container.clientHeight || 220;
   const { Renderer, Stave, StaveNote, Formatter, Accidental } = Vex.Flow;
 
-  const STAVE_W = clamp(W - 16, 80, 120);
+  const STAVE_W = clamp(W - 16, 80, W);
   const staveX  = (W - STAVE_W) / 2;
   const staveY  = (H - 40) / 2;
 
@@ -467,4 +467,11 @@ function toggleTheme() {
   renderStaff(null, null);
   updateDbDisplay(DB_MIN);
   document.addEventListener('click', () => start(), { once: true });
+
+  new ResizeObserver(() => {
+    staffRenderedKey = 'dirty';
+    const dm = currentDisplayMidi();
+    const dc = dm !== null && lastCents !== null ? displayCents(lastCents, dm) : null;
+    renderStaff(dm, dc);
+  }).observe(document.getElementById('staff-panel')!);
 })();
