@@ -1459,12 +1459,47 @@ document.addEventListener('dragleave', () => {
   if (dragDepth === 0) document.body.classList.remove('drag-over');
 });
 document.addEventListener('dragover', e => e.preventDefault());
-document.addEventListener('drop', e => {
+document.addEventListener('drop', async e => {
   e.preventDefault();
   dragDepth = 0;
   document.body.classList.remove('drag-over');
-  const file = e.dataTransfer?.files[0];
-  if (file) processFile(file);
+  const files = e.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+
+  if (files.length === 1) {
+    await processFile(files[0]);
+    return;
+  }
+
+  // Process multiple files: save all, then open the last one
+  const mp3Files = Array.from(files).filter(f => f.type === 'audio/mpeg' || f.name.endsWith('.mp3'));
+  if (mp3Files.length === 0) {
+    setStatus('No MP3 files found');
+    return;
+  }
+
+  for (let i = 0; i < mp3Files.length; i++) {
+    const file = mp3Files[i];
+    setStatus(`Processing ${i + 1}/${mp3Files.length}: ${file.name}…`);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const id = encodeURIComponent(file.name);
+      await saveAudioFile(arrayBuffer, file.name, id);
+    } catch (err) {
+      console.error('Failed to save file:', file.name, err);
+    }
+  }
+
+  await refreshFileDropdown();
+
+  // Open the last file
+  const lastFile = mp3Files[mp3Files.length - 1];
+  const lastId = encodeURIComponent(lastFile.name);
+  const saved = await loadAudioById(lastId);
+  if (saved) {
+    await processArrayBuffer(saved.buffer, saved.name, lastId);
+  }
 });
 
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
