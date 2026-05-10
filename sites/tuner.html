@@ -253,10 +253,10 @@
       display: none;
     }
 
-    #theme-toggle { left: 48px; font-size: 0.75rem; }
+    #theme-toggle    { left: 48px; font-size: 0.75rem; }
+    #accidentals-btn { left: 86px; font-size: 0.85rem; }
 
     .icon-btn.active {
-      opacity: 1;
       background: var(--bg-color);
       color: rgba(128, 128, 128, 0.75);
       border-color: rgba(128, 128, 128, 0.5);
@@ -299,9 +299,10 @@
     </div>
   </div>
 
-  <button type="button" id="trumpet-btn"  class="icon-btn" onclick="toggleTrumpet()"  title="Bb trumpet (transposing)">🎺</button>
-  <button type="button" id="sinewave-btn" class="icon-btn" onclick="toggleSinewave()" title="Theoretical trumpet tuning">∿</button>
-  <button type="button" id="theme-toggle" class="icon-btn" onclick="toggleTheme()"   title="Theme">◑</button>
+  <button type="button" id="trumpet-btn"    class="icon-btn" onclick="toggleTrumpet()"      title="Bb trumpet (transposing)">🎺</button>
+  <button type="button" id="sinewave-btn"  class="icon-btn" onclick="toggleSinewave()"     title="Theoretical trumpet tuning">∿</button>
+  <button type="button" id="theme-toggle"  class="icon-btn" onclick="toggleTheme()"        title="Theme">◑</button>
+  <button type="button" id="accidentals-btn" class="icon-btn" onclick="toggleAccidentals()" title="Toggle sharps / flats">♯</button>
 
   <script src="dist/tuner.js"></script>
 </body>

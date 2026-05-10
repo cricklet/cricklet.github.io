@@ -85,6 +85,10 @@ let lastFreq: number | null = null;
 let noSignalFrames = 0;
 const NO_SIGNAL_THRESHOLD = 12;
 
+// Stopwatch — uses Date.now() wall-clock so elapsed time survives page reloads
+let stopwatchStartTime: number | null = null;   // Date.now() timestamp
+let stopwatchOffsetMs = 0;                       // accumulated ms before current run
+
 // Staff render throttle — key encodes midi + tuning color bucket
 let staffRenderedKey = 'dirty';
 
@@ -130,8 +134,9 @@ const noteOctave     = document.getElementById('note-octave')!;
 const freqDisplay    = document.getElementById('freq-display')!;
 const centsDisplay   = document.getElementById('cents-display')!;
 const statusHint     = document.getElementById('status-hint')!;
-const trumpetBtn     = document.getElementById('trumpet-btn')!;
-const sinewaveBtn    = document.getElementById('sinewave-btn')!;
+const trumpetBtn      = document.getElementById('trumpet-btn')!;
+const sinewaveBtn     = document.getElementById('sinewave-btn')!;
+const accidentalsBtn  = document.getElementById('accidentals-btn')!;
 const dbSection      = document.getElementById('db-section')!;
 const dbFill         = document.getElementById('db-fill')!;
 const dbThreshLine   = document.getElementById('db-threshold-line')!;
@@ -344,6 +349,46 @@ function rerenderCurrent() {
   }
 }
 
+// ── Stopwatch ──────────────────────────────────────────────────────────────
+
+function saveStopwatchState() {
+  try {
+    if (stopwatchStartTime !== null) {
+      localStorage.setItem('tuner_stopwatch_startTime', String(stopwatchStartTime));
+      localStorage.setItem('tuner_stopwatch_offsetMs', String(stopwatchOffsetMs));
+    } else {
+      localStorage.removeItem('tuner_stopwatch_startTime');
+      localStorage.setItem('tuner_stopwatch_offsetMs', String(stopwatchOffsetMs));
+    }
+  } catch (_) {}
+}
+
+function loadStopwatchState() {
+  try {
+    const savedStart  = localStorage.getItem('tuner_stopwatch_startTime');
+    const savedOffset = localStorage.getItem('tuner_stopwatch_offsetMs');
+    if (savedStart !== null && savedOffset !== null) {
+      const now = Date.now();
+      stopwatchOffsetMs  = parseFloat(savedOffset) + (now - parseInt(savedStart));
+      stopwatchStartTime = now;
+    }
+  } catch (_) {}
+}
+
+function formatStopwatch(): string {
+  const ms = stopwatchOffsetMs + (stopwatchStartTime !== null ? Date.now() - stopwatchStartTime : 0);
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function resetStopwatch() {
+  stopwatchOffsetMs  = 0;
+  stopwatchStartTime = started ? Date.now() : null;
+  saveStopwatchState();
+}
+
 // ── Pitch detection loop ───────────────────────────────────────────────────
 
 function tick() {
@@ -351,6 +396,8 @@ function tick() {
 
   const input = new Float32Array(detector.inputLength);
   analyser.getFloatTimeDomainData(input);
+
+  statusHint.textContent = formatStopwatch();
 
   const currentDb = computeDb(input);
   updateDbDisplay(currentDb);
@@ -395,7 +442,10 @@ async function start() {
     analyser.fftSize = 2048;
     audioCtx.createMediaStreamSource(stream).connect(analyser);
     detector = PitchDetector.forFloat32Array(analyser.fftSize);
-    statusHint.textContent = '';
+    if (stopwatchStartTime === null) {
+      stopwatchStartTime = Date.now();
+      saveStopwatchState();
+    }
     requestAnimationFrame(tick);
   } catch (e) {
     statusHint.textContent = `Microphone error: ${(e as Error).message}`;
@@ -405,9 +455,20 @@ async function start() {
 
 // ── Toggles ────────────────────────────────────────────────────────────────
 
+function syncAccidentalsBtn() {
+  accidentalsBtn.textContent = useFlats ? '♭' : '♯';
+}
+
+function toggleAccidentals() {
+  useFlats = !useFlats;
+  syncAccidentalsBtn();
+  try { localStorage.setItem('tuner_flats', useFlats ? '1' : '0'); } catch (_) {}
+  rerenderCurrent();
+}
+(window as any).toggleAccidentals = toggleAccidentals;
+
 function toggleTrumpet() {
   trumpetMode = !trumpetMode;
-  useFlats = trumpetMode;
   trumpetBtn.classList.toggle('active', trumpetMode);
   sinewaveBtn.style.display = trumpetMode ? 'inline-flex' : 'none';
   if (!trumpetMode) {
@@ -455,18 +516,24 @@ function toggleTheme() {
   try {
     if (localStorage.getItem('tuner_trumpet') === '1') {
       trumpetMode = true;
-      useFlats = true;
       trumpetBtn.classList.add('active');
       sinewaveBtn.style.display = 'inline-flex';
     }
+    const savedFlats = localStorage.getItem('tuner_flats');
+    if (savedFlats !== null) useFlats = savedFlats === '1';
+    syncAccidentalsBtn();
     const saved = parseFloat(localStorage.getItem('tuner_db_threshold') ?? '');
     if (Number.isFinite(saved)) dbThreshold = clamp(saved, DB_MIN, DB_MAX);
   } catch (_) {}
 
+  loadStopwatchState();
   drawMeter(null);
   renderStaff(null, null);
   updateDbDisplay(DB_MIN);
   document.addEventListener('click', () => start(), { once: true });
+  document.addEventListener('keydown', e => {
+    if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey && !e.altKey) resetStopwatch();
+  });
 
   new ResizeObserver(() => {
     staffRenderedKey = 'dirty';

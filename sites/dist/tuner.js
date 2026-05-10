@@ -853,6 +853,8 @@
   var lastFreq = null;
   var noSignalFrames = 0;
   var NO_SIGNAL_THRESHOLD = 12;
+  var stopwatchStartTime = null;
+  var stopwatchOffsetMs = 0;
   var staffRenderedKey = "dirty";
   function lerpRgb(a, b, t) {
     const r = Math.round(a[0] + (b[0] - a[0]) * t);
@@ -888,6 +890,7 @@
   var statusHint = document.getElementById("status-hint");
   var trumpetBtn = document.getElementById("trumpet-btn");
   var sinewaveBtn = document.getElementById("sinewave-btn");
+  var accidentalsBtn = document.getElementById("accidentals-btn");
   var dbSection = document.getElementById("db-section");
   var dbFill = document.getElementById("db-fill");
   var dbThreshLine = document.getElementById("db-threshold-line");
@@ -1071,10 +1074,47 @@
       renderStaff(dm, dc);
     }
   }
+  function saveStopwatchState() {
+    try {
+      if (stopwatchStartTime !== null) {
+        localStorage.setItem("tuner_stopwatch_startTime", String(stopwatchStartTime));
+        localStorage.setItem("tuner_stopwatch_offsetMs", String(stopwatchOffsetMs));
+      } else {
+        localStorage.removeItem("tuner_stopwatch_startTime");
+        localStorage.setItem("tuner_stopwatch_offsetMs", String(stopwatchOffsetMs));
+      }
+    } catch (_) {
+    }
+  }
+  function loadStopwatchState() {
+    try {
+      const savedStart = localStorage.getItem("tuner_stopwatch_startTime");
+      const savedOffset = localStorage.getItem("tuner_stopwatch_offsetMs");
+      if (savedStart !== null && savedOffset !== null) {
+        const now = Date.now();
+        stopwatchOffsetMs = parseFloat(savedOffset) + (now - parseInt(savedStart));
+        stopwatchStartTime = now;
+      }
+    } catch (_) {
+    }
+  }
+  function formatStopwatch() {
+    const ms = stopwatchOffsetMs + (stopwatchStartTime !== null ? Date.now() - stopwatchStartTime : 0);
+    const totalSec = Math.floor(ms / 1e3);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+  function resetStopwatch() {
+    stopwatchOffsetMs = 0;
+    stopwatchStartTime = started ? Date.now() : null;
+    saveStopwatchState();
+  }
   function tick() {
     if (!analyser || !detector || !audioCtx) return;
     const input = new Float32Array(detector.inputLength);
     analyser.getFloatTimeDomainData(input);
+    statusHint.textContent = formatStopwatch();
     const currentDb = computeDb(input);
     updateDbDisplay(currentDb);
     const [freq, clarity] = detector.findPitch(input, audioCtx.sampleRate);
@@ -1114,16 +1154,31 @@
       analyser.fftSize = 2048;
       audioCtx.createMediaStreamSource(stream).connect(analyser);
       detector = PitchDetector.forFloat32Array(analyser.fftSize);
-      statusHint.textContent = "";
+      if (stopwatchStartTime === null) {
+        stopwatchStartTime = Date.now();
+        saveStopwatchState();
+      }
       requestAnimationFrame(tick);
     } catch (e) {
       statusHint.textContent = `Microphone error: ${e.message}`;
       started = false;
     }
   }
+  function syncAccidentalsBtn() {
+    accidentalsBtn.textContent = useFlats ? "\u266D" : "\u266F";
+  }
+  function toggleAccidentals() {
+    useFlats = !useFlats;
+    syncAccidentalsBtn();
+    try {
+      localStorage.setItem("tuner_flats", useFlats ? "1" : "0");
+    } catch (_) {
+    }
+    rerenderCurrent();
+  }
+  window.toggleAccidentals = toggleAccidentals;
   function toggleTrumpet() {
     trumpetMode = !trumpetMode;
-    useFlats = trumpetMode;
     trumpetBtn.classList.toggle("active", trumpetMode);
     sinewaveBtn.style.display = trumpetMode ? "inline-flex" : "none";
     if (!trumpetMode) {
@@ -1172,18 +1227,24 @@
     try {
       if (localStorage.getItem("tuner_trumpet") === "1") {
         trumpetMode = true;
-        useFlats = true;
         trumpetBtn.classList.add("active");
         sinewaveBtn.style.display = "inline-flex";
       }
+      const savedFlats = localStorage.getItem("tuner_flats");
+      if (savedFlats !== null) useFlats = savedFlats === "1";
+      syncAccidentalsBtn();
       const saved = parseFloat(localStorage.getItem("tuner_db_threshold") ?? "");
       if (Number.isFinite(saved)) dbThreshold = clamp(saved, DB_MIN, DB_MAX);
     } catch (_) {
     }
+    loadStopwatchState();
     drawMeter(null);
     renderStaff(null, null);
     updateDbDisplay(DB_MIN);
     document.addEventListener("click", () => start(), { once: true });
+    document.addEventListener("keydown", (e) => {
+      if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey && !e.altKey) resetStopwatch();
+    });
     new ResizeObserver(() => {
       staffRenderedKey = "dirty";
       const dm = currentDisplayMidi();
