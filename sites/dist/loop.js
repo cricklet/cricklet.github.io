@@ -8175,6 +8175,8 @@
   var STORAGE_VOLUME = "loop_volume";
   var STORAGE_METRONOME = "loop_metronome";
   var STORAGE_LAST_FILE = "loop_last_file";
+  var TRANSPOSE_MIN = -24;
+  var TRANSPOSE_MAX = 24;
   var DB_NAME = "loop-player";
   var DB_VERSION = 3;
   var DB_STORE_FILES = "files";
@@ -8342,7 +8344,8 @@
       localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
         loops: state.loops,
         activeLoopId: state.activeLoopId,
-        volume: state.volume
+        volume: state.volume,
+        transposeSemitones: state.transposeSemitones
       }));
     } catch (_) {
     }
@@ -8363,6 +8366,7 @@
     playStartWallTime: 0,
     pausedBufferPos: 0,
     metronomeEnabled: false,
+    transposeSemitones: 0,
     currentFileId: null,
     beatTicks: null,
     loops: [],
@@ -8375,6 +8379,25 @@
   function clamp(v, lo, hi) {
     return Math.min(hi, Math.max(lo, v));
   }
+  function updateRowHeight() {
+    const nLoops = Math.max(1, state.loops.length);
+    const hasFile = !!state.originalBuffer;
+    const addRowH = hasFile ? 36 : 0;
+    const vh = window.innerHeight;
+    const topBarH = 40;
+    const naturalH = clamp(vh * 0.09, 72, 112);
+    const naturalVH = clamp(vh * 0.065, 52, 80);
+    const available = vh - topBarH - addRowH - 60;
+    const totalUnits = nLoops + 1 + 0.72;
+    const idealH = available / totalUnits;
+    const h = Math.round(clamp(Math.min(naturalH, idealH), 44, 112));
+    const vH = Math.round(clamp(Math.min(naturalVH, h * 0.72), 32, 80));
+    const loopsMaxH = Math.max(h, vh - topBarH - addRowH - h - vH - 60);
+    document.documentElement.style.setProperty("--row-height", `${h}px`);
+    document.documentElement.style.setProperty("--volume-height", `${vH}px`);
+    document.documentElement.style.setProperty("--loops-max-height", `${loopsMaxH}px`);
+  }
+  window.addEventListener("resize", updateRowHeight);
   var bpmSection = document.getElementById("bpm-section");
   var volumeSection = document.getElementById("volume-section");
   var bpmFill = document.getElementById("bpm-fill");
@@ -8711,6 +8734,64 @@
     }
   }
   window.toggleMetronome = toggleMetronome;
+  function updateTransposeBtn() {
+    const btn = document.getElementById("transpose-btn");
+    if (!btn) return;
+    const n = state.transposeSemitones;
+    btn.textContent = n > 0 ? `+${n}` : String(n);
+    btn.classList.toggle("active", n !== 0);
+  }
+  function setTransposeSemitones(n, persist = true) {
+    state.transposeSemitones = clamp(Math.round(n), TRANSPOSE_MIN, TRANSPOSE_MAX);
+    updateTransposeBtn();
+    if (state.isPlaying && state.rbNode) {
+      const ratio = state.targetBPM / state.detectedBPM;
+      state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
+    }
+    if (persist) persistCurrentFileSettings();
+  }
+  function parseTransposeInput(raw) {
+    const t = raw.trim().toLowerCase();
+    if (t === "bb") return 2;
+    if (t === "eb") return -3;
+    const n = Number(t);
+    return Number.isInteger(n) && Number.isFinite(n) ? n : null;
+  }
+  function enterTransposeEdit() {
+    const btn = document.getElementById("transpose-btn");
+    const input = document.getElementById("transpose-input");
+    input.value = String(state.transposeSemitones);
+    btn.style.display = "none";
+    input.style.display = "block";
+    input.focus();
+    input.select();
+  }
+  function commitTransposeEdit() {
+    const btn = document.getElementById("transpose-btn");
+    const input = document.getElementById("transpose-input");
+    if (input.style.display === "none") return;
+    const v = parseTransposeInput(input.value);
+    if (v !== null) {
+      pushUndo();
+      setTransposeSemitones(v);
+    }
+    input.style.display = "none";
+    btn.style.display = "";
+  }
+  document.getElementById("transpose-btn").addEventListener("click", enterTransposeEdit);
+  var transposeInput = document.getElementById("transpose-input");
+  transposeInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      commitTransposeEdit();
+      e.preventDefault();
+    } else if (e.key === "Escape") {
+      const btn = document.getElementById("transpose-btn");
+      transposeInput.style.display = "none";
+      btn.style.display = "";
+      e.preventDefault();
+    }
+  });
+  transposeInput.addEventListener("blur", commitTransposeEdit);
   function stopSource() {
     if (state.currentSource) {
       setPausedPos(currentBufferPos());
@@ -8740,7 +8821,7 @@
     source.connect(state.rbNode);
     source.start(0, safePos);
     state.rbNode.setTempo(1);
-    state.rbNode.setPitch(1 / ratio);
+    state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
     state.currentSource = source;
     state.playStartBufferPos = safePos;
     state.playStartWallTime = ctx.currentTime;
@@ -8777,7 +8858,7 @@
       const ratio = clamped / state.detectedBPM;
       const bufPos = currentBufferPos();
       state.currentSource.playbackRate.value = ratio;
-      state.rbNode.setPitch(1 / ratio);
+      state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
       state.playStartBufferPos = bufPos;
       state.playStartWallTime = state.audioCtx.currentTime;
     }
@@ -8798,7 +8879,7 @@
   var redoStack = [];
   var MAX_UNDO = 100;
   function captureSnapshot() {
-    return { targetBPM: state.targetBPM, loopStartBeats: state.loopStartBeats, loopEndBeats: state.loopEndBeats, volume: state.volume };
+    return { targetBPM: state.targetBPM, loopStartBeats: state.loopStartBeats, loopEndBeats: state.loopEndBeats, volume: state.volume, transposeSemitones: state.transposeSemitones };
   }
   function pushUndo() {
     undoStack.push(captureSnapshot());
@@ -8809,6 +8890,7 @@
     setTargetBPM(snap.targetBPM, false);
     setLoopPoints(snap.loopStartBeats, snap.loopEndBeats, false);
     setVolume(snap.volume, false);
+    setTransposeSemitones(snap.transposeSemitones, false);
     persistCurrentFileSettings();
     try {
       localStorage.setItem(STORAGE_VOLUME, String(snap.volume));
@@ -8943,22 +9025,15 @@
   }
   function commitLoopStartEdit() {
     if (!loopStartInput || loopStartInput.style.display === "none") return;
-    const raw = loopStartInput.value.trim();
-    const isRelative = raw.startsWith("+") || raw.startsWith("-");
-    const v = evalRelative(raw, state.loopStartBeats);
+    const v = evalRelative(loopStartInput.value.trim(), state.loopStartBeats);
     if (v !== null) {
       const newStart = Math.round(v);
       if (newStart !== state.loopStartBeats) {
-        if (isRelative) {
-          const delta = newStart - state.loopStartBeats;
-          const newEnd = state.loopEndBeats + delta;
-          if (newStart >= 0 && newEnd <= totalBeats()) {
-            pushUndo();
-            setLoopPoints(newStart, newEnd);
-          }
-        } else if (newStart < state.loopEndBeats) {
+        const span = state.loopEndBeats - state.loopStartBeats;
+        const newEnd = newStart + span;
+        if (newStart >= 0 && newEnd <= totalBeats()) {
           pushUndo();
-          setLoopPoints(newStart, state.loopEndBeats);
+          setLoopPoints(newStart, newEnd);
         }
       }
     }
@@ -9272,6 +9347,7 @@
       container.appendChild(card);
     }
     addRow.style.display = state.originalBuffer ? "flex" : "none";
+    updateRowHeight();
   }
   document.addEventListener("keydown", (e) => {
     const tag = e.target.tagName;
@@ -9299,7 +9375,7 @@
       enterLoopLengthEdit();
       return;
     }
-    if (e.key === "z" && (e.metaKey || e.ctrlKey)) {
+    if ((e.key === "z" || e.key === "Z") && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (e.shiftKey) redo();
       else undo();
@@ -9495,6 +9571,10 @@
       if (settings.volume != null && Number.isFinite(settings.volume)) {
         setVolume(clamp(settings.volume, 0, 1), false);
       }
+      setTransposeSemitones(
+        settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones) ? settings.transposeSemitones : 0,
+        false
+      );
       persistCurrentFileSettings();
       setStatus("Loading\u2026");
       await ensureNodes();
@@ -9596,6 +9676,8 @@
     }
     setBpmDisplay(state.targetBPM);
     setVolumeDisplay(state.volume);
+    updateTransposeBtn();
+    updateRowHeight();
     renderLoopCards();
     loadAllFilesMeta().then(async (files) => {
       refreshFileDropdown();
