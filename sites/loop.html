@@ -377,6 +377,37 @@
       max-width: 90%;
     }
 
+    .detected-bpm-clickable {
+      cursor: pointer;
+      text-decoration: underline dotted;
+      text-underline-offset: 3px;
+    }
+    .detected-bpm-clickable:hover {
+      opacity: 0.7;
+    }
+
+    #detected-bpm-input {
+      display: none;
+      position: absolute;
+      bottom: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 72px;
+      height: 28px;
+      border-radius: 4px;
+      text-align: center;
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.9rem, 2.5vmin, 1.3rem);
+      background: var(--bg-color);
+      color: var(--text-color);
+      border: 1.5px solid var(--text-color);
+      outline: none;
+      padding: 0 4px;
+      z-index: 10;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
     #top-bar {
       flex-shrink: 0;
       height: 40px;
@@ -569,6 +600,7 @@
 
   <div id="main-area">
     <div id="status-hint">Drop audio file(s) anywhere</div>
+    <input type="text" id="detected-bpm-input" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="BPM">
   </div>
 
   <div id="bpm-section" class="control-section" aria-label="BPM: drag horizontally">

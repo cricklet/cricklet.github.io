@@ -8406,6 +8406,7 @@
   var volumeReadout = document.getElementById("volume-readout");
   var statusHint = document.getElementById("status-hint");
   var detectedTick = document.getElementById("detected-tick");
+  var detectedBpmInput = document.getElementById("detected-bpm-input");
   var activeLoopCard = null;
   var loopBetween = null;
   var loopHint = null;
@@ -8434,10 +8435,62 @@
   }
   function setStatus(msg) {
     statusHint.textContent = msg;
+    statusHint.style.pointerEvents = "none";
+    statusHint.style.opacity = "";
   }
+  function setDetectedStatus(durationStr, bpm) {
+    statusHint.style.pointerEvents = "auto";
+    statusHint.style.opacity = "0.5";
+    statusHint.innerHTML = `${durationStr} \xB7 detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM`;
+    statusHint.querySelector(".detected-bpm-clickable").addEventListener("click", enterDetectedBPMHintEdit);
+  }
+  function enterDetectedBPMHintEdit() {
+    detectedBpmInput.value = String(state.detectedBPM);
+    statusHint.style.visibility = "hidden";
+    detectedBpmInput.style.display = "block";
+    detectedBpmInput.focus();
+    detectedBpmInput.select();
+  }
+  async function commitDetectedBPMHintEdit() {
+    if (detectedBpmInput.style.display === "none") return;
+    detectedBpmInput.style.display = "none";
+    statusHint.style.visibility = "";
+    const v = parseInt(detectedBpmInput.value.trim(), 10);
+    if (!Number.isFinite(v) || v < BPM_MIN || v > BPM_MAX || !state.originalBuffer || !state.currentFileId) return;
+    if (v === state.detectedBPM) return;
+    setStatus("Re-detecting BPM\u2026");
+    try {
+      const buf = state.originalBuffer;
+      const { bpm, ticks } = await detectRhythm(buf, v);
+      state.detectedBPM = bpm;
+      state.beatTicks = ticks;
+      saveBeatCache(state.currentFileId, bpm, ticks).catch(() => {
+      });
+      const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
+      detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
+      const mins = Math.floor(buf.duration / 60);
+      const secs = Math.round(buf.duration % 60).toString().padStart(2, "0");
+      setDetectedStatus(`${mins}:${secs}`, bpm);
+    } catch (e) {
+      setStatus(`Error: ${e.message}`);
+    }
+  }
+  detectedBpmInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      void commitDetectedBPMHintEdit();
+      e.preventDefault();
+    } else if (e.key === "Escape") {
+      detectedBpmInput.style.display = "none";
+      statusHint.style.visibility = "";
+      e.preventDefault();
+    }
+  });
+  detectedBpmInput.addEventListener("blur", () => {
+    void commitDetectedBPMHintEdit();
+  });
   function totalBeats() {
     if (!state.originalBuffer) return 0;
-    return Math.floor(state.originalBuffer.duration * state.detectedBPM / 60);
+    return Math.ceil(state.originalBuffer.duration * state.detectedBPM / 60);
   }
   function beatDurationSecs() {
     return 60 / state.detectedBPM;
@@ -8526,17 +8579,20 @@
     }
     if (persist) persistCurrentFileSettings();
   }
-  async function detectRhythm(buffer2) {
+  async function detectRhythm(buffer2, hintBPM) {
     const essentia = await getEssentia();
     const ctx = getAudioCtx();
     const wasSuspended = ctx.state === "suspended";
     if (ctx.state === "running") await ctx.suspend();
     let bpm;
     let ticks;
+    const ESSENTIA_MAX = 208;
+    const minBPM = hintBPM ? Math.max(40, Math.floor(hintBPM * 0.85)) : 40;
+    const maxBPM = hintBPM ? Math.min(ESSENTIA_MAX, Math.ceil(hintBPM * 1.15)) : ESSENTIA_MAX;
     try {
       const mono = essentia.audioBufferToMonoSignal(buffer2);
       const signal = essentia.arrayToVector(mono);
-      const result = essentia.RhythmExtractor2013(signal, 208, "multifeature", 40);
+      const result = essentia.RhythmExtractor2013(signal, maxBPM, "multifeature", minBPM);
       bpm = Math.round(result.bpm);
       ticks = essentia.vectorToArray(result.ticks);
     } finally {
@@ -9442,7 +9498,7 @@
     setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
   }
   window.toggleTheme = toggleTheme;
-  function trimSilence(buffer2, threshold = 0.0316) {
+  function trimSilence(buffer2, threshold = 0.05) {
     const numChannels = buffer2.numberOfChannels;
     const length = buffer2.length;
     const channels = [];
@@ -9456,20 +9512,11 @@
         }
       }
     }
-    let endSample = length;
-    scan_end: for (let i = length - 1; i >= startSample; i--) {
-      for (let c = 0; c < numChannels; c++) {
-        if (Math.abs(channels[c][i]) > threshold) {
-          endSample = i + 1;
-          break scan_end;
-        }
-      }
-    }
-    if (startSample === 0 && endSample === length) return buffer2;
+    if (startSample === 0) return buffer2;
     const ctx = getAudioCtx();
-    const trimmed = ctx.createBuffer(numChannels, endSample - startSample, buffer2.sampleRate);
+    const trimmed = ctx.createBuffer(numChannels, length - startSample, buffer2.sampleRate);
     for (let c = 0; c < numChannels; c++) {
-      trimmed.copyToChannel(channels[c].subarray(startSample, endSample), c);
+      trimmed.copyToChannel(channels[c].subarray(startSample), c);
     }
     return trimmed;
   }
@@ -9580,7 +9627,7 @@
       await ensureNodes();
       const mins = Math.floor(decoded.duration / 60);
       const secs = Math.round(decoded.duration % 60).toString().padStart(2, "0");
-      setStatus(`${mins}:${secs} \xB7 detected ${bpm} BPM`);
+      setDetectedStatus(`${mins}:${secs}`, bpm);
       renderLoopCards();
       try {
         localStorage.setItem(STORAGE_LAST_FILE, id);
