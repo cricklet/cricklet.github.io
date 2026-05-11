@@ -9011,6 +9011,9 @@
   bpmSection.addEventListener("pointermove", (e) => onPointerMove(e));
   bpmSection.addEventListener("pointerup", (e) => onPointerUp(e));
   bpmSection.addEventListener("pointercancel", (e) => onPointerUp(e));
+  bpmSection.addEventListener("lostpointercapture", () => {
+    dragTarget = null;
+  });
   volumeSection.addEventListener("pointerdown", (e) => {
     volumeSection.setPointerCapture(e.pointerId);
     onPointerDown(e, "volume");
@@ -9018,6 +9021,9 @@
   volumeSection.addEventListener("pointermove", (e) => onPointerMove(e));
   volumeSection.addEventListener("pointerup", (e) => onPointerUp(e));
   volumeSection.addEventListener("pointercancel", (e) => onPointerUp(e));
+  volumeSection.addEventListener("lostpointercapture", () => {
+    dragTarget = null;
+  });
   var loopDragActive = false;
   var loopDragStartX = 0;
   var loopDragStartBeats = 0;

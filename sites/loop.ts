@@ -960,6 +960,7 @@ bpmSection.addEventListener('pointerdown', e => {
 bpmSection.addEventListener('pointermove', e => onPointerMove(e));
 bpmSection.addEventListener('pointerup', e => onPointerUp(e));
 bpmSection.addEventListener('pointercancel', e => onPointerUp(e));
+bpmSection.addEventListener('lostpointercapture', () => { dragTarget = null; });
 
 volumeSection.addEventListener('pointerdown', e => {
   volumeSection.setPointerCapture(e.pointerId);
@@ -968,6 +969,7 @@ volumeSection.addEventListener('pointerdown', e => {
 volumeSection.addEventListener('pointermove', e => onPointerMove(e));
 volumeSection.addEventListener('pointerup', e => onPointerUp(e));
 volumeSection.addEventListener('pointercancel', e => onPointerUp(e));
+volumeSection.addEventListener('lostpointercapture', () => { dragTarget = null; });
 
 // Loop card drag state
 let loopDragActive = false;
