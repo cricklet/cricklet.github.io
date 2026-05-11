@@ -1139,19 +1139,48 @@ function setupActiveCardDrag(card: HTMLElement) {
       if (e.clientX !== resizeDragStartX) loopDragDidMove = true;
       if (resizeDragSide === 'start') {
         setLoopPoints(clamp(newBeats, 0, state.loopEndBeats - 1), state.loopEndBeats);
+        if (loopStartHandle) loopStartHandle.style.opacity = '1';
+        if (loopEndHandle) loopEndHandle.style.opacity = '0';
       } else {
         setLoopPoints(state.loopStartBeats, clamp(newBeats, state.loopStartBeats + 1, total));
+        if (loopStartHandle) loopStartHandle.style.opacity = '0';
+        if (loopEndHandle) loopEndHandle.style.opacity = '1';
       }
       return;
     }
-    if (!loopDragActive) return;
-    if (e.clientX !== loopDragStartX) loopDragDidMove = true;
-    if (!loopDragDidMove) return;
+    if (loopDragActive) {
+      if (e.clientX !== loopDragStartX) loopDragDidMove = true;
+      if (!loopDragDidMove) return;
+      const r = card.getBoundingClientRect();
+      const total = totalBeats();
+      const deltaBeats = Math.round((e.clientX - loopDragStartX) / r.width * total);
+      const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total - loopDragSpan);
+      setLoopPoints(newStart, newStart + loopDragSpan);
+      return;
+    }
+    // Hover: show only the handle closer to the cursor (if inside loop region)
     const r = card.getBoundingClientRect();
     const total = totalBeats();
-    const deltaBeats = Math.round((e.clientX - loopDragStartX) / r.width * total);
-    const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total - loopDragSpan);
-    setLoopPoints(newStart, newStart + loopDragSpan);
+    if (total > 0 && r.width > 0 && loopStartHandle && loopEndHandle) {
+      const hoverBeats = (e.clientX - r.left) / r.width * total;
+      if (hoverBeats >= state.loopStartBeats && hoverBeats <= state.loopEndBeats) {
+        const nearStart = Math.abs(hoverBeats - state.loopStartBeats) <= Math.abs(hoverBeats - state.loopEndBeats);
+        loopStartHandle.style.opacity = nearStart ? '1' : '0';
+        loopEndHandle.style.opacity = nearStart ? '0' : '1';
+        card.style.cursor = 'ew-resize';
+      } else {
+        loopStartHandle.style.opacity = '0';
+        loopEndHandle.style.opacity = '0';
+        card.style.cursor = '';
+      }
+    }
+  });
+
+  card.addEventListener('pointerleave', () => {
+    if (resizeDragActive || loopDragActive) return;
+    if (loopStartHandle) loopStartHandle.style.opacity = '0';
+    if (loopEndHandle) loopEndHandle.style.opacity = '0';
+    card.style.cursor = '';
   });
 
   card.addEventListener('pointerup', e => {
@@ -1163,6 +1192,9 @@ function setupActiveCardDrag(card: HTMLElement) {
       const resizeInitialTarget = loopDragInitialTarget;
       loopDragDidMove = false;
       loopDragInitialTarget = null;
+      if (loopStartHandle) loopStartHandle.style.opacity = '0';
+      if (loopEndHandle) loopEndHandle.style.opacity = '0';
+      card.style.cursor = '';
       if (!resizeDidMove && resizeInitialTarget?.closest('.loop-hint')) {
         enterLoopLengthEdit();
         return;
