@@ -334,6 +334,8 @@ let loopEndLabel: HTMLElement | null = null;
 let loopLengthInput: HTMLInputElement | null = null;
 let loopStartInput: HTMLInputElement | null = null;
 let loopEndInput: HTMLInputElement | null = null;
+let loopStartHandle: HTMLElement | null = null;
+let loopEndHandle: HTMLElement | null = null;
 
 function setPausedPos(pos: number) {
   state.pausedBufferPos = pos;
@@ -440,6 +442,8 @@ function updateActiveLoopCardDisplay() {
   loopStartLabel.style.left = `${startFrac * 100}%`;
   loopEndLabel.textContent = String(state.loopEndBeats);
   loopEndLabel.style.left = `${endFrac * 100}%`;
+  if (loopStartHandle) loopStartHandle.style.left = `${startFrac * 100}%`;
+  if (loopEndHandle) loopEndHandle.style.left = `${endFrac * 100}%`;
 }
 
 function updateInactiveCardDisplay(
@@ -973,6 +977,12 @@ let loopDragSpan = 0;
 let loopDragDidMove = false;
 let loopDragInitialTarget: Element | null = null;
 
+// Resize handle drag state
+let resizeDragActive = false;
+let resizeDragSide: 'start' | 'end' = 'start';
+let resizeDragStartX = 0;
+let resizeDragStartBeats = 0;
+
 function enterLoopLengthEdit() {
   if (!loopLengthInput || !loopHint) return;
   commitLoopStartEdit();
@@ -1085,9 +1095,30 @@ function commitLoopEndEdit() {
 function setupActiveCardDrag(card: HTMLElement) {
   card.addEventListener('pointerdown', e => {
     if (!state.originalBuffer) return;
-    if ((e.target as Element).closest('.loop-icon-btn, .loop-beat-label')) return;
+    if ((e.target as Element).closest('.loop-icon-btn, .loop-beat-label, .loop-resize-handle')) return;
     const focused = document.activeElement;
     if (focused === loopLengthInput || focused === loopStartInput || focused === loopEndInput) return;
+
+    const r = card.getBoundingClientRect();
+    const total = totalBeats();
+    const clickBeats = total > 0 && r.width > 0 ? (e.clientX - r.left) / r.width * total : -1;
+
+    if (total > 0 && clickBeats >= state.loopStartBeats && clickBeats <= state.loopEndBeats) {
+      // Click inside loop — drag the closer of start/end
+      pushUndo();
+      card.setPointerCapture(e.pointerId);
+      resizeDragActive = true;
+      const distToStart = Math.abs(clickBeats - state.loopStartBeats);
+      const distToEnd = Math.abs(clickBeats - state.loopEndBeats);
+      resizeDragSide = distToStart <= distToEnd ? 'start' : 'end';
+      resizeDragStartX = e.clientX;
+      resizeDragStartBeats = resizeDragSide === 'start' ? state.loopStartBeats : state.loopEndBeats;
+      loopDragDidMove = false;
+      loopDragInitialTarget = e.target as Element;
+      card.classList.add('resizing');
+      return;
+    }
+
     pushUndo();
     card.setPointerCapture(e.pointerId);
     loopDragActive = true;
@@ -1100,6 +1131,19 @@ function setupActiveCardDrag(card: HTMLElement) {
   });
 
   card.addEventListener('pointermove', e => {
+    if (resizeDragActive) {
+      const r = card.getBoundingClientRect();
+      const total = totalBeats();
+      const deltaBeats = Math.round((e.clientX - resizeDragStartX) / r.width * total);
+      const newBeats = resizeDragStartBeats + deltaBeats;
+      if (e.clientX !== resizeDragStartX) loopDragDidMove = true;
+      if (resizeDragSide === 'start') {
+        setLoopPoints(clamp(newBeats, 0, state.loopEndBeats - 1), state.loopEndBeats);
+      } else {
+        setLoopPoints(state.loopStartBeats, clamp(newBeats, state.loopStartBeats + 1, total));
+      }
+      return;
+    }
     if (!loopDragActive) return;
     if (e.clientX !== loopDragStartX) loopDragDidMove = true;
     if (!loopDragDidMove) return;
@@ -1111,6 +1155,26 @@ function setupActiveCardDrag(card: HTMLElement) {
   });
 
   card.addEventListener('pointerup', e => {
+    if (resizeDragActive) {
+      resizeDragActive = false;
+      card.classList.remove('resizing');
+      try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+      const resizeDidMove = loopDragDidMove;
+      const resizeInitialTarget = loopDragInitialTarget;
+      loopDragDidMove = false;
+      loopDragInitialTarget = null;
+      if (!resizeDidMove && resizeInitialTarget?.closest('.loop-hint')) {
+        enterLoopLengthEdit();
+        return;
+      }
+      if (state.originalBuffer && state.rbNode) {
+        const wasPlaying = state.isPlaying;
+        stopSource();
+        if (wasPlaying) startSource(loopStartSecs());
+        else setPausedPos(loopStartSecs());
+      }
+      return;
+    }
     const didMove = loopDragDidMove;
     const initialTarget = loopDragInitialTarget;
     loopDragActive = false;
@@ -1132,12 +1196,36 @@ function setupActiveCardDrag(card: HTMLElement) {
   });
 
   card.addEventListener('pointercancel', e => {
+    if (resizeDragActive) {
+      resizeDragActive = false;
+      loopDragDidMove = false;
+      loopDragInitialTarget = null;
+      card.classList.remove('resizing');
+      try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+      return;
+    }
     loopDragActive = false;
     loopDragDidMove = false;
     loopDragInitialTarget = null;
     card.classList.remove('dragging');
     try { card.releasePointerCapture(e.pointerId); } catch (_) {}
   });
+}
+
+function setupHandleDrag(card: HTMLElement, startHandle: HTMLElement, endHandle: HTMLElement) {
+  function onDown(e: PointerEvent, side: 'start' | 'end') {
+    e.stopPropagation();
+    if (!state.originalBuffer) return;
+    pushUndo();
+    card.setPointerCapture(e.pointerId);
+    resizeDragActive = true;
+    resizeDragSide = side;
+    resizeDragStartX = e.clientX;
+    resizeDragStartBeats = side === 'start' ? state.loopStartBeats : state.loopEndBeats;
+    card.classList.add('resizing');
+  }
+  startHandle.addEventListener('pointerdown', e => onDown(e, 'start'));
+  endHandle.addEventListener('pointerdown', e => onDown(e, 'end'));
 }
 
 // Loop management
@@ -1216,6 +1304,8 @@ function renderLoopCards() {
   loopLengthInput = null;
   loopStartInput = null;
   loopEndInput = null;
+  loopStartHandle = null;
+  loopEndHandle = null;
 
   container.innerHTML = '';
 
@@ -1358,7 +1448,18 @@ function renderLoopCards() {
       endLbl.addEventListener('pointerdown', e => e.stopPropagation());
       endLbl.addEventListener('click', () => enterLoopEndEdit());
 
+      const startHandle = document.createElement('div');
+      startHandle.className = 'loop-resize-handle';
+      card.appendChild(startHandle);
+      loopStartHandle = startHandle;
+
+      const endHandle = document.createElement('div');
+      endHandle.className = 'loop-resize-handle';
+      card.appendChild(endHandle);
+      loopEndHandle = endHandle;
+
       setupActiveCardDrag(card);
+      setupHandleDrag(card, startHandle, endHandle);
       updateActiveLoopCardDisplay();
     } else {
       card.addEventListener('pointerdown', e => {
@@ -1379,7 +1480,7 @@ function renderLoopCards() {
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
   const tag = (e.target as HTMLElement).tagName;
-  const inInput = tag === 'INPUT' || tag === 'TEXTAREA';
+  const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || (tag === 'SELECT' && fileSelectOpen);
   if (e.ctrlKey && !e.metaKey && !inInput) {
     if (e.key === 'a' && state.originalBuffer) { e.preventDefault(); enterLoopStartEdit(); return; }
     if (e.key === 'e' && state.originalBuffer) { e.preventDefault(); enterLoopEndEdit(); return; }
@@ -1421,6 +1522,52 @@ document.addEventListener('keydown', e => {
     stopSource();
     if (wasPlaying) startSource(loopStartSecs());
     else setPausedPos(loopStartSecs());
+  }
+  else if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (!state.originalBuffer || !state.activeLoopId) return;
+    e.preventDefault();
+    const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
+    syncStateToActiveLoop();
+    const active = state.loops.find(l => l.id === state.activeLoopId)!;
+    if (currentBeat >= active.endBeats) return;
+    const newId = genId();
+    const newLoop: LoopData = {
+      id: newId,
+      startBeats: clamp(currentBeat, 0, active.endBeats - 1),
+      endBeats: active.endBeats,
+      targetBPM: active.targetBPM,
+    };
+    state.loops.push(newLoop);
+    state.activeLoopId = newId;
+    clearUndoHistory();
+    setTargetBPM(newLoop.targetBPM, false);
+    setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
+    persistCurrentFileSettings();
+    renderLoopCards();
+    if (!state.isPlaying) setPausedPos(loopStartSecs());
+  }
+  else if ((e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (!state.originalBuffer || !state.activeLoopId) return;
+    e.preventDefault();
+    const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
+    syncStateToActiveLoop();
+    const active = state.loops.find(l => l.id === state.activeLoopId)!;
+    if (currentBeat <= active.startBeats) return;
+    const newId = genId();
+    const newLoop: LoopData = {
+      id: newId,
+      startBeats: active.startBeats,
+      endBeats: clamp(currentBeat, active.startBeats + 1, totalBeats()),
+      targetBPM: active.targetBPM,
+    };
+    state.loops.push(newLoop);
+    state.activeLoopId = newId;
+    clearUndoHistory();
+    setTargetBPM(newLoop.targetBPM, false);
+    setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
+    persistCurrentFileSettings();
+    renderLoopCards();
+    if (!state.isPlaying) setPausedPos(loopStartSecs());
   }
 });
 
@@ -1497,6 +1644,20 @@ fileSelect.addEventListener('change', async () => {
   const id = fileSelect.value;
   const saved = await loadAudioById(id);
   if (saved) processArrayBuffer(saved.buffer, saved.name, id);
+});
+
+let fileSelectOpen = false;
+fileSelect.addEventListener('mousedown', () => { fileSelectOpen = true; });
+fileSelect.addEventListener('blur', () => { fileSelectOpen = false; });
+fileSelect.addEventListener('change', () => { fileSelectOpen = false; });
+fileSelect.addEventListener('keydown', e => {
+  if (!fileSelectOpen) {
+    if ([' ', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key)) {
+      fileSelectOpen = true;
+    } else if (e.key.length === 1) {
+      e.preventDefault();
+    }
+  }
 });
 
 async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = encodeURIComponent(name)) {

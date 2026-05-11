@@ -310,6 +310,35 @@
 
     .loop-icon-btn:focus { outline: none; }
 
+    .loop-resize-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 18px;
+      transform: translateX(-50%);
+      cursor: ew-resize;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.12s;
+    }
+
+    .loop-card.active:hover .loop-resize-handle,
+    .loop-card.active.resizing .loop-resize-handle {
+      opacity: 1;
+    }
+
+    .loop-resize-handle::after {
+      content: '';
+      width: 3px;
+      height: 36px;
+      background: var(--text-color);
+      border-radius: 2px;
+      opacity: 0.55;
+    }
+
     #detected-tick {
       position: absolute;
       top: 0;
