@@ -1183,6 +1183,24 @@ function setupActiveCardDrag(card: HTMLElement) {
     card.style.cursor = '';
   });
 
+  card.addEventListener('lostpointercapture', () => {
+    if (resizeDragActive) {
+      resizeDragActive = false;
+      loopDragDidMove = false;
+      loopDragInitialTarget = null;
+      card.classList.remove('resizing');
+    }
+    if (loopDragActive) {
+      loopDragActive = false;
+      loopDragDidMove = false;
+      loopDragInitialTarget = null;
+      card.classList.remove('dragging');
+    }
+    if (loopStartHandle) loopStartHandle.style.opacity = '0';
+    if (loopEndHandle) loopEndHandle.style.opacity = '0';
+    card.style.cursor = '';
+  });
+
   card.addEventListener('pointerup', e => {
     if (resizeDragActive) {
       resizeDragActive = false;
