@@ -513,7 +513,7 @@
     /* Narrow: panel is a full-screen overlay below the top bar */
     #file-picker-panel {
       position: fixed;
-      top: 0;
+      top: 40px;
       left: 0;
       right: 0;
       bottom: 0;
@@ -545,7 +545,7 @@
         z-index: auto;
       }
 
-      #file-picker-btn { display: none !important; }
+      #file-picker-btn { cursor: default; pointer-events: none; }
     }
 
     #file-picker-scroll {
@@ -953,16 +953,7 @@
   </div>
 
   <div id="batch-decode-modal" hidden>
-    <div id="batch-setup-form">
-      <div id="batch-setup-title">Batch Decode</div>
-      <div id="batch-setup-hint">Looks up BPM from GetSongBPM by filename,<br>then falls back to local audio analysis</div>
-      <div>
-        <div id="batch-api-label">GetSongBPM API key</div>
-        <input id="batch-api-input" type="text" spellcheck="false" autocomplete="off" placeholder="optional — enables fast lookup" value="86904f2347dfb31bf0ba23414847c7df">
-      </div>
-      <button id="batch-start-btn" type="button">Start</button>
-    </div>
-    <div id="batch-progress-view" hidden>
+    <div id="batch-progress-view">
       <div id="batch-decode-progress">Starting…</div>
       <div id="batch-decode-filename"></div>
       <div id="batch-decode-source"></div>

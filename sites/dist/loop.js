@@ -9913,12 +9913,16 @@
     filePickerBtn.classList.toggle("has-files", files.length > 0);
     files.sort((a, b) => {
       let va, vb;
-      if (pickerSortCol === "name") {
+      if (pickerSortCol === "bpm") {
+        const aNull = a.bpm == null, bNull = b.bpm == null;
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        va = a.bpm;
+        vb = b.bpm;
+      } else if (pickerSortCol === "name") {
         va = a.name.toLowerCase();
         vb = b.name.toLowerCase();
-      } else if (pickerSortCol === "bpm") {
-        va = a.bpm ?? -1;
-        vb = b.bpm ?? -1;
       } else if (pickerSortCol === "length") {
         va = a.duration ?? -1;
         vb = b.duration ?? -1;
@@ -10314,20 +10318,11 @@
   }
   async function runBatchDecode() {
     const modal = document.getElementById("batch-decode-modal");
-    const setupForm = document.getElementById("batch-setup-form");
-    const progressView = document.getElementById("batch-progress-view");
     const progressEl = document.getElementById("batch-decode-progress");
     const filenameEl = document.getElementById("batch-decode-filename");
     const sourceEl = document.getElementById("batch-decode-source");
-    const apiKeyInput = document.getElementById("batch-api-input");
-    apiKeyInput.value = GETSONGBPM_KEY;
     modal.removeAttribute("hidden");
-    await new Promise((resolve) => {
-      document.getElementById("batch-start-btn").addEventListener("click", () => resolve(), { once: true });
-    });
-    const apiKey = apiKeyInput.value.trim();
-    setupForm.setAttribute("hidden", "");
-    progressView.removeAttribute("hidden");
+    const apiKey = GETSONGBPM_KEY;
     const allFiles = await loadAllFilesMeta();
     const undecoded = allFiles.filter((f) => f.bpm == null || f.duration == null);
     const total = undecoded.length;
@@ -10367,6 +10362,8 @@
         await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
       } catch (e) {
         console.error("Batch decode failed:", f.name, e);
+        location.reload();
+        return;
       }
     }
     const apiNote = apiHits ? ` (${apiHits} API hints, ${total} analyzed)` : "";
