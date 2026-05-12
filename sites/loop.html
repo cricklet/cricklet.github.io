@@ -37,12 +37,23 @@
       background: var(--bg-color);
       color: var(--text-color);
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       min-height: 100dvh;
       height: 100dvh;
       overflow: hidden;
       user-select: none;
       -webkit-user-select: none;
+    }
+
+    #main-col {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+      container-type: size;
+      container-name: main;
     }
 
     .control-section {
@@ -76,7 +87,7 @@
     #loops-container {
       flex: 0 0 auto;
       overflow-y: auto;
-      max-height: var(--loops-max-height, 60dvh);
+      max-height: var(--loops-max-height, 60cqb);
     }
 
     #add-loop-row {
@@ -146,7 +157,7 @@
       top: 50%;
       transform: translate(-50%, -50%);
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(1rem, 3.2vmin, 1.5rem);
+      font-size: clamp(1rem, 3.2cqmin, 1.5rem);
       white-space: nowrap;
       opacity: 0.5;
       padding: 4px 8px;
@@ -176,7 +187,7 @@
       position: absolute;
       top: 50%;
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(1rem, 3.2vmin, 1.5rem);
+      font-size: clamp(1rem, 3.2cqmin, 1.5rem);
       font-weight: inherit;
       background: var(--bg-color);
       color: var(--text-color);
@@ -198,7 +209,7 @@
     .loop-start-input,
     .loop-end-input {
       width: 5em;
-      font-size: clamp(0.65rem, 2vmin, 0.9rem);
+      font-size: clamp(0.65rem, 2cqmin, 0.9rem);
     }
 
     .loop-start-input,
@@ -210,7 +221,7 @@
       position: absolute;
       top: 50%;
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(0.55rem, 1.8vmin, 0.8rem);
+      font-size: clamp(0.55rem, 1.8cqmin, 0.8rem);
       opacity: 0.5;
       pointer-events: none;
       z-index: 1;
@@ -378,11 +389,11 @@
     }
 
     #bpm-section .readout {
-      font-size: clamp(1.4rem, 5vmin, 2.5rem);
+      font-size: clamp(1.4rem, 5cqmin, 2.5rem);
     }
 
     #volume-section .readout {
-      font-size: clamp(1.25rem, 4vmin, 2.25rem);
+      font-size: clamp(1.25rem, 4cqmin, 2.25rem);
     }
 
     #status-hint {
@@ -391,7 +402,7 @@
       left: 50%;
       transform: translateX(-50%);
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(1rem, 3vmin, 1.5rem);
+      font-size: clamp(1rem, 3cqmin, 1.5rem);
       color: var(--text-color);
       opacity: 0.3;
       pointer-events: none;
@@ -422,7 +433,7 @@
       border-radius: 4px;
       text-align: center;
       font-family: 'Reddit Mono', monospace;
-      font-size: clamp(0.9rem, 2.5vmin, 1.3rem);
+      font-size: clamp(0.9rem, 2.5cqmin, 1.3rem);
       background: var(--bg-color);
       color: var(--text-color);
       border: 1.5px solid var(--text-color);
@@ -477,27 +488,270 @@
     #theme-toggle:hover { transform: scale(1.08); }
     #theme-toggle:focus { outline: none; }
 
-    #file-select {
+    #file-picker-btn {
       font-family: 'Reddit Mono', monospace;
       font-size: 0.78rem;
       background: transparent;
       color: rgba(128, 128, 128, 0.75);
       border: none;
       border-radius: 4px;
-      padding: 6px 10px;
+      padding: 4px 10px;
       cursor: pointer;
       flex: 1 1 0;
       min-width: 0;
       outline: none;
       display: none;
-      -webkit-appearance: none;
-      appearance: none;
+      text-align: left;
       text-overflow: ellipsis;
       overflow: hidden;
       white-space: nowrap;
     }
 
-    #file-select.has-files { display: block; }
+    #file-picker-btn.has-files { display: block; }
+    #file-picker-btn:focus { outline: none; }
+
+    /* Narrow: panel is a full-screen overlay below the top bar */
+    #file-picker-panel {
+      position: fixed;
+      top: 44px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-color);
+      border-top: 1px solid var(--section-divider);
+      border-radius: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      z-index: 200;
+    }
+
+    #file-picker-panel[hidden] { display: none; }
+
+    /* Wide: panel is always-visible left sidebar */
+    @media (min-width: 720px) {
+      #file-picker-panel {
+        display: flex !important;
+        position: static;
+        width: 540px;
+        max-height: none;
+        height: 100%;
+        flex-shrink: 0;
+        border-radius: 0;
+        border: none;
+        border-right: 1px solid var(--section-divider);
+        box-shadow: none;
+        z-index: auto;
+      }
+
+      #file-picker-btn { display: none !important; }
+    }
+
+    #file-picker-scroll {
+      overflow-y: auto;
+      flex: 1 1 0;
+      min-height: 0;
+    }
+
+    #file-picker-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.8rem;
+      table-layout: fixed;
+    }
+
+    .fpc-name { width: 46%; }
+    .fpc-bpm { width: 11%; }
+    .fpc-length { width: 13%; }
+    .fpc-date { width: 24%; }
+    .fpc-del { width: 6%; }
+
+    #file-picker-table thead th {
+      position: sticky;
+      top: 0;
+      background: var(--bg-color);
+      z-index: 1;
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: 500;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      color: rgba(128, 128, 128, 0.6);
+      border-bottom: 1px solid var(--section-divider);
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      white-space: nowrap;
+    }
+
+    #file-picker-table thead th:last-child { cursor: default; }
+
+    #file-picker-table thead th:not(:last-child):hover {
+      color: var(--text-color);
+    }
+
+    #file-picker-table thead th.fp-sorted { color: var(--text-color); }
+
+    #file-picker-table tbody tr { cursor: pointer; }
+
+    #file-picker-table tbody tr:hover td { background: var(--section-fill); }
+
+    #file-picker-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--section-divider);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-color);
+      opacity: 0.65;
+    }
+
+    #file-picker-table tbody tr.fp-current td { opacity: 1; background: var(--section-fill); }
+
+    #file-picker-footer {
+      padding: 8px 12px;
+      font-size: 11px;
+      color: var(--secondary-text);
+      border-top: 1px solid var(--section-divider);
+      flex-shrink: 0;
+    }
+
+    #file-picker-footer a {
+      color: var(--secondary-text);
+      text-decoration: none;
+    }
+
+    #file-picker-footer a:hover {
+      text-decoration: underline;
+    }
+
+    #file-picker-table td.fp-del-cell {
+      padding: 4px 6px;
+      text-align: center;
+      opacity: 1;
+    }
+
+    .fp-delete-btn {
+      width: 20px;
+      height: 20px;
+      background: none;
+      border: none;
+      color: rgba(128, 128, 128, 0.35);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0;
+      line-height: 1;
+      border-radius: 3px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .fp-delete-btn:hover { background: rgba(128, 128, 128, 0.2); color: var(--text-color); }
+    .fp-delete-btn:focus { outline: none; }
+
+    #batch-decode-modal {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+      font-family: 'Reddit Mono', monospace;
+    }
+
+    #batch-decode-modal[hidden] { display: none; }
+
+    #batch-setup-form {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
+      width: min(380px, 90vw);
+    }
+
+    #batch-setup-title {
+      font-size: 1.1rem;
+      opacity: 0.85;
+      text-align: center;
+      margin-bottom: 2px;
+    }
+
+    #batch-setup-hint {
+      font-size: 0.72rem;
+      opacity: 0.4;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    #batch-api-label {
+      font-size: 0.75rem;
+      opacity: 0.55;
+      margin-bottom: 5px;
+    }
+
+    #batch-api-input {
+      width: 100%;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.85rem;
+      background: var(--section-fill);
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 8px 12px;
+      outline: none;
+      box-sizing: border-box;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    #batch-api-input:focus { border-color: var(--text-color); }
+
+    #batch-start-btn {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.9rem;
+      background: var(--text-color);
+      color: var(--bg-color);
+      border: none;
+      border-radius: 6px;
+      padding: 10px 0;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+
+    #batch-start-btn:hover { opacity: 0.82; }
+    #batch-start-btn:focus { outline: none; }
+
+    #batch-progress-view {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      width: min(480px, 90vw);
+    }
+
+    #batch-progress-view[hidden] { display: none; }
+
+    #batch-decode-progress {
+      font-size: clamp(1.2rem, 3vmin, 2rem);
+      opacity: 0.9;
+    }
+
+    #batch-decode-filename {
+      font-size: clamp(0.72rem, 1.8vmin, 0.9rem);
+      opacity: 0.45;
+      max-width: 80vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #batch-decode-source {
+      font-size: 0.68rem;
+      opacity: 0.3;
+    }
 
     #metronome-toggle {
       width: 28px;
@@ -605,42 +859,85 @@
 <body>
   <input type="file" id="file-input" accept="audio/*" style="display:none">
 
-  <div id="top-bar">
-    <select id="file-select" aria-label="Loaded files"></select>
-    <div id="top-bar-right">
-      <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
-      <div id="transpose-container">
-        <button type="button" id="transpose-btn" title="Transpose (semitones)">0</button>
-        <input type="text" id="transpose-input" autocomplete="off" spellcheck="false" placeholder="0">
+  <div id="file-picker-panel" hidden>
+    <div id="file-picker-scroll">
+      <table id="file-picker-table">
+        <colgroup>
+          <col class="fpc-name">
+          <col class="fpc-bpm">
+          <col class="fpc-length">
+          <col class="fpc-date">
+          <col class="fpc-del">
+        </colgroup>
+        <thead>
+          <tr>
+            <th data-col="name">Name</th>
+            <th data-col="bpm">BPM</th>
+            <th data-col="length">Length</th>
+            <th data-col="addedAt">Date added</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="file-picker-body"></tbody>
+      </table>
+    </div>
+    <div id="file-picker-footer"><a href="https://getsongbpm.com" target="_blank" rel="noopener">thanks GetSongBPM.com</a></div>
+  </div>
+
+  <div id="main-col">
+    <div id="top-bar">
+      <button type="button" id="file-picker-btn" aria-label="Open file list"></button>
+      <div id="top-bar-right">
+        <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
+        <div id="transpose-container">
+          <button type="button" id="transpose-btn" title="Transpose (semitones)">0</button>
+          <input type="text" id="transpose-input" autocomplete="off" spellcheck="false" placeholder="0">
+        </div>
       </div>
+    </div>
+
+    <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+
+    <div id="loops-container"></div>
+    <div id="add-loop-row">
+      <button type="button" id="add-loop-btn" title="Add loop">+</button>
+    </div>
+
+    <div id="main-area">
+      <div id="status-hint">Drop audio file(s) anywhere</div>
+      <input type="text" id="detected-bpm-input" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="BPM">
+    </div>
+
+    <div id="bpm-section" class="control-section" aria-label="BPM: drag horizontally">
+      <div id="bpm-fill" class="fill" aria-hidden="true"></div>
+      <div id="detected-tick" aria-hidden="true"></div>
+      <div id="bpm-readout" class="readout">— BPM</div>
+    </div>
+
+    <div id="volume-section" class="control-section" aria-label="Volume: drag horizontally">
+      <div id="volume-fill" class="fill" aria-hidden="true"></div>
+      <div id="volume-readout" class="readout">100%</div>
     </div>
   </div>
 
-  <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
-
-  <div id="loops-container"></div>
-  <div id="add-loop-row">
-    <button type="button" id="add-loop-btn" title="Add loop">+</button>
-  </div>
-
-  <div id="main-area">
-    <div id="status-hint">Drop audio file(s) anywhere</div>
-    <input type="text" id="detected-bpm-input" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="BPM">
-  </div>
-
-  <div id="bpm-section" class="control-section" aria-label="BPM: drag horizontally">
-    <div id="bpm-fill" class="fill" aria-hidden="true"></div>
-    <div id="detected-tick" aria-hidden="true"></div>
-    <div id="bpm-readout" class="readout">— BPM</div>
-  </div>
-
-  <div id="volume-section" class="control-section" aria-label="Volume: drag horizontally">
-    <div id="volume-fill" class="fill" aria-hidden="true"></div>
-    <div id="volume-readout" class="readout">100%</div>
+  <div id="batch-decode-modal" hidden>
+    <div id="batch-setup-form">
+      <div id="batch-setup-title">Batch Decode</div>
+      <div id="batch-setup-hint">Looks up BPM from GetSongBPM by filename,<br>then falls back to local audio analysis</div>
+      <div>
+        <div id="batch-api-label">GetSongBPM API key</div>
+        <input id="batch-api-input" type="text" spellcheck="false" autocomplete="off" placeholder="optional — enables fast lookup">
+      </div>
+      <button id="batch-start-btn" type="button">Start</button>
+    </div>
+    <div id="batch-progress-view" hidden>
+      <div id="batch-decode-progress">Starting…</div>
+      <div id="batch-decode-filename"></div>
+      <div id="batch-decode-source"></div>
+    </div>
   </div>
 
   <audio id="loop-click-audio" src="click.mp3" preload="auto"></audio>
-
   <script src="dist/loop.js"></script>
 </body>
 

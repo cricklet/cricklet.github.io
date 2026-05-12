@@ -78,14 +78,17 @@ async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Prom
   } catch { /* non-fatal */ }
 }
 
-async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string): Promise<void> {
+async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readwrite');
     const metaReq = tx.objectStore(DB_STORE_META).get(id);
     metaReq.onsuccess = () => {
       const existing = metaReq.result;
-      tx.objectStore(DB_STORE_META).put({ id, name, addedAt: existing?.addedAt ?? Date.now() });
+      const meta: Record<string, any> = { id, name, addedAt: existing?.addedAt ?? Date.now() };
+      meta.duration = duration ?? existing?.duration;
+      meta.bpm = bpm ?? existing?.bpm;
+      tx.objectStore(DB_STORE_META).put(meta);
       tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
     };
     tx.oncomplete = () => resolve();
@@ -93,13 +96,27 @@ async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string)
   });
 }
 
-async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; addedAt: number }>> {
+async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; addedAt: number; duration?: number; bpm?: number }>> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readonly');
     const req = tx.objectStore(DB_STORE_META).getAll();
     req.onsuccess = () => resolve(req.result ?? []);
     req.onerror = () => reject(req.error);
+  });
+}
+
+async function deleteAudioFile(id: string): Promise<void> {
+  try { localStorage.removeItem(`loop_file_${id}`); } catch (_) {}
+  try { if (localStorage.getItem(STORAGE_LAST_FILE) === id) localStorage.removeItem(STORAGE_LAST_FILE); } catch (_) {}
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([DB_STORE_FILES, DB_STORE_META, DB_STORE_BEATS], 'readwrite');
+    tx.objectStore(DB_STORE_FILES).delete(id);
+    tx.objectStore(DB_STORE_META).delete(id);
+    tx.objectStore(DB_STORE_BEATS).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -249,6 +266,7 @@ interface AppState {
   metronomeEnabled: boolean;
   transposeSemitones: number;
   currentFileId: string | null;
+  currentFileName: string | null;
   beatTicks: Float32Array | null;
   loops: LoopData[];
   activeLoopId: string | null;
@@ -272,6 +290,7 @@ const state: AppState = {
   metronomeEnabled: false,
   transposeSemitones: 0,
   currentFileId: null,
+  currentFileName: null,
   beatTicks: null,
   loops: [],
   activeLoopId: null,
@@ -290,7 +309,8 @@ function updateRowHeight() {
   const nLoops = Math.max(1, state.loops.length);
   const hasFile = !!state.originalBuffer;
   const addRowH = hasFile ? 36 : 0;
-  const vh = window.innerHeight;
+  const mainCol = document.getElementById('main-col');
+  const vh = mainCol ? mainCol.clientHeight : window.innerHeight;
   const topBarH = 40;
 
   // Natural heights matching the old clamp(72px, 9dvh, 112px) / clamp(52px, 6.5dvh, 80px)
@@ -310,7 +330,10 @@ function updateRowHeight() {
   document.documentElement.style.setProperty('--loops-max-height', `${loopsMaxH}px`);
 }
 
-window.addEventListener('resize', updateRowHeight);
+window.addEventListener('resize', () => {
+  if (isSidebarMode() && pickerOpen) pickerOpen = false;
+  updateRowHeight();
+});
 
 // Static DOM refs
 const bpmSection = document.getElementById('bpm-section')!;
@@ -607,7 +630,7 @@ function downloadLoopById(id: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const name = (fileSelect.selectedOptions[0]?.textContent ?? 'loop').replace(/\.[^.]+$/, '');
+  const name = (state.currentFileName ?? 'loop').replace(/\.[^.]+$/, '');
   const loopIdx = state.loops.findIndex(l => l.id === id) + 1;
   a.download = state.loops.length > 1 ? `${name}_loop${loopIdx}.wav` : `${name}_loop.wav`;
   document.body.appendChild(a);
@@ -1531,8 +1554,10 @@ function renderLoopCards() {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && pickerOpen) { closeFilePicker(); e.preventDefault(); return; }
+  if (pickerOpen) return;
   const tag = (e.target as HTMLElement).tagName;
-  const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || (tag === 'SELECT' && fileSelectOpen);
+  const inInput = tag === 'INPUT' || tag === 'TEXTAREA';
   if (e.ctrlKey && !e.metaKey && !inInput) {
     if (e.key === 'a' && state.originalBuffer) { e.preventDefault(); enterLoopStartEdit(); return; }
     if (e.key === 'e' && state.originalBuffer) { e.preventDefault(); enterLoopEndEdit(); return; }
@@ -1677,40 +1702,151 @@ function normalizeAudio(buffer: AudioBuffer, targetPeak = 0.95): AudioBuffer {
   return normalized;
 }
 
-const fileSelect = document.getElementById('file-select') as HTMLSelectElement;
+const filePickerBtn = document.getElementById('file-picker-btn') as HTMLButtonElement;
 
-async function refreshFileDropdown() {
-  const files = (await loadAllFilesMeta()).sort((a, b) => b.addedAt - a.addedAt);
-  fileSelect.innerHTML = '';
-  for (const f of files) {
-    const opt = document.createElement('option');
-    opt.value = f.id;
-    opt.textContent = f.name;
-    fileSelect.appendChild(opt);
-  }
-  fileSelect.classList.toggle('has-files', files.length > 0);
-  if (state.currentFileId) fileSelect.value = state.currentFileId;
+let pickerOpen = false;
+let pickerSortCol: 'name' | 'bpm' | 'length' | 'addedAt' = 'addedAt';
+let pickerSortAsc = false;
+
+function updateFilePickerBtn() {
+  filePickerBtn.textContent = state.currentFileName ?? '';
+  filePickerBtn.classList.toggle('has-files', !!state.currentFileName);
 }
 
-fileSelect.addEventListener('change', async () => {
-  const id = fileSelect.value;
-  const saved = await loadAudioById(id);
-  if (saved) processArrayBuffer(saved.buffer, saved.name, id);
+const PICKER_WIDE_PX = 720;
+
+function isSidebarMode() { return window.innerWidth >= PICKER_WIDE_PX; }
+
+function openFilePicker() {
+  if (isSidebarMode()) return;
+  pickerOpen = true;
+  document.getElementById('file-picker-panel')!.removeAttribute('hidden');
+  renderFilePicker().catch(() => {});
+}
+
+function closeFilePicker() {
+  pickerOpen = false;
+  document.getElementById('file-picker-panel')!.setAttribute('hidden', '');
+}
+
+function formatPickerDate(ts: number): string {
+  const d = new Date(ts);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (d.getFullYear() === new Date().getFullYear()) return `${months[d.getMonth()]} ${d.getDate()}`;
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+function formatPickerDuration(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+async function renderFilePicker() {
+  const files = await loadAllFilesMeta();
+  filePickerBtn.classList.toggle('has-files', files.length > 0);
+
+  files.sort((a, b) => {
+    let va: any, vb: any;
+    if (pickerSortCol === 'name') { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
+    else if (pickerSortCol === 'bpm') { va = a.bpm ?? -1; vb = b.bpm ?? -1; }
+    else if (pickerSortCol === 'length') { va = a.duration ?? -1; vb = b.duration ?? -1; }
+    else { va = a.addedAt; vb = b.addedAt; }
+    if (va < vb) return pickerSortAsc ? -1 : 1;
+    if (va > vb) return pickerSortAsc ? 1 : -1;
+    return 0;
+  });
+
+  const labels: Record<string, string> = { name: 'Name', bpm: 'BPM', length: 'Length', addedAt: 'Date added' };
+  document.querySelectorAll<HTMLElement>('#file-picker-table thead th[data-col]').forEach(th => {
+    const col = th.dataset.col!;
+    const sorted = col === pickerSortCol;
+    th.classList.toggle('fp-sorted', sorted);
+    th.textContent = labels[col] + (sorted ? (pickerSortAsc ? ' ↑' : ' ↓') : '');
+  });
+
+  const tbody = document.getElementById('file-picker-body')!;
+  tbody.innerHTML = '';
+
+  for (const f of files) {
+    const tr = document.createElement('tr');
+    if (f.id === state.currentFileId) tr.classList.add('fp-current');
+
+    const addCell = (text: string, title?: string) => {
+      const td = document.createElement('td');
+      td.textContent = text;
+      if (title) td.title = title;
+      tr.appendChild(td);
+    };
+
+    addCell(f.name, f.name);
+    addCell(f.bpm != null ? String(f.bpm) : '—');
+    addCell(f.duration != null ? formatPickerDuration(f.duration) : '—');
+    addCell(f.addedAt ? formatPickerDate(f.addedAt) : '—');
+
+    const tdDel = document.createElement('td');
+    tdDel.className = 'fp-del-cell';
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'fp-delete-btn';
+    delBtn.title = 'Remove';
+    delBtn.textContent = '×';
+    const fileId = f.id;
+    delBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await deleteAudioFile(fileId);
+      if (state.currentFileId === fileId) {
+        stopSource();
+        state.originalBuffer = null;
+        state.currentFileId = null;
+        state.currentFileName = null;
+        state.loops = [];
+        state.activeLoopId = null;
+        waveformPeaks = null;
+        detectedTick.style.display = 'none';
+        setStatus('Drop audio file(s) anywhere');
+        renderLoopCards();
+        updateFilePickerBtn();
+        const remaining = (await loadAllFilesMeta()).sort((a, b) => b.addedAt - a.addedAt);
+        if (remaining.length > 0) {
+          const saved = await loadAudioById(remaining[0].id);
+          if (saved) processArrayBuffer(saved.buffer, saved.name, remaining[0].id);
+        }
+      }
+      await renderFilePicker();
+    });
+    tdDel.appendChild(delBtn);
+    tr.appendChild(tdDel);
+
+    tr.addEventListener('click', async () => {
+      if (f.id === state.currentFileId) { closeFilePicker(); return; }
+      closeFilePicker();
+      const saved = await loadAudioById(f.id);
+      if (saved) processArrayBuffer(saved.buffer, saved.name, f.id);
+    });
+
+    tbody.appendChild(tr);
+  }
+}
+
+filePickerBtn.addEventListener('click', () => {
+  if (pickerOpen) closeFilePicker(); else openFilePicker();
 });
 
-let fileSelectOpen = false;
-fileSelect.addEventListener('mousedown', () => { fileSelectOpen = true; });
-fileSelect.addEventListener('blur', () => { fileSelectOpen = false; });
-fileSelect.addEventListener('change', () => { fileSelectOpen = false; });
-fileSelect.addEventListener('keydown', e => {
-  if (!fileSelectOpen) {
-    if ([' ', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key)) {
-      fileSelectOpen = true;
-    } else if (e.key.length === 1) {
-      e.preventDefault();
+document.querySelectorAll<HTMLElement>('#file-picker-table thead th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col as typeof pickerSortCol;
+    if (col === pickerSortCol) {
+      pickerSortAsc = !pickerSortAsc;
+    } else {
+      pickerSortCol = col;
+      pickerSortAsc = col === 'name';
     }
-  }
+    renderFilePicker().catch(() => {});
+  });
 });
+
+// No click-outside handler needed: narrow mode is full-screen (Escape / toggle / row-click to close).
 
 async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = encodeURIComponent(name)) {
   stopSource();
@@ -1718,6 +1854,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   state.originalBuffer = null;
   state.pausedBufferPos = 0;
   state.currentFileId = id;
+  state.currentFileName = name;
   state.loops = [];
   state.activeLoopId = null;
   renderLoopCards();
@@ -1791,10 +1928,10 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
     setDetectedStatus(`${mins}:${secs}`, bpm);
 
     renderLoopCards();
+    updateFilePickerBtn();
 
     try { localStorage.setItem(STORAGE_LAST_FILE, id); } catch (_) {}
-    saveAudioFile(arrayBuffer, name, id).then(() => refreshFileDropdown()).catch(() => {});
-    fileSelect.value = id;
+    saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm).then(() => renderFilePicker()).catch(() => {});
   } catch (e) {
     setStatus(`Error: ${(e as Error).message}`);
   }
@@ -1849,7 +1986,7 @@ document.addEventListener('drop', async e => {
     }
   }
 
-  await refreshFileDropdown();
+  await renderFilePicker();
 
   // Open the last file
   const lastFile = mp3Files[mp3Files.length - 1];
@@ -1864,6 +2001,152 @@ const fileInput = document.getElementById('file-input') as HTMLInputElement;
 fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) processFile(fileInput.files[0]); });
 
 document.getElementById('add-loop-btn')!.addEventListener('click', addLoop);
+
+const STORAGE_GETSONGBPM_KEY = 'loop_getsongbpm_key';
+
+async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number }): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE_META, 'readwrite');
+    const req = tx.objectStore(DB_STORE_META).get(id);
+    req.onsuccess = () => {
+      const existing = req.result;
+      if (!existing) { resolve(); return; }
+      if (updates.bpm != null) existing.bpm = updates.bpm;
+      if (updates.duration != null) existing.duration = updates.duration;
+      tx.objectStore(DB_STORE_META).put(existing);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function parseFilenameForLookup(filename: string): { artist: string; title: string } | null {
+  let name = filename.replace(/\.[^.]+$/, '');
+  // Normalize fullwidth chars YouTube uses instead of - / "
+  name = name.replace(/｜/g, ' - ').replace(/[⧸／]/g, '/').replace(/[＂＂]/g, '"');
+
+  const parts = name.split(/\s+-\s+/).map(s => s.trim()).filter(Boolean);
+
+  // Strip all (...) and [...] blocks from a string
+  const strip = (s: string): string => {
+    let prev = '';
+    while (prev !== s) {
+      prev = s;
+      s = s.replace(/\s*[\[(][^\[\]()]*[\])]\s*/g, ' ').trim();
+    }
+    return s.replace(/\s{2,}/g, ' ').trim();
+  };
+
+  const cleaned = parts.map(strip).filter(Boolean);
+  if (cleaned.length === 0) return null;
+  if (cleaned.length === 1) return { artist: '', title: cleaned[0] };
+  if (cleaned.length === 2) return { artist: cleaned[0], title: cleaned[1] };
+
+  const [p0, p1, p2] = cleaned;
+  // Same name in first two slots (e.g. "Austin Giorgio - Austin Giorgio - Chokehold")
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (norm(p0) === norm(p1) || norm(p1).startsWith(norm(p0))) {
+    return { artist: p1, title: p2 };
+  }
+  // YouTube Topic auto-channel (e.g. "ittibitti - Topic - Made You Look")
+  if (p1.toLowerCase() === 'topic') {
+    return { artist: p0, title: p2 };
+  }
+  // Default: p0 = YouTube channel, p1 = artist, p2 = title
+  return { artist: p1, title: p2 };
+}
+
+async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promise<number | null> {
+  const parsed = parseFilenameForLookup(filename);
+  if (!parsed || !parsed.title) return null;
+  try {
+    let lookup = `song:${encodeURIComponent(parsed.title)}`;
+    if (parsed.artist) lookup += `+artist:${encodeURIComponent(parsed.artist)}`;
+    const res = await fetch(
+      `https://api.getsongbpm.com/search/?api_key=${encodeURIComponent(apiKey)}&type=song&lookup=${lookup}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.search?.length) return null;
+    const tempo = parseInt(data.search[0].tempo, 10);
+    return Number.isFinite(tempo) && tempo > 0 ? tempo : null;
+  } catch { return null; }
+}
+
+async function runBatchDecode() {
+  const modal = document.getElementById('batch-decode-modal')!;
+  const setupForm = document.getElementById('batch-setup-form')!;
+  const progressView = document.getElementById('batch-progress-view')!;
+  const progressEl = document.getElementById('batch-decode-progress')!;
+  const filenameEl = document.getElementById('batch-decode-filename')!;
+  const sourceEl = document.getElementById('batch-decode-source')!;
+  const apiKeyInput = document.getElementById('batch-api-input') as HTMLInputElement;
+
+  try { apiKeyInput.value = localStorage.getItem(STORAGE_GETSONGBPM_KEY) ?? ''; } catch (_) {}
+  modal.removeAttribute('hidden');
+
+  await new Promise<void>(resolve => {
+    document.getElementById('batch-start-btn')!.addEventListener('click', () => resolve(), { once: true });
+  });
+
+  const apiKey = apiKeyInput.value.trim();
+  try { localStorage.setItem(STORAGE_GETSONGBPM_KEY, apiKey); } catch (_) {}
+
+  setupForm.setAttribute('hidden', '');
+  progressView.removeAttribute('hidden');
+
+  const allFiles = await loadAllFilesMeta();
+  const undecoded = allFiles.filter(f => f.bpm == null);
+  const total = undecoded.length;
+
+  if (total === 0) {
+    progressEl.textContent = 'All files already decoded';
+    filenameEl.textContent = '';
+    await renderFilePicker();
+    setTimeout(() => modal.setAttribute('hidden', ''), 1500);
+    return;
+  }
+
+  let apiHits = 0;
+  for (let i = 0; i < total; i++) {
+    const f = undecoded[i];
+    progressEl.textContent = `Decoding ${i + 1} / ${total}…`;
+    filenameEl.textContent = f.name;
+    sourceEl.textContent = '';
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      if (apiKey) {
+        const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
+        if (bpmFromAPI) {
+          sourceEl.textContent = `${bpmFromAPI} BPM via GetSongBPM`;
+          await updateFileMeta(f.id, { bpm: bpmFromAPI });
+          apiHits++;
+          await new Promise(r => setTimeout(r, 80)); // be polite to the API
+          continue;
+        }
+      }
+      sourceEl.textContent = 'analyzing audio…';
+      const saved = await loadAudioById(f.id);
+      if (!saved) continue;
+      const ctx = getAudioCtx();
+      const raw = await ctx.decodeAudioData(saved.buffer.slice(0));
+      const decoded = normalizeAudio(trimSilence(raw));
+      const { bpm, ticks } = await detectRhythm(decoded);
+      await saveBeatCache(f.id, bpm, ticks);
+      await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm);
+    } catch (e) {
+      console.error('Batch decode failed:', f.name, e);
+    }
+  }
+
+  const apiNote = apiHits ? ` (${apiHits} via API, ${total - apiHits} analyzed)` : '';
+  progressEl.textContent = `Done — ${total} file${total === 1 ? '' : 's'}${apiNote}`;
+  filenameEl.textContent = '';
+  sourceEl.textContent = '';
+  await renderFilePicker();
+  setTimeout(() => modal.setAttribute('hidden', ''), 2500);
+}
 
 // Init
 (function init() {
@@ -1897,8 +2180,13 @@ document.getElementById('add-loop-btn')!.addEventListener('click', addLoop);
   updateRowHeight();
   renderLoopCards();
 
+  if (new URLSearchParams(window.location.search).get('batch_decode') === 'true') {
+    runBatchDecode().catch(console.error);
+    return;
+  }
+
   loadAllFilesMeta().then(async files => {
-    refreshFileDropdown();
+    renderFilePicker().catch(() => {});
     if (files.length === 0) return;
     let lastId: string | null = null;
     try { lastId = localStorage.getItem(STORAGE_LAST_FILE); } catch (_) {}
