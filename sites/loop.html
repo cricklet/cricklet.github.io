@@ -129,7 +129,7 @@
       width: 100%;
       flex-shrink: 0;
       overflow: hidden;
-      cursor: grab;
+      cursor: default;
       touch-action: none;
       border-bottom: 1px solid var(--section-divider);
       background: var(--section-track);
@@ -344,6 +344,11 @@
       background: var(--text-color);
       border-radius: 2px;
       opacity: 0.55;
+      transition: opacity 0.08s;
+    }
+
+    .loop-resize-handle.active::after {
+      opacity: 1;
     }
 
     #detected-tick {

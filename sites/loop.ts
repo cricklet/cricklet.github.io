@@ -1150,6 +1150,8 @@ let resizeDragActive = false;
 let resizeDragSide: 'start' | 'end' = 'start';
 let resizeDragStartX = 0;
 let resizeDragStartBeats = 0;
+let resizeDragClickBeats = 0;
+let resizeDragStarted = false; // true once pointer has actually moved
 
 function enterLoopLengthEdit() {
   if (!loopLengthInput || !loopHint) return;
@@ -1261,6 +1263,25 @@ function commitLoopEndEdit() {
 }
 
 function setupActiveCardDrag(card: HTMLElement) {
+  function clearResizeDrag() {
+    resizeDragActive = false;
+    resizeDragStarted = false;
+    loopDragDidMove = false;
+    loopDragInitialTarget = null;
+    card.classList.remove('resizing');
+    card.style.cursor = '';
+    if (loopStartHandle) { loopStartHandle.style.opacity = '0'; loopStartHandle.classList.remove('active'); }
+    if (loopEndHandle) { loopEndHandle.style.opacity = '0'; loopEndHandle.classList.remove('active'); }
+  }
+
+  function clearLoopDrag() {
+    loopDragActive = false;
+    loopDragDidMove = false;
+    loopDragInitialTarget = null;
+    card.classList.remove('dragging');
+    card.style.cursor = '';
+  }
+
   card.addEventListener('pointerdown', e => {
     if (!state.originalBuffer) return;
     if ((e.target as Element).closest('.loop-icon-btn, .loop-beat-label, .loop-resize-handle')) return;
@@ -1272,18 +1293,18 @@ function setupActiveCardDrag(card: HTMLElement) {
     const clickBeats = total > 0 && r.width > 0 ? (e.clientX - r.left) / r.width * total : -1;
 
     if (total > 0 && clickBeats >= state.loopStartBeats && clickBeats <= state.loopEndBeats) {
-      // Click inside loop — drag the closer of start/end
-      pushUndo();
+      // Pointer down inside loop — wait to see if it's a click or a drag
       card.setPointerCapture(e.pointerId);
       resizeDragActive = true;
+      resizeDragStarted = false;
       const distToStart = Math.abs(clickBeats - state.loopStartBeats);
       const distToEnd = Math.abs(clickBeats - state.loopEndBeats);
       resizeDragSide = distToStart <= distToEnd ? 'start' : 'end';
       resizeDragStartX = e.clientX;
       resizeDragStartBeats = resizeDragSide === 'start' ? state.loopStartBeats : state.loopEndBeats;
+      resizeDragClickBeats = clickBeats;
       loopDragDidMove = false;
       loopDragInitialTarget = e.target as Element;
-      card.classList.add('resizing');
       return;
     }
 
@@ -1300,19 +1321,27 @@ function setupActiveCardDrag(card: HTMLElement) {
 
   card.addEventListener('pointermove', e => {
     if (resizeDragActive) {
+      if (e.clientX !== resizeDragStartX) loopDragDidMove = true;
+      if (!loopDragDidMove) return;
+      // First actual movement — commit to drag mode
+      if (!resizeDragStarted) {
+        resizeDragStarted = true;
+        pushUndo();
+        card.classList.add('resizing');
+        card.style.cursor = 'ew-resize';
+        const activeHandle = resizeDragSide === 'start' ? loopStartHandle : loopEndHandle;
+        const inactiveHandle = resizeDragSide === 'start' ? loopEndHandle : loopStartHandle;
+        if (activeHandle) { activeHandle.style.opacity = '1'; activeHandle.classList.add('active'); }
+        if (inactiveHandle) inactiveHandle.style.opacity = '0';
+      }
       const r = card.getBoundingClientRect();
       const total = totalBeats();
       const deltaBeats = Math.round((e.clientX - resizeDragStartX) / r.width * total);
       const newBeats = resizeDragStartBeats + deltaBeats;
-      if (e.clientX !== resizeDragStartX) loopDragDidMove = true;
       if (resizeDragSide === 'start') {
         setLoopPoints(clamp(newBeats, 0, state.loopEndBeats - 1), state.loopEndBeats);
-        if (loopStartHandle) loopStartHandle.style.opacity = '1';
-        if (loopEndHandle) loopEndHandle.style.opacity = '0';
       } else {
         setLoopPoints(state.loopStartBeats, clamp(newBeats, state.loopStartBeats + 1, total));
-        if (loopStartHandle) loopStartHandle.style.opacity = '0';
-        if (loopEndHandle) loopEndHandle.style.opacity = '1';
       }
       return;
     }
@@ -1326,7 +1355,7 @@ function setupActiveCardDrag(card: HTMLElement) {
       setLoopPoints(newStart, newStart + loopDragSpan);
       return;
     }
-    // Hover: show only the handle closer to the cursor (if inside loop region)
+    // Hover: show the handle closer to cursor when inside loop region
     const r = card.getBoundingClientRect();
     const total = totalBeats();
     if (total > 0 && r.width > 0 && loopStartHandle && loopEndHandle) {
@@ -1335,11 +1364,9 @@ function setupActiveCardDrag(card: HTMLElement) {
         const nearStart = Math.abs(hoverBeats - state.loopStartBeats) <= Math.abs(hoverBeats - state.loopEndBeats);
         loopStartHandle.style.opacity = nearStart ? '1' : '0';
         loopEndHandle.style.opacity = nearStart ? '0' : '1';
-        card.style.cursor = 'ew-resize';
       } else {
         loopStartHandle.style.opacity = '0';
         loopEndHandle.style.opacity = '0';
-        card.style.cursor = '';
       }
     }
   });
@@ -1348,44 +1375,33 @@ function setupActiveCardDrag(card: HTMLElement) {
     if (resizeDragActive || loopDragActive) return;
     if (loopStartHandle) loopStartHandle.style.opacity = '0';
     if (loopEndHandle) loopEndHandle.style.opacity = '0';
-    card.style.cursor = '';
   });
 
   card.addEventListener('lostpointercapture', () => {
-    if (resizeDragActive) {
-      resizeDragActive = false;
-      loopDragDidMove = false;
-      loopDragInitialTarget = null;
-      card.classList.remove('resizing');
-    }
-    if (loopDragActive) {
-      loopDragActive = false;
-      loopDragDidMove = false;
-      loopDragInitialTarget = null;
-      card.classList.remove('dragging');
-    }
-    if (loopStartHandle) loopStartHandle.style.opacity = '0';
-    if (loopEndHandle) loopEndHandle.style.opacity = '0';
-    card.style.cursor = '';
+    if (resizeDragActive) clearResizeDrag();
+    if (loopDragActive) clearLoopDrag();
   });
 
   card.addEventListener('pointerup', e => {
     if (resizeDragActive) {
-      resizeDragActive = false;
-      card.classList.remove('resizing');
-      try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
-      const resizeDidMove = loopDragDidMove;
-      const resizeInitialTarget = loopDragInitialTarget;
-      loopDragDidMove = false;
-      loopDragInitialTarget = null;
-      if (loopStartHandle) loopStartHandle.style.opacity = '0';
-      if (loopEndHandle) loopEndHandle.style.opacity = '0';
-      card.style.cursor = '';
-      if (!resizeDidMove && resizeInitialTarget?.closest('.loop-hint')) {
+      const didDrag = loopDragDidMove;
+      const initialTarget = loopDragInitialTarget;
+      try { card.releasePointerCapture(e.pointerId); } catch (err) { console.error('releasePointerCapture failed:', err); }
+      clearResizeDrag();
+      if (!didDrag && initialTarget?.closest('.loop-hint')) {
         enterLoopLengthEdit();
         return;
       }
-      if (state.originalBuffer && state.rbNode) {
+      if (!didDrag && state.rbNode) {
+        // Click with no drag — jump playhead to clicked position
+        const clickSecs = resizeDragClickBeats * beatDurationSecs();
+        const wasPlaying = state.isPlaying;
+        stopSource();
+        if (wasPlaying) startSource(clickSecs);
+        else setPausedPos(clickSecs);
+        return;
+      }
+      if (didDrag && state.originalBuffer && state.rbNode) {
         const wasPlaying = state.isPlaying;
         stopSource();
         if (wasPlaying) startSource(loopStartSecs());
@@ -1395,11 +1411,8 @@ function setupActiveCardDrag(card: HTMLElement) {
     }
     const didMove = loopDragDidMove;
     const initialTarget = loopDragInitialTarget;
-    loopDragActive = false;
-    loopDragDidMove = false;
-    loopDragInitialTarget = null;
-    card.classList.remove('dragging');
-    try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
+    try { card.releasePointerCapture(e.pointerId); } catch (err) { console.error('releasePointerCapture failed:', err); }
+    clearLoopDrag();
 
     if (!didMove && initialTarget?.closest('.loop-hint')) {
       enterLoopLengthEdit();
@@ -1414,19 +1427,9 @@ function setupActiveCardDrag(card: HTMLElement) {
   });
 
   card.addEventListener('pointercancel', e => {
-    if (resizeDragActive) {
-      resizeDragActive = false;
-      loopDragDidMove = false;
-      loopDragInitialTarget = null;
-      card.classList.remove('resizing');
-      try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
-      return;
-    }
-    loopDragActive = false;
-    loopDragDidMove = false;
-    loopDragInitialTarget = null;
-    card.classList.remove('dragging');
-    try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
+    try { card.releasePointerCapture(e.pointerId); } catch (err) { console.error('releasePointerCapture failed:', err); }
+    if (resizeDragActive) clearResizeDrag();
+    if (loopDragActive) clearLoopDrag();
   });
 }
 
