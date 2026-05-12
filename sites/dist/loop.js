@@ -9780,7 +9780,7 @@
     filePickerBtn.textContent = state.currentFileName ?? "";
     filePickerBtn.classList.toggle("has-files", !!state.currentFileName);
   }
-  var PICKER_WIDE_PX = 720;
+  var PICKER_WIDE_PX = 1e3;
   function isSidebarMode() {
     return window.innerWidth >= PICKER_WIDE_PX;
   }

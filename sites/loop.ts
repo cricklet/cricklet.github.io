@@ -1716,7 +1716,7 @@ function updateFilePickerBtn() {
   filePickerBtn.classList.toggle('has-files', !!state.currentFileName);
 }
 
-const PICKER_WIDE_PX = 720;
+const PICKER_WIDE_PX = 1000;
 
 function isSidebarMode() { return window.innerWidth >= PICKER_WIDE_PX; }
 
