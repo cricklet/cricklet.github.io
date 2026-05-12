@@ -529,11 +529,12 @@
     #file-picker-panel[hidden] { display: none; }
 
     /* Wide: panel is always-visible left sidebar */
-    @media (min-width: 720px) {
+    @media (min-width: 1000px) {
       #file-picker-panel {
         display: flex !important;
         position: static;
-        width: 540px;
+        min-width: 600px;
+        width: 50%;
         max-height: none;
         height: 100%;
         flex-shrink: 0;
@@ -561,11 +562,11 @@
       table-layout: fixed;
     }
 
-    .fpc-name { width: 46%; }
-    .fpc-bpm { width: 11%; }
-    .fpc-length { width: 13%; }
-    .fpc-date { width: 24%; }
-    .fpc-del { width: 6%; }
+    .fpc-name { }
+    .fpc-bpm { width: 3rem; }
+    .fpc-length { width: 4rem; }
+    .fpc-date { width: 6rem; }
+    .fpc-del { width: 2rem; }
 
     #file-picker-table thead th {
       position: sticky;
@@ -611,19 +612,20 @@
 
     #file-picker-footer {
       padding: 8px 12px;
-      font-size: 11px;
-      color: var(--secondary-text);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.7rem;
+      color: rgba(128, 128, 128, 0.45);
       border-top: 1px solid var(--section-divider);
       flex-shrink: 0;
     }
 
     #file-picker-footer a {
-      color: var(--secondary-text);
+      color: inherit;
       text-decoration: none;
     }
 
     #file-picker-footer a:hover {
-      text-decoration: underline;
+      color: rgba(128, 128, 128, 0.75);
     }
 
     #file-picker-table td.fp-del-cell {
@@ -874,14 +876,14 @@
             <th data-col="name">Name</th>
             <th data-col="bpm">BPM</th>
             <th data-col="length">Length</th>
-            <th data-col="addedAt">Date added</th>
+            <th data-col="addedAt">Added</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="file-picker-body"></tbody>
       </table>
     </div>
-    <div id="file-picker-footer"><a href="https://getsongbpm.com" target="_blank" rel="noopener">thanks GetSongBPM.com</a></div>
+    <div id="file-picker-footer"><a href="https://getsongbpm.com" target="_blank" rel="noopener">Thanks GetSongBPM.com!</a></div>
   </div>
 
   <div id="main-col">
@@ -926,7 +928,7 @@
       <div id="batch-setup-hint">Looks up BPM from GetSongBPM by filename,<br>then falls back to local audio analysis</div>
       <div>
         <div id="batch-api-label">GetSongBPM API key</div>
-        <input id="batch-api-input" type="text" spellcheck="false" autocomplete="off" placeholder="optional — enables fast lookup">
+        <input id="batch-api-input" type="text" spellcheck="false" autocomplete="off" placeholder="optional — enables fast lookup" value="86904f2347dfb31bf0ba23414847c7df">
       </div>
       <button id="batch-start-btn" type="button">Start</button>
     </div>

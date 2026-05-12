@@ -78,7 +78,7 @@ async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Prom
   } catch { /* non-fatal */ }
 }
 
-async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number): Promise<void> {
+async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number, bpmFromAPI?: boolean): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readwrite');
@@ -88,6 +88,7 @@ async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string,
       const meta: Record<string, any> = { id, name, addedAt: existing?.addedAt ?? Date.now() };
       meta.duration = duration ?? existing?.duration;
       meta.bpm = bpm ?? existing?.bpm;
+      meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
       tx.objectStore(DB_STORE_META).put(meta);
       tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
     };
@@ -96,7 +97,7 @@ async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string,
   });
 }
 
-async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; addedAt: number; duration?: number; bpm?: number }>> {
+async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; addedAt: number; duration?: number; bpm?: number; bpmFromAPI?: boolean; bpmAPIHint?: number }>> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readonly');
@@ -385,10 +386,11 @@ function setStatus(msg: string) {
   statusHint.style.opacity = '';
 }
 
-function setDetectedStatus(durationStr: string, bpm: number) {
+function setDetectedStatus(durationStr: string, bpm: number, apiHint?: number) {
   statusHint.style.pointerEvents = 'auto';
   statusHint.style.opacity = '0.5';
-  statusHint.innerHTML = `${durationStr} · detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM`;
+  const hintSuffix = apiHint != null ? ` (GetSongBPM ${apiHint})` : '';
+  statusHint.innerHTML = `${durationStr} · detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM${hintSuffix}`;
   statusHint.querySelector('.detected-bpm-clickable')!.addEventListener('click', enterDetectedBPMHintEdit);
 }
 
@@ -1731,9 +1733,10 @@ function closeFilePicker() {
 
 function formatPickerDate(ts: number): string {
   const d = new Date(ts);
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  if (d.getFullYear() === new Date().getFullYear()) return `${months[d.getMonth()]} ${d.getDate()}`;
-  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${mm}/${dd}/${yyyy}`;
 }
 
 function formatPickerDuration(secs: number): string {
@@ -1757,7 +1760,7 @@ async function renderFilePicker() {
     return 0;
   });
 
-  const labels: Record<string, string> = { name: 'Name', bpm: 'BPM', length: 'Length', addedAt: 'Date added' };
+  const labels: Record<string, string> = { name: 'Name', bpm: 'BPM', length: 'Length', addedAt: 'Added' };
   document.querySelectorAll<HTMLElement>('#file-picker-table thead th[data-col]').forEach(th => {
     const col = th.dataset.col!;
     const sorted = col === pickerSortCol;
@@ -1780,7 +1783,7 @@ async function renderFilePicker() {
     };
 
     addCell(f.name, f.name);
-    addCell(f.bpm != null ? String(f.bpm) : '—');
+    addCell(f.bpm != null ? `${f.bpm}${f.bpmFromAPI ? '*' : ''}` : '—');
     addCell(f.duration != null ? formatPickerDuration(f.duration) : '—');
     addCell(f.addedAt ? formatPickerDate(f.addedAt) : '—');
 
@@ -1870,14 +1873,26 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
 
     const cached = await loadBeatCache(id);
     let bpm: number, ticks: Float32Array;
+    let apiHint: number | undefined;
     if (cached) {
       ({ bpm, ticks } = cached);
       setStatus('Loading…');
+      const meta = await loadFileMeta(id);
+      if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
     } else {
+      let hintBPM: number | undefined;
+      const apiKey = GETSONGBPM_KEY;
+      if (apiKey) {
+        setStatus('Looking up BPM…');
+        await new Promise(r => setTimeout(r, 0));
+        const looked = await lookupBPMFromGetSongBPM(name, apiKey);
+        if (looked) { hintBPM = looked; apiHint = looked; }
+      }
       setStatus('Detecting BPM…');
       await new Promise(r => setTimeout(r, 0));
-      ({ bpm, ticks } = await detectRhythm(decoded));
+      ({ bpm, ticks } = await detectRhythm(decoded, hintBPM));
       saveBeatCache(id, bpm, ticks).catch(() => {});
+      if (apiHint) updateFileMeta(id, { bpmFromAPI: true, bpmAPIHint: apiHint }).catch(() => {});
     }
     state.detectedBPM = bpm;
     state.beatTicks = ticks;
@@ -1925,7 +1940,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
 
     const mins = Math.floor(decoded.duration / 60);
     const secs = Math.round(decoded.duration % 60).toString().padStart(2, '0');
-    setDetectedStatus(`${mins}:${secs}`, bpm);
+    setDetectedStatus(`${mins}:${secs}`, bpm, apiHint);
 
     renderLoopCards();
     updateFilePickerBtn();
@@ -2002,9 +2017,9 @@ fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) processFi
 
 document.getElementById('add-loop-btn')!.addEventListener('click', addLoop);
 
-const STORAGE_GETSONGBPM_KEY = 'loop_getsongbpm_key';
+const GETSONGBPM_KEY = '86904f2347dfb31bf0ba23414847c7df';
 
-async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number }): Promise<void> {
+async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number; bpmFromAPI?: boolean; bpmAPIHint?: number }): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readwrite');
@@ -2014,10 +2029,22 @@ async function updateFileMeta(id: string, updates: { bpm?: number; duration?: nu
       if (!existing) { resolve(); return; }
       if (updates.bpm != null) existing.bpm = updates.bpm;
       if (updates.duration != null) existing.duration = updates.duration;
+      if (updates.bpmFromAPI != null) existing.bpmFromAPI = updates.bpmFromAPI;
+      if (updates.bpmAPIHint != null) existing.bpmAPIHint = updates.bpmAPIHint;
       tx.objectStore(DB_STORE_META).put(existing);
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadFileMeta(id: string): Promise<{ bpmFromAPI?: boolean; bpmAPIHint?: number } | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE_META, 'readonly');
+    const req = tx.objectStore(DB_STORE_META).get(id);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -2038,23 +2065,34 @@ function parseFilenameForLookup(filename: string): { artist: string; title: stri
     return s.replace(/\s{2,}/g, ' ').trim();
   };
 
-  const cleaned = parts.map(strip).filter(Boolean);
-  if (cleaned.length === 0) return null;
-  if (cleaned.length === 1) return { artist: '', title: cleaned[0] };
-  if (cleaned.length === 2) return { artist: cleaned[0], title: cleaned[1] };
+  // For titles: take only the text before the first ( or [, since anything
+  // after is usually badges/tags like "(Lyrics) KPop Demon Hunters"
+  const stripTitle = (s: string): string => {
+    const before = s.replace(/[\[(].*/s, '').trim();
+    return before || strip(s);
+  };
 
-  const [p0, p1, p2] = cleaned;
+  const cleaned = parts.map(strip).filter(Boolean);
+  // Parallel array using stripTitle for use as search title
+  const titles = parts.map(stripTitle).filter(Boolean);
+
+  if (cleaned.length === 0) return null;
+  if (cleaned.length === 1) return { artist: '', title: titles[0] ?? cleaned[0] };
+  if (cleaned.length === 2) return { artist: cleaned[0], title: titles[1] ?? cleaned[1] };
+
+  const [p0, p1] = cleaned;
+  const t2 = titles[2] ?? cleaned[2];
   // Same name in first two slots (e.g. "Austin Giorgio - Austin Giorgio - Chokehold")
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   if (norm(p0) === norm(p1) || norm(p1).startsWith(norm(p0))) {
-    return { artist: p1, title: p2 };
+    return { artist: p1, title: t2 };
   }
   // YouTube Topic auto-channel (e.g. "ittibitti - Topic - Made You Look")
   if (p1.toLowerCase() === 'topic') {
-    return { artist: p0, title: p2 };
+    return { artist: p0, title: t2 };
   }
   // Default: p0 = YouTube channel, p1 = artist, p2 = title
-  return { artist: p1, title: p2 };
+  return { artist: p1, title: t2 };
 }
 
 async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promise<number | null> {
@@ -2083,7 +2121,7 @@ async function runBatchDecode() {
   const sourceEl = document.getElementById('batch-decode-source')!;
   const apiKeyInput = document.getElementById('batch-api-input') as HTMLInputElement;
 
-  try { apiKeyInput.value = localStorage.getItem(STORAGE_GETSONGBPM_KEY) ?? ''; } catch (_) {}
+  apiKeyInput.value = GETSONGBPM_KEY;
   modal.removeAttribute('hidden');
 
   await new Promise<void>(resolve => {
@@ -2091,7 +2129,6 @@ async function runBatchDecode() {
   });
 
   const apiKey = apiKeyInput.value.trim();
-  try { localStorage.setItem(STORAGE_GETSONGBPM_KEY, apiKey); } catch (_) {}
 
   setupForm.setAttribute('hidden', '');
   progressView.removeAttribute('hidden');
@@ -2120,7 +2157,7 @@ async function runBatchDecode() {
         const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
         if (bpmFromAPI) {
           sourceEl.textContent = `${bpmFromAPI} BPM via GetSongBPM`;
-          await updateFileMeta(f.id, { bpm: bpmFromAPI });
+          await updateFileMeta(f.id, { bpm: bpmFromAPI, bpmFromAPI: true, bpmAPIHint: bpmFromAPI });
           apiHits++;
           await new Promise(r => setTimeout(r, 80)); // be polite to the API
           continue;

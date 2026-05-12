@@ -8223,7 +8223,7 @@
     } catch {
     }
   }
-  async function saveAudioFile(arrayBuffer, name, id, duration, bpm) {
+  async function saveAudioFile(arrayBuffer, name, id, duration, bpm, bpmFromAPI) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], "readwrite");
@@ -8233,6 +8233,7 @@
         const meta = { id, name, addedAt: existing?.addedAt ?? Date.now() };
         meta.duration = duration ?? existing?.duration;
         meta.bpm = bpm ?? existing?.bpm;
+        meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
         tx.objectStore(DB_STORE_META).put(meta);
         tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
       };
@@ -8467,10 +8468,11 @@
     statusHint.style.pointerEvents = "none";
     statusHint.style.opacity = "";
   }
-  function setDetectedStatus(durationStr, bpm) {
+  function setDetectedStatus(durationStr, bpm, apiHint) {
     statusHint.style.pointerEvents = "auto";
     statusHint.style.opacity = "0.5";
-    statusHint.innerHTML = `${durationStr} \xB7 detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM`;
+    const hintSuffix = apiHint != null ? ` (GetSongBPM ${apiHint})` : "";
+    statusHint.innerHTML = `${durationStr} \xB7 detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM${hintSuffix}`;
     statusHint.querySelector(".detected-bpm-clickable").addEventListener("click", enterDetectedBPMHintEdit);
   }
   function enterDetectedBPMHintEdit() {
@@ -9794,9 +9796,10 @@
   }
   function formatPickerDate(ts) {
     const d = new Date(ts);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    if (d.getFullYear() === (/* @__PURE__ */ new Date()).getFullYear()) return `${months[d.getMonth()]} ${d.getDate()}`;
-    return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
   }
   function formatPickerDuration(secs) {
     const m = Math.floor(secs / 60);
@@ -9825,7 +9828,7 @@
       if (va > vb) return pickerSortAsc ? 1 : -1;
       return 0;
     });
-    const labels = { name: "Name", bpm: "BPM", length: "Length", addedAt: "Date added" };
+    const labels = { name: "Name", bpm: "BPM", length: "Length", addedAt: "Added" };
     document.querySelectorAll("#file-picker-table thead th[data-col]").forEach((th) => {
       const col = th.dataset.col;
       const sorted = col === pickerSortCol;
@@ -9844,7 +9847,7 @@
         tr.appendChild(td);
       };
       addCell(f.name, f.name);
-      addCell(f.bpm != null ? String(f.bpm) : "\u2014");
+      addCell(f.bpm != null ? `${f.bpm}${f.bpmFromAPI ? "*" : ""}` : "\u2014");
       addCell(f.duration != null ? formatPickerDuration(f.duration) : "\u2014");
       addCell(f.addedAt ? formatPickerDate(f.addedAt) : "\u2014");
       const tdDel = document.createElement("td");
@@ -9929,14 +9932,30 @@
       computeWaveform(decoded);
       const cached = await loadBeatCache(id);
       let bpm, ticks;
+      let apiHint;
       if (cached) {
         ({ bpm, ticks } = cached);
         setStatus("Loading\u2026");
+        const meta = await loadFileMeta(id);
+        if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
       } else {
+        let hintBPM;
+        const apiKey = GETSONGBPM_KEY;
+        if (apiKey) {
+          setStatus("Looking up BPM\u2026");
+          await new Promise((r) => setTimeout(r, 0));
+          const looked = await lookupBPMFromGetSongBPM(name, apiKey);
+          if (looked) {
+            hintBPM = looked;
+            apiHint = looked;
+          }
+        }
         setStatus("Detecting BPM\u2026");
         await new Promise((r) => setTimeout(r, 0));
-        ({ bpm, ticks } = await detectRhythm(decoded));
+        ({ bpm, ticks } = await detectRhythm(decoded, hintBPM));
         saveBeatCache(id, bpm, ticks).catch(() => {
+        });
+        if (apiHint) updateFileMeta(id, { bpmFromAPI: true, bpmAPIHint: apiHint }).catch(() => {
         });
       }
       state.detectedBPM = bpm;
@@ -9978,7 +9997,7 @@
       await ensureNodes();
       const mins = Math.floor(decoded.duration / 60);
       const secs = Math.round(decoded.duration % 60).toString().padStart(2, "0");
-      setDetectedStatus(`${mins}:${secs}`, bpm);
+      setDetectedStatus(`${mins}:${secs}`, bpm, apiHint);
       renderLoopCards();
       updateFilePickerBtn();
       try {
@@ -10045,7 +10064,7 @@
     if (fileInput.files?.[0]) processFile(fileInput.files[0]);
   });
   document.getElementById("add-loop-btn").addEventListener("click", addLoop);
-  var STORAGE_GETSONGBPM_KEY = "loop_getsongbpm_key";
+  var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
   async function updateFileMeta(id, updates) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -10059,10 +10078,21 @@
         }
         if (updates.bpm != null) existing.bpm = updates.bpm;
         if (updates.duration != null) existing.duration = updates.duration;
+        if (updates.bpmFromAPI != null) existing.bpmFromAPI = updates.bpmFromAPI;
+        if (updates.bpmAPIHint != null) existing.bpmAPIHint = updates.bpmAPIHint;
         tx.objectStore(DB_STORE_META).put(existing);
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function loadFileMeta(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE_META, "readonly");
+      const req = tx.objectStore(DB_STORE_META).get(id);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
     });
   }
   function parseFilenameForLookup(filename) {
@@ -10077,19 +10107,25 @@
       }
       return s.replace(/\s{2,}/g, " ").trim();
     };
+    const stripTitle = (s) => {
+      const before = s.replace(/[\[(].*/s, "").trim();
+      return before || strip(s);
+    };
     const cleaned = parts.map(strip).filter(Boolean);
+    const titles = parts.map(stripTitle).filter(Boolean);
     if (cleaned.length === 0) return null;
-    if (cleaned.length === 1) return { artist: "", title: cleaned[0] };
-    if (cleaned.length === 2) return { artist: cleaned[0], title: cleaned[1] };
-    const [p0, p1, p2] = cleaned;
+    if (cleaned.length === 1) return { artist: "", title: titles[0] ?? cleaned[0] };
+    if (cleaned.length === 2) return { artist: cleaned[0], title: titles[1] ?? cleaned[1] };
+    const [p0, p1] = cleaned;
+    const t2 = titles[2] ?? cleaned[2];
     const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
     if (norm(p0) === norm(p1) || norm(p1).startsWith(norm(p0))) {
-      return { artist: p1, title: p2 };
+      return { artist: p1, title: t2 };
     }
     if (p1.toLowerCase() === "topic") {
-      return { artist: p0, title: p2 };
+      return { artist: p0, title: t2 };
     }
-    return { artist: p1, title: p2 };
+    return { artist: p1, title: t2 };
   }
   async function lookupBPMFromGetSongBPM(filename, apiKey) {
     const parsed = parseFilenameForLookup(filename);
@@ -10117,19 +10153,12 @@
     const filenameEl = document.getElementById("batch-decode-filename");
     const sourceEl = document.getElementById("batch-decode-source");
     const apiKeyInput = document.getElementById("batch-api-input");
-    try {
-      apiKeyInput.value = localStorage.getItem(STORAGE_GETSONGBPM_KEY) ?? "";
-    } catch (_) {
-    }
+    apiKeyInput.value = GETSONGBPM_KEY;
     modal.removeAttribute("hidden");
     await new Promise((resolve) => {
       document.getElementById("batch-start-btn").addEventListener("click", () => resolve(), { once: true });
     });
     const apiKey = apiKeyInput.value.trim();
-    try {
-      localStorage.setItem(STORAGE_GETSONGBPM_KEY, apiKey);
-    } catch (_) {
-    }
     setupForm.setAttribute("hidden", "");
     progressView.removeAttribute("hidden");
     const allFiles = await loadAllFilesMeta();
@@ -10154,7 +10183,7 @@
           const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
           if (bpmFromAPI) {
             sourceEl.textContent = `${bpmFromAPI} BPM via GetSongBPM`;
-            await updateFileMeta(f.id, { bpm: bpmFromAPI });
+            await updateFileMeta(f.id, { bpm: bpmFromAPI, bpmFromAPI: true, bpmAPIHint: bpmFromAPI });
             apiHits++;
             await new Promise((r) => setTimeout(r, 80));
             continue;
