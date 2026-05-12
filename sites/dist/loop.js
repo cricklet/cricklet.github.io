@@ -10323,8 +10323,10 @@
     const sourceEl = document.getElementById("batch-decode-source");
     modal.removeAttribute("hidden");
     const apiKey = GETSONGBPM_KEY;
+    const batchParams = new URLSearchParams(location.search);
+    const skipCount = Math.max(0, parseInt(batchParams.get("failures") ?? "0", 10));
     const allFiles = await loadAllFilesMeta();
-    const undecoded = allFiles.filter((f) => f.bpm == null || f.duration == null);
+    const undecoded = allFiles.filter((f) => f.bpm == null || f.duration == null).slice(skipCount);
     const total = undecoded.length;
     if (total === 0) {
       progressEl.textContent = "All files already decoded";
@@ -10362,7 +10364,7 @@
         await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
       } catch (e) {
         console.error("Batch decode failed:", f.name, e);
-        location.reload();
+        location.replace(`?batch&failures=${skipCount + i + 1}`);
         return;
       }
     }
@@ -10405,7 +10407,7 @@
     updateTransposeBtn();
     updateRowHeight();
     renderLoopCards();
-    if (new URLSearchParams(window.location.search).get("batch_decode") === "true") {
+    if (new URLSearchParams(window.location.search).has("batch")) {
       runBatchDecode().catch(console.error);
       return;
     }
