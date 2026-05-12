@@ -634,10 +634,11 @@ async function detectRhythm(buffer: AudioBuffer, hintBPM?: number): Promise<{ bp
   const ESSENTIA_MAX = 208;
   const minBPM = hintBPM ? Math.max(40, Math.floor(hintBPM * 0.85)) : 40;
   const maxBPM = hintBPM ? Math.min(ESSENTIA_MAX, Math.ceil(hintBPM * 1.15)) : ESSENTIA_MAX;
+  let signal: any, result: any;
   try {
     const mono = essentia.audioBufferToMonoSignal(buffer);
-    const signal = essentia.arrayToVector(mono);
-    const result = essentia.RhythmExtractor2013(signal, maxBPM, 'multifeature', minBPM);
+    signal = essentia.arrayToVector(mono);
+    result = essentia.RhythmExtractor2013(signal, maxBPM, 'multifeature', minBPM);
     bpm = Math.round(result.bpm);
     ticks = essentia.vectorToArray(result.ticks);
   } catch (e) {
@@ -645,6 +646,11 @@ async function detectRhythm(buffer: AudioBuffer, hintBPM?: number): Promise<{ bp
     essentiaPromise = null;
     throw e;
   } finally {
+    // Free WASM heap allocations — critical in batch mode to prevent OOM aborts
+    try { signal?.delete(); } catch (_) {}
+    try { result?.ticks?.delete(); } catch (_) {}
+    try { result?.estimates?.delete(); } catch (_) {}
+    try { result?.bpmIntervals?.delete(); } catch (_) {}
     if (!wasSuspended) await ctx.resume();
   }
   return { bpm, ticks };
@@ -2318,6 +2324,12 @@ async function runBatchDecode() {
 
   const batchParams = new URLSearchParams(location.search);
   const skipCount = Math.max(0, parseInt(batchParams.get('failures') ?? '0', 10));
+  const prevSuccesses = Math.max(0, parseInt(batchParams.get('successes') ?? '0', 10));
+  const countsEl = document.getElementById('batch-decode-counts')!;
+  const updateCounts = (s: number, f: number) => {
+    countsEl.textContent = `${s} done, ${f} skipped`;
+  };
+  updateCounts(prevSuccesses, skipCount);
 
   const allFiles = await loadAllFilesMeta();
   // Include files missing bpm OR duration — API-only hits from previous runs have bpm but no duration/beat cache
@@ -2359,9 +2371,10 @@ async function runBatchDecode() {
       const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
       await saveBeatCache(f.id, bpm, ticks);
       await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
+      updateCounts(prevSuccesses + i + 1, skipCount);
     } catch (e) {
       console.error('Batch decode failed:', f.name, e);
-      location.replace(`?batch&failures=${skipCount + i + 1}`);
+      location.replace(`?batch&failures=${skipCount + i + 1}&successes=${prevSuccesses + i}`);
       return;
     }
   }
