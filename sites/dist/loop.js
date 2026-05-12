@@ -10150,7 +10150,7 @@
       let lookup = `song:${encodeURIComponent(parsed.title)}`;
       if (parsed.artist) lookup += `+artist:${encodeURIComponent(parsed.artist)}`;
       const res = await fetch(
-        `https://api.getsongbpm.com/search/?api_key=${encodeURIComponent(apiKey)}&type=song&lookup=${lookup}`
+        `https://api.getsong.co/search/?api_key=${encodeURIComponent(apiKey)}&type=song&lookup=${lookup}`
       );
       if (!res.ok) return null;
       const data = await res.json();
