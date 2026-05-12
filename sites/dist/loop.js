@@ -8174,7 +8174,6 @@
   var STORAGE_THEME = "loop_theme";
   var STORAGE_VOLUME = "loop_volume";
   var STORAGE_METRONOME = "loop_metronome";
-  var STORAGE_LAST_FILE = "loop_last_file";
   var TRANSPOSE_MIN = -24;
   var TRANSPOSE_MAX = 24;
   var DB_NAME = "loop-player";
@@ -8256,10 +8255,6 @@
   async function deleteAudioFile(id) {
     try {
       localStorage.removeItem(`loop_file_${id}`);
-    } catch (_) {
-    }
-    try {
-      if (localStorage.getItem(STORAGE_LAST_FILE) === id) localStorage.removeItem(STORAGE_LAST_FILE);
     } catch (_) {
     }
     const db = await openDB();
@@ -8686,7 +8681,12 @@
     }
     if (persist) persistCurrentFileSettings();
   }
+  var ESSENTIA_MIN_DURATION = 3;
   async function detectRhythm(buffer2, hintBPM) {
+    if (buffer2.duration < ESSENTIA_MIN_DURATION) {
+      const bpm2 = hintBPM ?? 120;
+      return { bpm: bpm2, ticks: new Float32Array(0) };
+    }
     const essentia = await getEssentia();
     const ctx = getAudioCtx();
     const wasSuspended = ctx.state === "suspended";
@@ -8702,6 +8702,9 @@
       const result = essentia.RhythmExtractor2013(signal, maxBPM, "multifeature", minBPM);
       bpm = Math.round(result.bpm);
       ticks = essentia.vectorToArray(result.ticks);
+    } catch (e) {
+      essentiaPromise = null;
+      throw e;
     } finally {
       if (!wasSuspended) await ctx.resume();
     }
@@ -9857,6 +9860,20 @@
   var pickerOpen = false;
   var pickerSortCol = "bpm";
   var pickerSortAsc = true;
+  function buildUrl(fileId) {
+    const p = new URLSearchParams();
+    if (fileId) p.set("f", fileId);
+    p.set("sort", pickerSortCol);
+    p.set("dir", pickerSortAsc ? "asc" : "desc");
+    return "?" + p.toString();
+  }
+  function readUrlSort() {
+    const p = new URLSearchParams(location.search);
+    const col = p.get("sort");
+    if (col && ["name", "bpm", "length", "addedAt"].includes(col)) pickerSortCol = col;
+    const dir = p.get("dir");
+    if (dir === "asc" || dir === "desc") pickerSortAsc = dir === "asc";
+  }
   function updateFilePickerBtn() {
     filePickerBtn.textContent = state.currentFileName ?? "";
     filePickerBtn.classList.toggle("has-files", !!state.currentFileName);
@@ -9920,9 +9937,13 @@
       th.classList.toggle("fp-sorted", sorted);
       th.textContent = labels[col] + (sorted ? pickerSortAsc ? " \u2191" : " \u2193" : "");
     });
+    const numDigits = String(files.length).length;
+    const numCol = document.querySelector("col.fpc-num");
+    if (numCol) numCol.style.width = `calc(${numDigits}ch + 1.4rem)`;
     const tbody = document.getElementById("file-picker-body");
     tbody.innerHTML = "";
-    for (const f of files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
       const tr = document.createElement("tr");
       if (f.id === state.currentFileId) tr.classList.add("fp-current");
       const addCell = (text, title) => {
@@ -9931,6 +9952,10 @@
         if (title) td.title = title;
         tr.appendChild(td);
       };
+      const numTd = document.createElement("td");
+      numTd.className = "fpc-num-cell";
+      numTd.textContent = String(i + 1);
+      tr.appendChild(numTd);
       addCell(f.name, f.name);
       addCell(f.bpm != null ? `${f.bpm}${f.bpmTapped ? "\u1D57" : f.bpmFromAPI ? "\u1D43" : ""}` : "\u2014");
       addCell(f.duration != null ? formatPickerDuration(f.duration) : "\u2014");
@@ -10012,6 +10037,7 @@
         pickerSortCol = col;
         pickerSortAsc = col === "name";
       }
+      history.replaceState({ fileId: state.currentFileId }, "", buildUrl(state.currentFileId));
       renderFilePicker().catch(() => {
       });
     });
@@ -10112,11 +10138,7 @@
       setDetectedStatus(`${mins}:${secs}`, bpm, apiHint, tapHint);
       renderLoopCards();
       updateFilePickerBtn();
-      try {
-        localStorage.setItem(STORAGE_LAST_FILE, id);
-      } catch (_) {
-      }
-      const url = "?f=" + id;
+      const url = buildUrl(id);
       if (pushHistory && location.search !== url) history.pushState({ fileId: id }, "", url);
       else history.replaceState({ fileId: id }, "", url);
       saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch(() => {
@@ -10179,6 +10201,9 @@
     if (fileInput.files?.[0]) processFile(fileInput.files[0]);
   });
   window.addEventListener("popstate", async () => {
+    readUrlSort();
+    renderFilePicker().catch(() => {
+    });
     const id = new URLSearchParams(location.search).get("f");
     if (!id || id === state.currentFileId) return;
     const saved = await loadAudioById(id);
@@ -10387,17 +10412,13 @@
       runBatchDecode().catch(console.error);
       return;
     }
+    readUrlSort();
     loadAllFilesMeta().then(async (files) => {
       renderFilePicker().catch(() => {
       });
       if (files.length === 0) return;
       const urlId = new URLSearchParams(location.search).get("f");
-      let lastId = null;
-      try {
-        lastId = localStorage.getItem(STORAGE_LAST_FILE);
-      } catch (_) {
-      }
-      const target = urlId && files.find((f) => f.id === urlId) ? urlId : lastId && files.find((f) => f.id === lastId) ? lastId : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
+      const target = urlId && files.find((f) => f.id === urlId) ? urlId : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
       const saved = await loadAudioById(target);
       if (saved) processArrayBuffer(saved.buffer, saved.name, target, false);
     }).catch(() => {

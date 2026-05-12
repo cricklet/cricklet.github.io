@@ -27,7 +27,6 @@ const BPM_MAX = 300;
 const STORAGE_THEME = 'loop_theme';
 const STORAGE_VOLUME = 'loop_volume';
 const STORAGE_METRONOME = 'loop_metronome';
-const STORAGE_LAST_FILE = 'loop_last_file';
 const TRANSPOSE_MIN = -24;
 const TRANSPOSE_MAX = 24;
 
@@ -112,7 +111,6 @@ async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; add
 
 async function deleteAudioFile(id: string): Promise<void> {
   try { localStorage.removeItem(`loop_file_${id}`); } catch (_) {}
-  try { if (localStorage.getItem(STORAGE_LAST_FILE) === id) localStorage.removeItem(STORAGE_LAST_FILE); } catch (_) {}
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META, DB_STORE_BEATS], 'readwrite');
@@ -620,7 +618,13 @@ function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
   if (persist) persistCurrentFileSettings();
 }
 
+const ESSENTIA_MIN_DURATION = 3; // seconds — shorter clips cause WASM abort
+
 async function detectRhythm(buffer: AudioBuffer, hintBPM?: number): Promise<{ bpm: number; ticks: Float32Array }> {
+  if (buffer.duration < ESSENTIA_MIN_DURATION) {
+    const bpm = hintBPM ?? 120;
+    return { bpm, ticks: new Float32Array(0) };
+  }
   const essentia = await getEssentia();
   const ctx = getAudioCtx();
   const wasSuspended = ctx.state === 'suspended';
@@ -636,6 +640,10 @@ async function detectRhythm(buffer: AudioBuffer, hintBPM?: number): Promise<{ bp
     const result = essentia.RhythmExtractor2013(signal, maxBPM, 'multifeature', minBPM);
     bpm = Math.round(result.bpm);
     ticks = essentia.vectorToArray(result.ticks);
+  } catch (e) {
+    // WASM abort corrupts the module — force re-init on next call
+    essentiaPromise = null;
+    throw e;
   } finally {
     if (!wasSuspended) await ctx.resume();
   }
@@ -1790,6 +1798,22 @@ let pickerOpen = false;
 let pickerSortCol: 'name' | 'bpm' | 'length' | 'addedAt' = 'bpm';
 let pickerSortAsc = true;
 
+function buildUrl(fileId?: string | null): string {
+  const p = new URLSearchParams();
+  if (fileId) p.set('f', fileId);
+  p.set('sort', pickerSortCol);
+  p.set('dir', pickerSortAsc ? 'asc' : 'desc');
+  return '?' + p.toString();
+}
+
+function readUrlSort() {
+  const p = new URLSearchParams(location.search);
+  const col = p.get('sort') as typeof pickerSortCol | null;
+  if (col && ['name', 'bpm', 'length', 'addedAt'].includes(col)) pickerSortCol = col;
+  const dir = p.get('dir');
+  if (dir === 'asc' || dir === 'desc') pickerSortAsc = dir === 'asc';
+}
+
 function updateFilePickerBtn() {
   filePickerBtn.textContent = state.currentFileName ?? '';
   filePickerBtn.classList.toggle('has-files', !!state.currentFileName);
@@ -1851,10 +1875,15 @@ async function renderFilePicker() {
     th.textContent = labels[col] + (sorted ? (pickerSortAsc ? ' ↑' : ' ↓') : '');
   });
 
+  const numDigits = String(files.length).length;
+  const numCol = document.querySelector<HTMLElement>('col.fpc-num');
+  if (numCol) numCol.style.width = `calc(${numDigits}ch + 1.4rem)`;
+
   const tbody = document.getElementById('file-picker-body')!;
   tbody.innerHTML = '';
 
-  for (const f of files) {
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
     const tr = document.createElement('tr');
     if (f.id === state.currentFileId) tr.classList.add('fp-current');
 
@@ -1864,6 +1893,11 @@ async function renderFilePicker() {
       if (title) td.title = title;
       tr.appendChild(td);
     };
+
+    const numTd = document.createElement('td');
+    numTd.className = 'fpc-num-cell';
+    numTd.textContent = String(i + 1);
+    tr.appendChild(numTd);
 
     addCell(f.name, f.name);
     addCell(f.bpm != null ? `${f.bpm}${f.bpmTapped ? 'ᵗ' : f.bpmFromAPI ? 'ᵃ' : ''}` : '—');
@@ -1950,6 +1984,7 @@ document.querySelectorAll<HTMLElement>('#file-picker-table thead th[data-col]').
       pickerSortCol = col;
       pickerSortAsc = col === 'name';
     }
+    history.replaceState({ fileId: state.currentFileId }, '', buildUrl(state.currentFileId));
     renderFilePicker().catch(() => {});
   });
 });
@@ -2059,8 +2094,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
     renderLoopCards();
     updateFilePickerBtn();
 
-    try { localStorage.setItem(STORAGE_LAST_FILE, id); } catch (_) {}
-    const url = '?f=' + id;
+    const url = buildUrl(id);
     if (pushHistory && location.search !== url) history.pushState({ fileId: id }, '', url);
     else history.replaceState({ fileId: id }, '', url);
     saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch(() => {});
@@ -2133,6 +2167,8 @@ const fileInput = document.getElementById('file-input') as HTMLInputElement;
 fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) processFile(fileInput.files[0]); });
 
 window.addEventListener('popstate', async () => {
+  readUrlSort();
+  renderFilePicker().catch(() => {});
   const id = new URLSearchParams(location.search).get('f');
   if (!id || id === state.currentFileId) return;
   const saved = await loadAudioById(id);
@@ -2376,17 +2412,15 @@ async function runBatchDecode() {
     return;
   }
 
+  readUrlSort();
+
   loadAllFilesMeta().then(async files => {
     renderFilePicker().catch(() => {});
     if (files.length === 0) return;
     const urlId = new URLSearchParams(location.search).get('f');
-    let lastId: string | null = null;
-    try { lastId = localStorage.getItem(STORAGE_LAST_FILE); } catch (_) {}
     const target = (urlId && files.find(f => f.id === urlId))
       ? urlId
-      : (lastId && files.find(f => f.id === lastId))
-        ? lastId
-        : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
+      : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
     const saved = await loadAudioById(target);
     if (saved) processArrayBuffer(saved.buffer, saved.name, target, false);
   }).catch(() => {});
