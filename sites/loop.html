@@ -617,6 +617,9 @@
       color: rgba(128, 128, 128, 0.45);
       border-top: 1px solid var(--section-divider);
       flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
 
     #file-picker-footer a {
@@ -626,6 +629,20 @@
 
     #file-picker-footer a:hover {
       color: rgba(128, 128, 128, 0.75);
+    }
+
+    #clear-all-btn {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.7rem;
+      color: rgba(128, 128, 128, 0.45);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    #clear-all-btn:hover {
+      color: rgba(200, 80, 80, 0.8);
     }
 
     #file-picker-table td.fp-del-cell {
@@ -883,7 +900,10 @@
         <tbody id="file-picker-body"></tbody>
       </table>
     </div>
-    <div id="file-picker-footer"><a href="https://getsongbpm.com" target="_blank" rel="noopener">Thanks GetSongBPM.com!</a></div>
+    <div id="file-picker-footer">
+      <a href="https://getsongbpm.com" target="_blank" rel="noopener">Thanks GetSongBPM.com!</a>
+      <button id="clear-all-btn" type="button">(clear all)</button>
+    </div>
   </div>
 
   <div id="main-col">

@@ -9899,6 +9899,21 @@
     if (pickerOpen) closeFilePicker();
     else openFilePicker();
   });
+  document.getElementById("clear-all-btn").addEventListener("click", async () => {
+    if (!confirm("Delete all MP3s? This cannot be undone.")) return;
+    const files = await loadAllFilesMeta();
+    for (const f of files) await deleteAudioFile(f.id);
+    stopSource();
+    state.currentFileId = null;
+    state.currentFileName = null;
+    state.originalBuffer = null;
+    state.loops = [];
+    state.activeLoopId = null;
+    renderLoopCards();
+    updateFilePickerBtn();
+    await renderFilePicker();
+    setStatus("Drop an MP3 to get started");
+  });
   document.querySelectorAll("#file-picker-table thead th[data-col]").forEach((th) => {
     th.addEventListener("click", () => {
       const col = th.dataset.col;
@@ -9941,7 +9956,7 @@
       } else {
         let hintBPM;
         const apiKey = GETSONGBPM_KEY;
-        if (apiKey) {
+        if (apiKey && GETSONGBPM_ENABLED) {
           setStatus("Looking up BPM\u2026");
           await new Promise((r) => setTimeout(r, 0));
           const looked = await lookupBPMFromGetSongBPM(name, apiKey);
@@ -10065,6 +10080,7 @@
   });
   document.getElementById("add-loop-btn").addEventListener("click", addLoop);
   var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
+  var GETSONGBPM_ENABLED = location.hostname === "cricklet.github.io";
   async function updateFileMeta(id, updates) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -10179,7 +10195,7 @@
       sourceEl.textContent = "";
       await new Promise((r) => setTimeout(r, 0));
       try {
-        if (apiKey) {
+        if (apiKey && GETSONGBPM_ENABLED) {
           const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
           if (bpmFromAPI) {
             sourceEl.textContent = `${bpmFromAPI} BPM via GetSongBPM`;
