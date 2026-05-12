@@ -10226,15 +10226,23 @@
       setStatus("No MP3 files found");
       return;
     }
-    for (let i = 0; i < mp3Files.length; i++) {
-      const file = mp3Files[i];
-      setStatus(`Processing ${i + 1}/${mp3Files.length}: ${file.name}\u2026`);
+    const existingIds = new Set((await loadAllFilesMeta()).map((f) => f.id));
+    const newFiles = mp3Files.filter((f) => !existingIds.has(encodeURIComponent(f.name)));
+    if (newFiles.length === 0) {
+      setStatus(`All ${mp3Files.length} file${mp3Files.length === 1 ? "" : "s"} already added`);
+      return;
+    }
+    for (let i = 0; i < newFiles.length; i++) {
+      const file = newFiles[i];
+      const skipped = mp3Files.length - newFiles.length;
+      const skipNote = skipped > 0 ? ` (${skipped} already exist)` : "";
+      setStatus(`Adding ${i + 1}/${newFiles.length}${skipNote}: ${file.name}\u2026`);
       const arrayBuffer = await file.arrayBuffer();
       const id = encodeURIComponent(file.name);
       await saveAudioFile(arrayBuffer, file.name, id);
     }
     await renderFilePicker();
-    const lastFile = mp3Files[mp3Files.length - 1];
+    const lastFile = newFiles[newFiles.length - 1];
     const lastId = encodeURIComponent(lastFile.name);
     const saved = await loadAudioById(lastId);
     if (saved) {
