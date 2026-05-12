@@ -8223,7 +8223,7 @@
     } catch {
     }
   }
-  async function saveAudioFile(arrayBuffer, name, id, duration, bpm, bpmFromAPI) {
+  async function saveAudioFile(arrayBuffer, name, id, duration, bpm, bpmFromAPI, bpmAPIHint) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], "readwrite");
@@ -8234,6 +8234,7 @@
         meta.duration = duration ?? existing?.duration;
         meta.bpm = bpm ?? existing?.bpm;
         meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
+        meta.bpmAPIHint = bpmAPIHint ?? existing?.bpmAPIHint;
         tx.objectStore(DB_STORE_META).put(meta);
         tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
       };
@@ -9957,7 +9958,13 @@
         let hintBPM;
         const apiKey = GETSONGBPM_KEY;
         if (apiKey && GETSONGBPM_ENABLED) {
-          setStatus("Looking up BPM\u2026");
+          const parsed = parseFilenameForLookup(name);
+          if (parsed?.title) {
+            const desc = parsed.artist ? `${parsed.title} by ${parsed.artist}` : parsed.title;
+            setStatus(`Looking up ${desc}\u2026`);
+          } else {
+            setStatus("Looking up BPM\u2026");
+          }
           await new Promise((r) => setTimeout(r, 0));
           const looked = await lookupBPMFromGetSongBPM(name, apiKey);
           if (looked) {
@@ -9969,8 +9976,6 @@
         await new Promise((r) => setTimeout(r, 0));
         ({ bpm, ticks } = await detectRhythm(decoded, hintBPM));
         saveBeatCache(id, bpm, ticks).catch(() => {
-        });
-        if (apiHint) updateFileMeta(id, { bpmFromAPI: true, bpmAPIHint: apiHint }).catch(() => {
         });
       }
       state.detectedBPM = bpm;
@@ -10019,7 +10024,7 @@
         localStorage.setItem(STORAGE_LAST_FILE, id);
       } catch (_) {
       }
-      saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm).then(() => renderFilePicker()).catch(() => {
+      saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch(() => {
       });
     } catch (e) {
       setStatus(`Error: ${e.message}`);
@@ -10080,7 +10085,7 @@
   });
   document.getElementById("add-loop-btn").addEventListener("click", addLoop);
   var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
-  var GETSONGBPM_ENABLED = location.hostname === "cricklet.github.io";
+  var GETSONGBPM_ENABLED = ["cricklet.github.io", "localhost"].includes(location.hostname);
   async function updateFileMeta(id, updates) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -10111,9 +10116,19 @@
       req.onerror = () => reject(req.error);
     });
   }
+  function trimTrailingBrackets(s) {
+    let result = s.trim();
+    for (; ; ) {
+      const m = result.match(/^(.*\S)\s*(?:\([^()]*\)|\[[^\[\]]*\])\s*$/);
+      if (!m) break;
+      result = m[1].trim();
+    }
+    return result;
+  }
   function parseFilenameForLookup(filename) {
     let name = filename.replace(/\.[^.]+$/, "");
     name = name.replace(/｜/g, " - ").replace(/[⧸／]/g, "/").replace(/[＂＂]/g, '"');
+    name = trimTrailingBrackets(name);
     const parts = name.split(/\s+-\s+/).map((s) => s.trim()).filter(Boolean);
     const strip = (s) => {
       let prev = "";
@@ -10146,6 +10161,7 @@
   async function lookupBPMFromGetSongBPM(filename, apiKey) {
     const parsed = parseFilenameForLookup(filename);
     if (!parsed || !parsed.title) return null;
+    const enc = (s) => encodeURIComponent(s).replace(/%20/g, "+");
     const base = `https://api.getsong.co/search/?api_key=${encodeURIComponent(apiKey)}`;
     const tempoFrom = (data) => {
       const tempo = parseInt(data.search?.[0]?.tempo, 10);
@@ -10153,7 +10169,7 @@
     };
     try {
       if (parsed.artist) {
-        const lookup = `song:${encodeURIComponent(parsed.title)}+artist:${encodeURIComponent(parsed.artist)}`;
+        const lookup = `song:${enc(parsed.title)}+artist:${enc(parsed.artist)}`;
         const res2 = await fetch(`${base}&type=both&lookup=${lookup}`);
         if (res2.ok) {
           const data = await res2.json();
@@ -10161,7 +10177,7 @@
           if (t) return t;
         }
       }
-      const res = await fetch(`${base}&type=song&lookup=${encodeURIComponent(parsed.title)}`);
+      const res = await fetch(`${base}&type=song&lookup=${enc(parsed.title)}`);
       if (!res.ok) return null;
       return tempoFrom(await res.json());
     } catch {

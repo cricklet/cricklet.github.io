@@ -78,7 +78,7 @@ async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Prom
   } catch { /* non-fatal */ }
 }
 
-async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number, bpmFromAPI?: boolean): Promise<void> {
+async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number, bpmFromAPI?: boolean, bpmAPIHint?: number): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readwrite');
@@ -89,6 +89,7 @@ async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string,
       meta.duration = duration ?? existing?.duration;
       meta.bpm = bpm ?? existing?.bpm;
       meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
+      meta.bpmAPIHint = bpmAPIHint ?? existing?.bpmAPIHint;
       tx.objectStore(DB_STORE_META).put(meta);
       tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
     };
@@ -1899,7 +1900,13 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
       let hintBPM: number | undefined;
       const apiKey = GETSONGBPM_KEY;
       if (apiKey && GETSONGBPM_ENABLED) {
-        setStatus('Looking up BPM…');
+        const parsed = parseFilenameForLookup(name);
+        if (parsed?.title) {
+          const desc = parsed.artist ? `${parsed.title} by ${parsed.artist}` : parsed.title;
+          setStatus(`Looking up ${desc}…`);
+        } else {
+          setStatus('Looking up BPM…');
+        }
         await new Promise(r => setTimeout(r, 0));
         const looked = await lookupBPMFromGetSongBPM(name, apiKey);
         if (looked) { hintBPM = looked; apiHint = looked; }
@@ -1908,7 +1915,6 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
       await new Promise(r => setTimeout(r, 0));
       ({ bpm, ticks } = await detectRhythm(decoded, hintBPM));
       saveBeatCache(id, bpm, ticks).catch(() => {});
-      if (apiHint) updateFileMeta(id, { bpmFromAPI: true, bpmAPIHint: apiHint }).catch(() => {});
     }
     state.detectedBPM = bpm;
     state.beatTicks = ticks;
@@ -1962,7 +1968,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
     updateFilePickerBtn();
 
     try { localStorage.setItem(STORAGE_LAST_FILE, id); } catch (_) {}
-    saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm).then(() => renderFilePicker()).catch(() => {});
+    saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch(() => {});
   } catch (e) {
     setStatus(`Error: ${(e as Error).message}`);
   }
@@ -2034,7 +2040,7 @@ fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) processFi
 document.getElementById('add-loop-btn')!.addEventListener('click', addLoop);
 
 const GETSONGBPM_KEY = '86904f2347dfb31bf0ba23414847c7df';
-const GETSONGBPM_ENABLED = location.hostname === 'cricklet.github.io';
+const GETSONGBPM_ENABLED = ['cricklet.github.io', 'localhost'].includes(location.hostname);
 
 async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number; bpmFromAPI?: boolean; bpmAPIHint?: number }): Promise<void> {
   const db = await openDB();
@@ -2065,14 +2071,30 @@ async function loadFileMeta(id: string): Promise<{ bpmFromAPI?: boolean; bpmAPIH
   });
 }
 
+// Repeatedly strip trailing (...) and [...] groups from the end of a string.
+// e.g. "Song (Official Video) [Lyrics]" → "Song"
+function trimTrailingBrackets(s: string): string {
+  let result = s.trim();
+  for (;;) {
+    const m = result.match(/^(.*\S)\s*(?:\([^()]*\)|\[[^\[\]]*\])\s*$/);
+    if (!m) break;
+    result = m[1].trim();
+  }
+  return result;
+}
+
 function parseFilenameForLookup(filename: string): { artist: string; title: string } | null {
   let name = filename.replace(/\.[^.]+$/, '');
   // Normalize fullwidth chars YouTube uses instead of - / "
   name = name.replace(/｜/g, ' - ').replace(/[⧸／]/g, '/').replace(/[＂＂]/g, '"');
 
+  // Strip trailing badge groups before splitting so they don't pollute part counts
+  // e.g. "Artist - Song (Official Video)" → "Artist - Song"
+  name = trimTrailingBrackets(name);
+
   const parts = name.split(/\s+-\s+/).map(s => s.trim()).filter(Boolean);
 
-  // Strip all (...) and [...] blocks from a string
+  // Strip all (...) and [...] blocks from a string (for artist/channel parts)
   const strip = (s: string): string => {
     let prev = '';
     while (prev !== s) {
@@ -2082,25 +2104,25 @@ function parseFilenameForLookup(filename: string): { artist: string; title: stri
     return s.replace(/\s{2,}/g, ' ').trim();
   };
 
-  // For titles: take only the text before the first ( or [, since anything
-  // after is usually badges/tags like "(Lyrics) KPop Demon Hunters"
+  // For the title part: take only text before the first ( or [
+  // so "Your Idol (Lyrics) KPop Demon Hunters" → "Your Idol"
   const stripTitle = (s: string): string => {
     const before = s.replace(/[\[(].*/s, '').trim();
     return before || strip(s);
   };
 
   const cleaned = parts.map(strip).filter(Boolean);
-  // Parallel array using stripTitle for use as search title
   const titles = parts.map(stripTitle).filter(Boolean);
 
   if (cleaned.length === 0) return null;
   if (cleaned.length === 1) return { artist: '', title: titles[0] ?? cleaned[0] };
   if (cleaned.length === 2) return { artist: cleaned[0], title: titles[1] ?? cleaned[1] };
 
+  // 3+ parts: p0 = YouTube channel (ignored), p1 = artist, p2 = title
   const [p0, p1] = cleaned;
   const t2 = titles[2] ?? cleaned[2];
-  // Same name in first two slots (e.g. "Austin Giorgio - Austin Giorgio - Chokehold")
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Same name in first two slots (e.g. "Austin Giorgio - Austin Giorgio - Chokehold")
   if (norm(p0) === norm(p1) || norm(p1).startsWith(norm(p0))) {
     return { artist: p1, title: t2 };
   }
@@ -2115,6 +2137,7 @@ function parseFilenameForLookup(filename: string): { artist: string; title: stri
 async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promise<number | null> {
   const parsed = parseFilenameForLookup(filename);
   if (!parsed || !parsed.title) return null;
+  const enc = (s: string) => encodeURIComponent(s).replace(/%20/g, '+');
   const base = `https://api.getsong.co/search/?api_key=${encodeURIComponent(apiKey)}`;
   const tempoFrom = (data: any): number | null => {
     const tempo = parseInt(data.search?.[0]?.tempo, 10);
@@ -2123,7 +2146,7 @@ async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promis
   try {
     // Try artist+song together first
     if (parsed.artist) {
-      const lookup = `song:${encodeURIComponent(parsed.title)}+artist:${encodeURIComponent(parsed.artist)}`;
+      const lookup = `song:${enc(parsed.title)}+artist:${enc(parsed.artist)}`;
       const res = await fetch(`${base}&type=both&lookup=${lookup}`);
       if (res.ok) {
         const data = await res.json();
@@ -2132,7 +2155,7 @@ async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promis
       }
     }
     // Fall back to title-only search
-    const res = await fetch(`${base}&type=song&lookup=${encodeURIComponent(parsed.title)}`);
+    const res = await fetch(`${base}&type=song&lookup=${enc(parsed.title)}`);
     if (!res.ok) return null;
     return tempoFrom(await res.json());
   } catch { return null; }
