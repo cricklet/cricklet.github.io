@@ -2183,7 +2183,8 @@ async function runBatchDecode() {
   progressView.removeAttribute('hidden');
 
   const allFiles = await loadAllFilesMeta();
-  const undecoded = allFiles.filter(f => f.bpm == null);
+  // Include files missing bpm OR duration — API-only hits from previous runs have bpm but no duration/beat cache
+  const undecoded = allFiles.filter(f => f.bpm == null || f.duration == null);
   const total = undecoded.length;
 
   if (total === 0) {
@@ -2202,31 +2203,31 @@ async function runBatchDecode() {
     sourceEl.textContent = '';
     await new Promise(r => setTimeout(r, 0));
     try {
+      let hintBPM: number | undefined;
       if (apiKey && GETSONGBPM_ENABLED) {
         const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
         if (bpmFromAPI) {
-          sourceEl.textContent = `${bpmFromAPI} BPM via GetSongBPM`;
-          await updateFileMeta(f.id, { bpm: bpmFromAPI, bpmFromAPI: true, bpmAPIHint: bpmFromAPI });
+          hintBPM = bpmFromAPI;
           apiHits++;
+          sourceEl.textContent = `GetSongBPM: ${bpmFromAPI} BPM → analyzing…`;
           await new Promise(r => setTimeout(r, 80)); // be polite to the API
-          continue;
         }
       }
-      sourceEl.textContent = 'analyzing audio…';
+      if (!hintBPM) sourceEl.textContent = 'analyzing audio…';
       const saved = await loadAudioById(f.id);
       if (!saved) continue;
       const ctx = getAudioCtx();
       const raw = await ctx.decodeAudioData(saved.buffer.slice(0));
       const decoded = normalizeAudio(trimSilence(raw));
-      const { bpm, ticks } = await detectRhythm(decoded);
+      const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
       await saveBeatCache(f.id, bpm, ticks);
-      await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm);
+      await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
     } catch (e) {
       console.error('Batch decode failed:', f.name, e);
     }
   }
 
-  const apiNote = apiHits ? ` (${apiHits} via API, ${total - apiHits} analyzed)` : '';
+  const apiNote = apiHits ? ` (${apiHits} API hints, ${total} analyzed)` : '';
   progressEl.textContent = `Done — ${total} file${total === 1 ? '' : 's'}${apiNote}`;
   filenameEl.textContent = '';
   sourceEl.textContent = '';

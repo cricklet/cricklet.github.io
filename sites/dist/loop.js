@@ -10086,27 +10086,6 @@
   document.getElementById("add-loop-btn").addEventListener("click", addLoop);
   var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
   var GETSONGBPM_ENABLED = ["cricklet.github.io", "localhost"].includes(location.hostname);
-  async function updateFileMeta(id, updates) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(DB_STORE_META, "readwrite");
-      const req = tx.objectStore(DB_STORE_META).get(id);
-      req.onsuccess = () => {
-        const existing = req.result;
-        if (!existing) {
-          resolve();
-          return;
-        }
-        if (updates.bpm != null) existing.bpm = updates.bpm;
-        if (updates.duration != null) existing.duration = updates.duration;
-        if (updates.bpmFromAPI != null) existing.bpmFromAPI = updates.bpmFromAPI;
-        if (updates.bpmAPIHint != null) existing.bpmAPIHint = updates.bpmAPIHint;
-        tx.objectStore(DB_STORE_META).put(existing);
-      };
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
   async function loadFileMeta(id) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -10201,7 +10180,7 @@
     setupForm.setAttribute("hidden", "");
     progressView.removeAttribute("hidden");
     const allFiles = await loadAllFilesMeta();
-    const undecoded = allFiles.filter((f) => f.bpm == null);
+    const undecoded = allFiles.filter((f) => f.bpm == null || f.duration == null);
     const total = undecoded.length;
     if (total === 0) {
       progressEl.textContent = "All files already decoded";
@@ -10218,30 +10197,30 @@
       sourceEl.textContent = "";
       await new Promise((r) => setTimeout(r, 0));
       try {
+        let hintBPM;
         if (apiKey && GETSONGBPM_ENABLED) {
           const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
           if (bpmFromAPI) {
-            sourceEl.textContent = `${bpmFromAPI} BPM via GetSongBPM`;
-            await updateFileMeta(f.id, { bpm: bpmFromAPI, bpmFromAPI: true, bpmAPIHint: bpmFromAPI });
+            hintBPM = bpmFromAPI;
             apiHits++;
+            sourceEl.textContent = `GetSongBPM: ${bpmFromAPI} BPM \u2192 analyzing\u2026`;
             await new Promise((r) => setTimeout(r, 80));
-            continue;
           }
         }
-        sourceEl.textContent = "analyzing audio\u2026";
+        if (!hintBPM) sourceEl.textContent = "analyzing audio\u2026";
         const saved = await loadAudioById(f.id);
         if (!saved) continue;
         const ctx = getAudioCtx();
         const raw = await ctx.decodeAudioData(saved.buffer.slice(0));
         const decoded = normalizeAudio(trimSilence(raw));
-        const { bpm, ticks } = await detectRhythm(decoded);
+        const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
         await saveBeatCache(f.id, bpm, ticks);
-        await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm);
+        await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
       } catch (e) {
         console.error("Batch decode failed:", f.name, e);
       }
     }
-    const apiNote = apiHits ? ` (${apiHits} via API, ${total - apiHits} analyzed)` : "";
+    const apiNote = apiHits ? ` (${apiHits} API hints, ${total} analyzed)` : "";
     progressEl.textContent = `Done \u2014 ${total} file${total === 1 ? "" : "s"}${apiNote}`;
     filenameEl.textContent = "";
     sourceEl.textContent = "";
