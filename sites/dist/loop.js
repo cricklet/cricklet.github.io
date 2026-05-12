@@ -8223,7 +8223,7 @@
     } catch {
     }
   }
-  async function saveAudioFile(arrayBuffer, name, id, duration, bpm, bpmFromAPI, bpmAPIHint) {
+  async function saveAudioFile(arrayBuffer, name, id, duration, bpm, bpmFromAPI, bpmAPIHint, bpmTapped, bpmTapHint) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], "readwrite");
@@ -8235,6 +8235,8 @@
         meta.bpm = bpm ?? existing?.bpm;
         meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
         meta.bpmAPIHint = bpmAPIHint ?? existing?.bpmAPIHint;
+        meta.bpmTapped = bpmTapped ?? existing?.bpmTapped ?? false;
+        meta.bpmTapHint = bpmTapHint ?? existing?.bpmTapHint;
         tx.objectStore(DB_STORE_META).put(meta);
         tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
       };
@@ -8469,10 +8471,11 @@
     statusHint.style.pointerEvents = "none";
     statusHint.style.opacity = "";
   }
-  function setDetectedStatus(durationStr, bpm, apiHint) {
+  function setDetectedStatus(durationStr, bpm, apiHint, tapHint) {
+    lastDetectedArgs = [durationStr, bpm, apiHint, tapHint];
     statusHint.style.pointerEvents = "auto";
     statusHint.style.opacity = "0.5";
-    const hintSuffix = apiHint != null ? ` (GetSongBPM ${apiHint})` : "";
+    const hintSuffix = tapHint != null ? ` (tapped at ${tapHint})` : apiHint != null ? ` (GetSongBPM ${apiHint})` : "";
     statusHint.innerHTML = `${durationStr} \xB7 detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM${hintSuffix}`;
     statusHint.querySelector(".detected-bpm-clickable").addEventListener("click", enterDetectedBPMHintEdit);
   }
@@ -8503,6 +8506,76 @@
       const mins = Math.floor(buf.duration / 60);
       const secs = Math.round(buf.duration % 60).toString().padStart(2, "0");
       setDetectedStatus(`${mins}:${secs}`, bpm);
+      if (state.currentFileId) {
+        updateFileMeta(state.currentFileId, { bpm, bpmTapped: false, bpmTapHint: void 0 }).catch(() => {
+        });
+        renderFilePicker().catch(() => {
+        });
+      }
+    } catch (e) {
+      setStatus(`Error: ${e.message}`);
+    }
+  }
+  var TAP_COUNT = 4;
+  var TAP_WINDOW_MS = 8e3;
+  var TAP_CONSISTENCY = 0.25;
+  var tapTimes = [];
+  var lastDetectedArgs = null;
+  function restoreDetectedStatus() {
+    if (lastDetectedArgs) setDetectedStatus(...lastDetectedArgs);
+  }
+  function medianOf(arr) {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  }
+  function cancelTapTempo() {
+    tapTimes = [];
+    restoreDetectedStatus();
+  }
+  function handleTapTempo() {
+    if (!state.originalBuffer || !state.isPlaying) return;
+    const now = performance.now();
+    tapTimes.push(now);
+    tapTimes = tapTimes.filter((t) => now - t < TAP_WINDOW_MS);
+    if (tapTimes.length < 2) {
+      setStatus("Tap tempo: 1/" + TAP_COUNT);
+      return;
+    }
+    const intervals = tapTimes.slice(1).map((t, i) => t - tapTimes[i]);
+    const median = medianOf(intervals);
+    const consistent = intervals.every((iv) => Math.abs(iv - median) / median <= TAP_CONSISTENCY);
+    const bpmFromTaps = Math.round(6e4 / median);
+    if (bpmFromTaps < BPM_MIN || bpmFromTaps > BPM_MAX || !consistent) {
+      tapTimes = [now];
+      restoreDetectedStatus();
+      return;
+    }
+    if (tapTimes.length < TAP_COUNT) {
+      setStatus(`Tap tempo: ${bpmFromTaps} BPM (${tapTimes.length}/${TAP_COUNT})`);
+      return;
+    }
+    tapTimes = [];
+    void commitTapTempo(bpmFromTaps);
+  }
+  async function commitTapTempo(tappedBPM) {
+    if (!state.originalBuffer || !state.currentFileId) return;
+    setStatus(`Re-detecting at tapped ${tappedBPM} BPM\u2026`);
+    try {
+      const buf = state.originalBuffer;
+      const { bpm, ticks } = await detectRhythm(buf, tappedBPM);
+      state.detectedBPM = bpm;
+      state.beatTicks = ticks;
+      saveBeatCache(state.currentFileId, bpm, ticks).catch(() => {
+      });
+      const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
+      detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
+      const mins = Math.floor(buf.duration / 60);
+      const secs = Math.round(buf.duration % 60).toString().padStart(2, "0");
+      setDetectedStatus(`${mins}:${secs}`, bpm, void 0, tappedBPM);
+      await updateFileMeta(state.currentFileId, { bpm, bpmTapped: true, bpmTapHint: tappedBPM });
+      renderFilePicker().catch(() => {
+      });
     } catch (e) {
       setStatus(`Error: ${e.message}`);
     }
@@ -9587,6 +9660,11 @@
     updateRowHeight();
   }
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && tapTimes.length > 0) {
+      cancelTapTempo();
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Escape" && pickerOpen) {
       closeFilePicker();
       e.preventDefault();
@@ -9637,6 +9715,9 @@
       stopSource();
       setPausedPos(0);
       play();
+    } else if (e.key === "t" || e.key === "T") {
+      e.preventDefault();
+      handleTapTempo();
     } else if (e.key === "]") {
       pushUndo();
       setTargetBPM(state.targetBPM + 5);
@@ -9774,8 +9855,8 @@
   }
   var filePickerBtn = document.getElementById("file-picker-btn");
   var pickerOpen = false;
-  var pickerSortCol = "addedAt";
-  var pickerSortAsc = false;
+  var pickerSortCol = "bpm";
+  var pickerSortAsc = true;
   function updateFilePickerBtn() {
     filePickerBtn.textContent = state.currentFileName ?? "";
     filePickerBtn.classList.toggle("has-files", !!state.currentFileName);
@@ -9788,7 +9869,10 @@
     if (isSidebarMode()) return;
     pickerOpen = true;
     document.getElementById("file-picker-panel").removeAttribute("hidden");
-    renderFilePicker().catch(() => {
+    renderFilePicker().then(() => {
+      const row = document.querySelector("#file-picker-table .fp-current");
+      if (row) row.scrollIntoView({ block: "nearest" });
+    }).catch(() => {
     });
   }
   function closeFilePicker() {
@@ -9848,7 +9932,7 @@
         tr.appendChild(td);
       };
       addCell(f.name, f.name);
-      addCell(f.bpm != null ? `${f.bpm}${f.bpmFromAPI ? "*" : ""}` : "\u2014");
+      addCell(f.bpm != null ? `${f.bpm}${f.bpmTapped ? "\u1D57" : f.bpmFromAPI ? "\u1D43" : ""}` : "\u2014");
       addCell(f.duration != null ? formatPickerDuration(f.duration) : "\u2014");
       addCell(f.addedAt ? formatPickerDate(f.addedAt) : "\u2014");
       const tdDel = document.createElement("td");
@@ -9895,6 +9979,10 @@
       });
       tbody.appendChild(tr);
     }
+    const currentRow = tbody.querySelector(".fp-current");
+    if (currentRow && (pickerOpen || isSidebarMode())) {
+      currentRow.scrollIntoView({ block: "nearest" });
+    }
   }
   filePickerBtn.addEventListener("click", () => {
     if (pickerOpen) closeFilePicker();
@@ -9928,7 +10016,7 @@
       });
     });
   });
-  async function processArrayBuffer(arrayBuffer, name, id = encodeURIComponent(name)) {
+  async function processArrayBuffer(arrayBuffer, name, id = encodeURIComponent(name), pushHistory = true) {
     stopSource();
     clearUndoHistory();
     state.originalBuffer = null;
@@ -9937,6 +10025,8 @@
     state.currentFileName = name;
     state.loops = [];
     state.activeLoopId = null;
+    lastDetectedArgs = null;
+    tapTimes = [];
     renderLoopCards();
     setStatus("Decoding\u2026");
     try {
@@ -9949,11 +10039,13 @@
       const cached = await loadBeatCache(id);
       let bpm, ticks;
       let apiHint;
+      let tapHint;
       if (cached) {
         ({ bpm, ticks } = cached);
         setStatus("Loading\u2026");
         const meta = await loadFileMeta(id);
-        if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
+        if (meta?.bpmTapped && meta.bpmTapHint) tapHint = meta.bpmTapHint;
+        else if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
       } else {
         let hintBPM;
         const apiKey = GETSONGBPM_KEY;
@@ -10017,13 +10109,16 @@
       await ensureNodes();
       const mins = Math.floor(decoded.duration / 60);
       const secs = Math.round(decoded.duration % 60).toString().padStart(2, "0");
-      setDetectedStatus(`${mins}:${secs}`, bpm, apiHint);
+      setDetectedStatus(`${mins}:${secs}`, bpm, apiHint, tapHint);
       renderLoopCards();
       updateFilePickerBtn();
       try {
         localStorage.setItem(STORAGE_LAST_FILE, id);
       } catch (_) {
       }
+      const url = "?f=" + id;
+      if (pushHistory && location.search !== url) history.pushState({ fileId: id }, "", url);
+      else history.replaceState({ fileId: id }, "", url);
       saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch(() => {
       });
     } catch (e) {
@@ -10083,9 +10178,38 @@
   fileInput.addEventListener("change", () => {
     if (fileInput.files?.[0]) processFile(fileInput.files[0]);
   });
+  window.addEventListener("popstate", async () => {
+    const id = new URLSearchParams(location.search).get("f");
+    if (!id || id === state.currentFileId) return;
+    const saved = await loadAudioById(id);
+    if (saved) processArrayBuffer(saved.buffer, saved.name, id, false);
+  });
   document.getElementById("add-loop-btn").addEventListener("click", addLoop);
   var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
   var GETSONGBPM_ENABLED = ["cricklet.github.io", "localhost"].includes(location.hostname);
+  async function updateFileMeta(id, updates) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE_META, "readwrite");
+      const req = tx.objectStore(DB_STORE_META).get(id);
+      req.onsuccess = () => {
+        const existing = req.result;
+        if (!existing) {
+          resolve();
+          return;
+        }
+        if (updates.bpm != null) existing.bpm = updates.bpm;
+        if (updates.duration != null) existing.duration = updates.duration;
+        if (updates.bpmFromAPI != null) existing.bpmFromAPI = updates.bpmFromAPI;
+        if (updates.bpmAPIHint != null) existing.bpmAPIHint = updates.bpmAPIHint;
+        if (updates.bpmTapped != null) existing.bpmTapped = updates.bpmTapped;
+        if ("bpmTapHint" in updates) existing.bpmTapHint = updates.bpmTapHint;
+        tx.objectStore(DB_STORE_META).put(existing);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
   async function loadFileMeta(id) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -10267,14 +10391,15 @@
       renderFilePicker().catch(() => {
       });
       if (files.length === 0) return;
+      const urlId = new URLSearchParams(location.search).get("f");
       let lastId = null;
       try {
         lastId = localStorage.getItem(STORAGE_LAST_FILE);
       } catch (_) {
       }
-      const target = lastId && files.find((f) => f.id === lastId) ? lastId : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
+      const target = urlId && files.find((f) => f.id === urlId) ? urlId : lastId && files.find((f) => f.id === lastId) ? lastId : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
       const saved = await loadAudioById(target);
-      if (saved) processArrayBuffer(saved.buffer, saved.name, target);
+      if (saved) processArrayBuffer(saved.buffer, saved.name, target, false);
     }).catch(() => {
     });
   })();

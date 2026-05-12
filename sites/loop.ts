@@ -78,7 +78,7 @@ async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Prom
   } catch { /* non-fatal */ }
 }
 
-async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number, bpmFromAPI?: boolean, bpmAPIHint?: number): Promise<void> {
+async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number, bpmFromAPI?: boolean, bpmAPIHint?: number, bpmTapped?: boolean, bpmTapHint?: number): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readwrite');
@@ -90,6 +90,8 @@ async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string,
       meta.bpm = bpm ?? existing?.bpm;
       meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
       meta.bpmAPIHint = bpmAPIHint ?? existing?.bpmAPIHint;
+      meta.bpmTapped = bpmTapped ?? existing?.bpmTapped ?? false;
+      meta.bpmTapHint = bpmTapHint ?? existing?.bpmTapHint;
       tx.objectStore(DB_STORE_META).put(meta);
       tx.objectStore(DB_STORE_FILES).put({ id, buffer: arrayBuffer });
     };
@@ -98,7 +100,7 @@ async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string,
   });
 }
 
-async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; addedAt: number; duration?: number; bpm?: number; bpmFromAPI?: boolean; bpmAPIHint?: number }>> {
+async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; addedAt: number; duration?: number; bpm?: number; bpmFromAPI?: boolean; bpmAPIHint?: number; bpmTapped?: boolean; bpmTapHint?: number }>> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readonly');
@@ -387,10 +389,11 @@ function setStatus(msg: string) {
   statusHint.style.opacity = '';
 }
 
-function setDetectedStatus(durationStr: string, bpm: number, apiHint?: number) {
+function setDetectedStatus(durationStr: string, bpm: number, apiHint?: number, tapHint?: number) {
+  lastDetectedArgs = [durationStr, bpm, apiHint, tapHint];
   statusHint.style.pointerEvents = 'auto';
   statusHint.style.opacity = '0.5';
-  const hintSuffix = apiHint != null ? ` (GetSongBPM ${apiHint})` : '';
+  const hintSuffix = tapHint != null ? ` (tapped at ${tapHint})` : apiHint != null ? ` (GetSongBPM ${apiHint})` : '';
   statusHint.innerHTML = `${durationStr} · detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM${hintSuffix}`;
   statusHint.querySelector('.detected-bpm-clickable')!.addEventListener('click', enterDetectedBPMHintEdit);
 }
@@ -422,6 +425,80 @@ async function commitDetectedBPMHintEdit() {
     const mins = Math.floor(buf.duration / 60);
     const secs = Math.round(buf.duration % 60).toString().padStart(2, '0');
     setDetectedStatus(`${mins}:${secs}`, bpm);
+    if (state.currentFileId) {
+      updateFileMeta(state.currentFileId, { bpm, bpmTapped: false, bpmTapHint: undefined }).catch(() => {});
+      renderFilePicker().catch(() => {});
+    }
+  } catch (e) {
+    setStatus(`Error: ${(e as Error).message}`);
+  }
+}
+
+// Tap tempo: track last 4 taps of 't' key and re-detect if consistent
+const TAP_COUNT = 4;
+const TAP_WINDOW_MS = 8000;
+const TAP_CONSISTENCY = 0.25; // allow ±25% deviation from median interval
+let tapTimes: number[] = [];
+let lastDetectedArgs: [string, number, number | undefined, number | undefined] | null = null;
+
+function restoreDetectedStatus() {
+  if (lastDetectedArgs) setDetectedStatus(...lastDetectedArgs);
+}
+
+function medianOf(arr: number[]): number {
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function cancelTapTempo() {
+  tapTimes = [];
+  restoreDetectedStatus();
+}
+
+function handleTapTempo() {
+  if (!state.originalBuffer || !state.isPlaying) return;
+  const now = performance.now();
+  tapTimes.push(now);
+  tapTimes = tapTimes.filter(t => now - t < TAP_WINDOW_MS);
+  if (tapTimes.length < 2) { setStatus('Tap tempo: 1/' + TAP_COUNT); return; }
+
+  const intervals = tapTimes.slice(1).map((t, i) => t - tapTimes[i]);
+  const median = medianOf(intervals);
+  const consistent = intervals.every(iv => Math.abs(iv - median) / median <= TAP_CONSISTENCY);
+  const bpmFromTaps = Math.round(60000 / median);
+
+  if (bpmFromTaps < BPM_MIN || bpmFromTaps > BPM_MAX || !consistent) {
+    tapTimes = [now];
+    restoreDetectedStatus();
+    return;
+  }
+
+  if (tapTimes.length < TAP_COUNT) {
+    setStatus(`Tap tempo: ${bpmFromTaps} BPM (${tapTimes.length}/${TAP_COUNT})`);
+    return;
+  }
+
+  tapTimes = [];
+  void commitTapTempo(bpmFromTaps);
+}
+
+async function commitTapTempo(tappedBPM: number) {
+  if (!state.originalBuffer || !state.currentFileId) return;
+  setStatus(`Re-detecting at tapped ${tappedBPM} BPM…`);
+  try {
+    const buf = state.originalBuffer;
+    const { bpm, ticks } = await detectRhythm(buf, tappedBPM);
+    state.detectedBPM = bpm;
+    state.beatTicks = ticks;
+    saveBeatCache(state.currentFileId, bpm, ticks).catch(() => {});
+    const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
+    detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
+    const mins = Math.floor(buf.duration / 60);
+    const secs = Math.round(buf.duration % 60).toString().padStart(2, '0');
+    setDetectedStatus(`${mins}:${secs}`, bpm, undefined, tappedBPM);
+    await updateFileMeta(state.currentFileId, { bpm, bpmTapped: true, bpmTapHint: tappedBPM });
+    renderFilePicker().catch(() => {});
   } catch (e) {
     setStatus(`Error: ${(e as Error).message}`);
   }
@@ -1557,6 +1634,7 @@ function renderLoopCards() {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && tapTimes.length > 0) { cancelTapTempo(); e.preventDefault(); return; }
   if (e.key === 'Escape' && pickerOpen) { closeFilePicker(); e.preventDefault(); return; }
   if (pickerOpen) return;
   const tag = (e.target as HTMLElement).tagName;
@@ -1578,6 +1656,7 @@ document.addEventListener('keydown', e => {
     else togglePlay();
   }
   else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); stopSource(); setPausedPos(0); play(); }
+  else if (e.key === 't' || e.key === 'T') { e.preventDefault(); handleTapTempo(); }
   else if (e.key === ']') { pushUndo(); setTargetBPM(state.targetBPM + 5); }
   else if (e.key === '[') { pushUndo(); setTargetBPM(state.targetBPM - 5); }
   else if (e.key === '=') { pushUndo(); setTargetBPM(state.targetBPM + 1); }
@@ -1708,8 +1787,8 @@ function normalizeAudio(buffer: AudioBuffer, targetPeak = 0.95): AudioBuffer {
 const filePickerBtn = document.getElementById('file-picker-btn') as HTMLButtonElement;
 
 let pickerOpen = false;
-let pickerSortCol: 'name' | 'bpm' | 'length' | 'addedAt' = 'addedAt';
-let pickerSortAsc = false;
+let pickerSortCol: 'name' | 'bpm' | 'length' | 'addedAt' = 'bpm';
+let pickerSortAsc = true;
 
 function updateFilePickerBtn() {
   filePickerBtn.textContent = state.currentFileName ?? '';
@@ -1724,7 +1803,10 @@ function openFilePicker() {
   if (isSidebarMode()) return;
   pickerOpen = true;
   document.getElementById('file-picker-panel')!.removeAttribute('hidden');
-  renderFilePicker().catch(() => {});
+  renderFilePicker().then(() => {
+    const row = document.querySelector<HTMLElement>('#file-picker-table .fp-current');
+    if (row) row.scrollIntoView({ block: 'nearest' });
+  }).catch(() => {});
 }
 
 function closeFilePicker() {
@@ -1784,7 +1866,7 @@ async function renderFilePicker() {
     };
 
     addCell(f.name, f.name);
-    addCell(f.bpm != null ? `${f.bpm}${f.bpmFromAPI ? '*' : ''}` : '—');
+    addCell(f.bpm != null ? `${f.bpm}${f.bpmTapped ? 'ᵗ' : f.bpmFromAPI ? 'ᵃ' : ''}` : '—');
     addCell(f.duration != null ? formatPickerDuration(f.duration) : '—');
     addCell(f.addedAt ? formatPickerDate(f.addedAt) : '—');
 
@@ -1831,6 +1913,12 @@ async function renderFilePicker() {
 
     tbody.appendChild(tr);
   }
+
+  // Scroll active row into view if picker is visible
+  const currentRow = tbody.querySelector<HTMLElement>('.fp-current');
+  if (currentRow && (pickerOpen || isSidebarMode())) {
+    currentRow.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 filePickerBtn.addEventListener('click', () => {
@@ -1868,7 +1956,7 @@ document.querySelectorAll<HTMLElement>('#file-picker-table thead th[data-col]').
 
 // No click-outside handler needed: narrow mode is full-screen (Escape / toggle / row-click to close).
 
-async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = encodeURIComponent(name)) {
+async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = encodeURIComponent(name), pushHistory = true) {
   stopSource();
   clearUndoHistory();
   state.originalBuffer = null;
@@ -1877,6 +1965,8 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   state.currentFileName = name;
   state.loops = [];
   state.activeLoopId = null;
+  lastDetectedArgs = null;
+  tapTimes = [];
   renderLoopCards();
   setStatus('Decoding…');
 
@@ -1891,11 +1981,13 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
     const cached = await loadBeatCache(id);
     let bpm: number, ticks: Float32Array;
     let apiHint: number | undefined;
+    let tapHint: number | undefined;
     if (cached) {
       ({ bpm, ticks } = cached);
       setStatus('Loading…');
       const meta = await loadFileMeta(id);
-      if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
+      if (meta?.bpmTapped && meta.bpmTapHint) tapHint = meta.bpmTapHint;
+      else if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
     } else {
       let hintBPM: number | undefined;
       const apiKey = GETSONGBPM_KEY;
@@ -1962,12 +2054,15 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
 
     const mins = Math.floor(decoded.duration / 60);
     const secs = Math.round(decoded.duration % 60).toString().padStart(2, '0');
-    setDetectedStatus(`${mins}:${secs}`, bpm, apiHint);
+    setDetectedStatus(`${mins}:${secs}`, bpm, apiHint, tapHint);
 
     renderLoopCards();
     updateFilePickerBtn();
 
     try { localStorage.setItem(STORAGE_LAST_FILE, id); } catch (_) {}
+    const url = '?f=' + id;
+    if (pushHistory && location.search !== url) history.pushState({ fileId: id }, '', url);
+    else history.replaceState({ fileId: id }, '', url);
     saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch(() => {});
   } catch (e) {
     setStatus(`Error: ${(e as Error).message}`);
@@ -2037,12 +2132,19 @@ document.addEventListener('drop', async e => {
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
 fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) processFile(fileInput.files[0]); });
 
+window.addEventListener('popstate', async () => {
+  const id = new URLSearchParams(location.search).get('f');
+  if (!id || id === state.currentFileId) return;
+  const saved = await loadAudioById(id);
+  if (saved) processArrayBuffer(saved.buffer, saved.name, id, false);
+});
+
 document.getElementById('add-loop-btn')!.addEventListener('click', addLoop);
 
 const GETSONGBPM_KEY = '86904f2347dfb31bf0ba23414847c7df';
 const GETSONGBPM_ENABLED = ['cricklet.github.io', 'localhost'].includes(location.hostname);
 
-async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number; bpmFromAPI?: boolean; bpmAPIHint?: number }): Promise<void> {
+async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number; bpmFromAPI?: boolean; bpmAPIHint?: number; bpmTapped?: boolean; bpmTapHint?: number }): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readwrite');
@@ -2054,6 +2156,8 @@ async function updateFileMeta(id: string, updates: { bpm?: number; duration?: nu
       if (updates.duration != null) existing.duration = updates.duration;
       if (updates.bpmFromAPI != null) existing.bpmFromAPI = updates.bpmFromAPI;
       if (updates.bpmAPIHint != null) existing.bpmAPIHint = updates.bpmAPIHint;
+      if (updates.bpmTapped != null) existing.bpmTapped = updates.bpmTapped;
+      if ('bpmTapHint' in updates) existing.bpmTapHint = updates.bpmTapHint;
       tx.objectStore(DB_STORE_META).put(existing);
     };
     tx.oncomplete = () => resolve();
@@ -2061,7 +2165,7 @@ async function updateFileMeta(id: string, updates: { bpm?: number; duration?: nu
   });
 }
 
-async function loadFileMeta(id: string): Promise<{ bpmFromAPI?: boolean; bpmAPIHint?: number } | null> {
+async function loadFileMeta(id: string): Promise<{ bpmFromAPI?: boolean; bpmAPIHint?: number; bpmTapped?: boolean; bpmTapHint?: number } | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readonly');
@@ -2275,12 +2379,15 @@ async function runBatchDecode() {
   loadAllFilesMeta().then(async files => {
     renderFilePicker().catch(() => {});
     if (files.length === 0) return;
+    const urlId = new URLSearchParams(location.search).get('f');
     let lastId: string | null = null;
     try { lastId = localStorage.getItem(STORAGE_LAST_FILE); } catch (_) {}
-    const target = (lastId && files.find(f => f.id === lastId))
-      ? lastId
-      : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
+    const target = (urlId && files.find(f => f.id === urlId))
+      ? urlId
+      : (lastId && files.find(f => f.id === lastId))
+        ? lastId
+        : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
     const saved = await loadAudioById(target);
-    if (saved) processArrayBuffer(saved.buffer, saved.name, target);
+    if (saved) processArrayBuffer(saved.buffer, saved.name, target, false);
   }).catch(() => {});
 })();
