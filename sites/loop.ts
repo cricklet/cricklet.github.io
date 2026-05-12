@@ -2115,17 +2115,26 @@ function parseFilenameForLookup(filename: string): { artist: string; title: stri
 async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promise<number | null> {
   const parsed = parseFilenameForLookup(filename);
   if (!parsed || !parsed.title) return null;
-  try {
-    let lookup = `song:${encodeURIComponent(parsed.title)}`;
-    if (parsed.artist) lookup += `+artist:${encodeURIComponent(parsed.artist)}`;
-    const res = await fetch(
-      `https://api.getsong.co/search/?api_key=${encodeURIComponent(apiKey)}&type=song&lookup=${lookup}`
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.search?.length) return null;
-    const tempo = parseInt(data.search[0].tempo, 10);
+  const base = `https://api.getsong.co/search/?api_key=${encodeURIComponent(apiKey)}`;
+  const tempoFrom = (data: any): number | null => {
+    const tempo = parseInt(data.search?.[0]?.tempo, 10);
     return Number.isFinite(tempo) && tempo > 0 ? tempo : null;
+  };
+  try {
+    // Try artist+song together first
+    if (parsed.artist) {
+      const lookup = `song:${encodeURIComponent(parsed.title)}+artist:${encodeURIComponent(parsed.artist)}`;
+      const res = await fetch(`${base}&type=both&lookup=${lookup}`);
+      if (res.ok) {
+        const data = await res.json();
+        const t = tempoFrom(data);
+        if (t) return t;
+      }
+    }
+    // Fall back to title-only search
+    const res = await fetch(`${base}&type=song&lookup=${encodeURIComponent(parsed.title)}`);
+    if (!res.ok) return null;
+    return tempoFrom(await res.json());
   } catch { return null; }
 }
 
