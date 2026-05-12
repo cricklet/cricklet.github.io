@@ -15,7 +15,8 @@
     "build:loop": "cp node_modules/rubberband-web/public/rubberband-processor.js rubberband-processor.txt && esbuild loop.ts --bundle --outfile=dist/loop.js --loader:.txt=text --platform=browser --external:path --external:fs --external:crypto",
     "watch:loop": "cp node_modules/rubberband-web/public/rubberband-processor.js rubberband-processor.txt && esbuild loop.ts --bundle --outfile=dist/loop.js --loader:.txt=text --platform=browser --external:path --external:fs --external:crypto --watch",
     "build:tuner": "esbuild tuner.ts --bundle --outfile=dist/tuner.js",
-    "watch:tuner": "esbuild tuner.ts --bundle --outfile=dist/tuner.js --watch"
+    "watch:tuner": "esbuild tuner.ts --bundle --outfile=dist/tuner.js --watch",
+    "watch": "yarn watch:graphing & yarn watch:transpose & yarn watch:loop & yarn watch:tuner & wait"
   },
   "dependencies": {
     "decimal.js": "^10.5.0",

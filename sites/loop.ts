@@ -62,7 +62,10 @@ async function loadBeatCache(id: string): Promise<{ bpm: number; ticks: Float32A
       req.onsuccess = () => resolve(req.result ?? null);
       req.onerror = () => reject(req.error);
     });
-  } catch { return null; }
+  } catch (e) {
+    console.error('loadBeatCache failed:', e);
+    return null;
+  }
 }
 
 async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Promise<void> {
@@ -74,7 +77,9 @@ async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Prom
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  } catch { /* non-fatal */ }
+  } catch (e) {
+    console.error('saveBeatCache failed:', e);
+  }
 }
 
 async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, duration?: number, bpm?: number, bpmFromAPI?: boolean, bpmAPIHint?: number, bpmTapped?: boolean, bpmTapHint?: number): Promise<void> {
@@ -110,7 +115,7 @@ async function loadAllFilesMeta(): Promise<Array<{ id: string; name: string; add
 }
 
 async function deleteAudioFile(id: string): Promise<void> {
-  try { localStorage.removeItem(`loop_file_${id}`); } catch (_) {}
+  try { localStorage.removeItem(`loop_file_${id}`); } catch (e) { console.error('localStorage.removeItem failed:', e); }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META, DB_STORE_BEATS], 'readwrite');
@@ -224,7 +229,8 @@ interface FileSettings {
 }
 
 function loadFileSettings(id: string): FileSettings {
-  try { return JSON.parse(localStorage.getItem(`loop_file_${id}`) ?? '{}'); } catch (_) { return {}; }
+  try { return JSON.parse(localStorage.getItem(`loop_file_${id}`) ?? '{}'); }
+  catch (e) { console.error('loadFileSettings failed:', e); return {}; }
 }
 
 function syncStateToActiveLoop() {
@@ -246,7 +252,7 @@ function persistCurrentFileSettings() {
       volume: state.volume,
       transposeSemitones: state.transposeSemitones,
     }));
-  } catch (_) {}
+  } catch (e) { console.error('persistCurrentFileSettings failed:', e); }
 }
 
 // App state
@@ -404,12 +410,30 @@ function enterDetectedBPMHintEdit() {
   detectedBpmInput.select();
 }
 
+function parseBPMHintInput(raw: string, current: number): number | null {
+  const s = raw.trim();
+  if (/^\*[\d.]+$/.test(s)) {
+    const factor = parseFloat(s.slice(1));
+    return Number.isFinite(factor) ? Math.round(current * factor) : null;
+  }
+  if (/^\/[\d.]+$/.test(s)) {
+    const factor = parseFloat(s.slice(1));
+    return Number.isFinite(factor) && factor !== 0 ? Math.round(current / factor) : null;
+  }
+  if (/^[+-][\d.]+$/.test(s)) {
+    const delta = parseFloat(s);
+    return Number.isFinite(delta) ? Math.round(current + delta) : null;
+  }
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function commitDetectedBPMHintEdit() {
   if (detectedBpmInput.style.display === 'none') return;
   detectedBpmInput.style.display = 'none';
   statusHint.style.visibility = '';
-  const v = parseInt(detectedBpmInput.value.trim(), 10);
-  if (!Number.isFinite(v) || v < BPM_MIN || v > BPM_MAX || !state.originalBuffer || !state.currentFileId) return;
+  const v = parseBPMHintInput(detectedBpmInput.value, state.detectedBPM);
+  if (v === null || v < BPM_MIN || v > BPM_MAX || !state.originalBuffer || !state.currentFileId) return;
   if (v === state.detectedBPM) return;
   setStatus('Re-detecting BPM…');
   try {
@@ -417,17 +441,18 @@ async function commitDetectedBPMHintEdit() {
     const { bpm, ticks } = await detectRhythm(buf, v);
     state.detectedBPM = bpm;
     state.beatTicks = ticks;
-    saveBeatCache(state.currentFileId, bpm, ticks).catch(() => {});
+    saveBeatCache(state.currentFileId, bpm, ticks).catch(e => console.error('saveBeatCache failed:', e));
     const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
     detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
     const mins = Math.floor(buf.duration / 60);
     const secs = Math.round(buf.duration % 60).toString().padStart(2, '0');
     setDetectedStatus(`${mins}:${secs}`, bpm);
     if (state.currentFileId) {
-      updateFileMeta(state.currentFileId, { bpm, bpmTapped: false, bpmTapHint: undefined }).catch(() => {});
-      renderFilePicker().catch(() => {});
+      updateFileMeta(state.currentFileId, { bpm, bpmTapped: false, bpmTapHint: undefined }).catch(e => console.error('updateFileMeta failed:', e));
+      renderFilePicker().catch(e => console.error('renderFilePicker failed:', e));
     }
   } catch (e) {
+    console.error('commitDetectedBPMHintEdit failed:', e);
     setStatus(`Error: ${(e as Error).message}`);
   }
 }
@@ -489,15 +514,16 @@ async function commitTapTempo(tappedBPM: number) {
     const { bpm, ticks } = await detectRhythm(buf, tappedBPM);
     state.detectedBPM = bpm;
     state.beatTicks = ticks;
-    saveBeatCache(state.currentFileId, bpm, ticks).catch(() => {});
+    saveBeatCache(state.currentFileId, bpm, ticks).catch(e => console.error('saveBeatCache failed:', e));
     const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
     detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
     const mins = Math.floor(buf.duration / 60);
     const secs = Math.round(buf.duration % 60).toString().padStart(2, '0');
     setDetectedStatus(`${mins}:${secs}`, bpm, undefined, tappedBPM);
     await updateFileMeta(state.currentFileId, { bpm, bpmTapped: true, bpmTapHint: tappedBPM });
-    renderFilePicker().catch(() => {});
+    renderFilePicker().catch(e => console.error('renderFilePicker failed:', e));
   } catch (e) {
+    console.error('commitTapTempo failed:', e);
     setStatus(`Error: ${(e as Error).message}`);
   }
 }
@@ -620,11 +646,23 @@ function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
 
 const ESSENTIA_MIN_DURATION = 3; // seconds — shorter clips cause WASM abort
 
+async function resampleTo44100(buffer: AudioBuffer): Promise<AudioBuffer> {
+  if (buffer.sampleRate === 44100) return buffer;
+  const numFrames = Math.ceil(buffer.duration * 44100);
+  const offline = new OfflineAudioContext(buffer.numberOfChannels, numFrames, 44100);
+  const src = offline.createBufferSource();
+  src.buffer = buffer;
+  src.connect(offline.destination);
+  src.start();
+  return offline.startRendering();
+}
+
 async function detectRhythm(buffer: AudioBuffer, hintBPM?: number): Promise<{ bpm: number; ticks: Float32Array }> {
   if (buffer.duration < ESSENTIA_MIN_DURATION) {
     const bpm = hintBPM ?? 120;
     return { bpm, ticks: new Float32Array(0) };
   }
+  buffer = await resampleTo44100(buffer);
   const essentia = await getEssentia();
   const ctx = getAudioCtx();
   const wasSuspended = ctx.state === 'suspended';
@@ -632,25 +670,36 @@ async function detectRhythm(buffer: AudioBuffer, hintBPM?: number): Promise<{ bp
   let bpm: number;
   let ticks: Float32Array;
   const ESSENTIA_MAX = 208;
-  const minBPM = hintBPM ? Math.max(40, Math.floor(hintBPM * 0.85)) : 40;
-  const maxBPM = hintBPM ? Math.min(ESSENTIA_MAX, Math.ceil(hintBPM * 1.15)) : ESSENTIA_MAX;
+  const minBPM = hintBPM ? Math.max(40, Math.floor(hintBPM * 0.85)) : 70;
+  // TempoTapDegara requires maxTempo > minTempo + 20; enforce that minimum spread.
+  const maxBPM = hintBPM ? Math.min(ESSENTIA_MAX, Math.max(Math.ceil(hintBPM * 1.15), minBPM + 21)) : 140;
+  // Downmix in JS to avoid essentia's audioBufferToMonoSignal, which leaks
+  // three WASM heap vectors (left, right, monoSignal) and causes OOM on long files.
+  let monoArray: Float32Array;
+  if (buffer.numberOfChannels === 1) {
+    monoArray = buffer.getChannelData(0);
+  } else {
+    const left = buffer.getChannelData(0);
+    const right = buffer.getChannelData(1);
+    monoArray = new Float32Array(left.length);
+    for (let i = 0; i < left.length; i++) monoArray[i] = (left[i] + right[i]) * 0.5;
+  }
   let signal: any, result: any;
   try {
-    const mono = essentia.audioBufferToMonoSignal(buffer);
-    signal = essentia.arrayToVector(mono);
+    signal = essentia.arrayToVector(monoArray);
     result = essentia.RhythmExtractor2013(signal, maxBPM, 'multifeature', minBPM);
     bpm = Math.round(result.bpm);
     ticks = essentia.vectorToArray(result.ticks);
   } catch (e) {
-    // WASM abort corrupts the module — force re-init on next call
-    essentiaPromise = null;
+    console.error('RhythmExtractor2013 failed:', e);
+    essentiaPromise = null; // WASM abort corrupts the module — force re-init on next call
     throw e;
   } finally {
     // Free WASM heap allocations — critical in batch mode to prevent OOM aborts
-    try { signal?.delete(); } catch (_) {}
-    try { result?.ticks?.delete(); } catch (_) {}
-    try { result?.estimates?.delete(); } catch (_) {}
-    try { result?.bpmIntervals?.delete(); } catch (_) {}
+    signal?.delete();
+    result?.ticks?.delete();
+    result?.estimates?.delete();
+    result?.bpmIntervals?.delete();
     if (!wasSuspended) await ctx.resume();
   }
   return { bpm, ticks };
@@ -772,7 +821,7 @@ function playMetronomeClick(when: number) {
   const delayMs = Math.max(0, (when - ctx.currentTime) * 1000);
   window.setTimeout(() => {
     el.currentTime = 0;
-    void el.play().catch(() => {});
+    el.play().catch(e => console.error('audio play failed:', e));
   }, delayMs);
 }
 
@@ -838,7 +887,7 @@ function toggleMetronome() {
   } else {
     stopMetronomeLoop();
   }
-  try { localStorage.setItem(STORAGE_METRONOME, state.metronomeEnabled ? '1' : '0'); } catch (_) {}
+  try { localStorage.setItem(STORAGE_METRONOME, state.metronomeEnabled ? '1' : '0'); } catch (e) { console.error('localStorage failed:', e); }
 }
 (window as any).toggleMetronome = toggleMetronome;
 
@@ -986,7 +1035,7 @@ function setVolume(v: number, persist = true) {
   if (state.gainNode) state.gainNode.gain.value = state.volume;
   setVolumeDisplay(state.volume);
   if (persist) {
-    try { localStorage.setItem(STORAGE_VOLUME, String(state.volume)); } catch (_) {}
+    try { localStorage.setItem(STORAGE_VOLUME, String(state.volume)); } catch (e) { console.error('localStorage failed:', e); }
     persistCurrentFileSettings();
   }
 }
@@ -1013,7 +1062,7 @@ function applySnapshot(snap: Snapshot) {
   setVolume(snap.volume, false);
   setTransposeSemitones(snap.transposeSemitones, false);
   persistCurrentFileSettings();
-  try { localStorage.setItem(STORAGE_VOLUME, String(snap.volume)); } catch (_) {}
+  localStorage.setItem(STORAGE_VOLUME, String(snap.volume));
 }
 
 function undo() {
@@ -1067,7 +1116,7 @@ function onPointerMove(e: PointerEvent) {
 
 function onPointerUp(e: PointerEvent) {
   dragTarget = null;
-  try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch (_) {}
+  try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
 }
 
 bpmSection.addEventListener('pointerdown', e => {
@@ -1135,7 +1184,7 @@ function evalArithmetic(expr: string): number | null {
   try {
     const v = Function('"use strict"; return (' + expr + ')')();
     return typeof v === 'number' && isFinite(v) ? v : null;
-  } catch { return null; }
+  } catch (e) { console.error('evalArithmetic failed:', e); return null; }
 }
 
 function commitLoopLengthEdit() {
@@ -1324,7 +1373,7 @@ function setupActiveCardDrag(card: HTMLElement) {
     if (resizeDragActive) {
       resizeDragActive = false;
       card.classList.remove('resizing');
-      try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+      try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
       const resizeDidMove = loopDragDidMove;
       const resizeInitialTarget = loopDragInitialTarget;
       loopDragDidMove = false;
@@ -1350,7 +1399,7 @@ function setupActiveCardDrag(card: HTMLElement) {
     loopDragDidMove = false;
     loopDragInitialTarget = null;
     card.classList.remove('dragging');
-    try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+    try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
 
     if (!didMove && initialTarget?.closest('.loop-hint')) {
       enterLoopLengthEdit();
@@ -1370,14 +1419,14 @@ function setupActiveCardDrag(card: HTMLElement) {
       loopDragDidMove = false;
       loopDragInitialTarget = null;
       card.classList.remove('resizing');
-      try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+      try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
       return;
     }
     loopDragActive = false;
     loopDragDidMove = false;
     loopDragInitialTarget = null;
     card.classList.remove('dragging');
-    try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+    try { card.releasePointerCapture(e.pointerId); } catch (e) { console.error('releasePointerCapture failed:', e); }
   });
 }
 
@@ -1749,7 +1798,7 @@ function setTheme(theme: string) {
   document.documentElement.setAttribute('data-theme', theme);
   const btn = document.getElementById('theme-toggle');
   if (btn) btn.textContent = theme === 'light' ? '◐' : '◑';
-  try { localStorage.setItem(STORAGE_THEME, theme); } catch (_) {}
+  try { localStorage.setItem(STORAGE_THEME, theme); } catch (e) { console.error('localStorage failed:', e); }
 }
 function toggleTheme() {
   setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
@@ -1836,7 +1885,7 @@ function openFilePicker() {
   renderFilePicker().then(() => {
     const row = document.querySelector<HTMLElement>('#file-picker-table .fp-current');
     if (row) row.scrollIntoView({ block: 'nearest' });
-  }).catch(() => {});
+  }).catch(e => console.error('renderFilePicker failed:', e));
 }
 
 function closeFilePicker() {
@@ -1996,7 +2045,7 @@ document.querySelectorAll<HTMLElement>('#file-picker-table thead th[data-col]').
       pickerSortAsc = col === 'name';
     }
     history.replaceState({ fileId: state.currentFileId }, '', buildUrl(state.currentFileId));
-    renderFilePicker().catch(() => {});
+    renderFilePicker().catch(e => console.error('renderFilePicker failed:', e));
   });
 });
 
@@ -2016,102 +2065,100 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   renderLoopCards();
   setStatus('Decoding…');
 
-  try {
-    const ctx = getAudioCtx();
-    const raw = await ctx.decodeAudioData(arrayBuffer.slice(0));
-    const decoded = normalizeAudio(trimSilence(raw));
-    state.originalBuffer = decoded;
-    waveformPeaks = null;
-    computeWaveform(decoded);
+  const ctx = getAudioCtx();
+  const raw = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  const decoded = normalizeAudio(trimSilence(raw));
+  state.originalBuffer = decoded;
+  waveformPeaks = null;
+  computeWaveform(decoded);
 
-    const cached = await loadBeatCache(id);
-    let bpm: number, ticks: Float32Array;
-    let apiHint: number | undefined;
-    let tapHint: number | undefined;
-    if (cached) {
-      ({ bpm, ticks } = cached);
-      setStatus('Loading…');
-      const meta = await loadFileMeta(id);
-      if (meta?.bpmTapped && meta.bpmTapHint) tapHint = meta.bpmTapHint;
-      else if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
-    } else {
-      let hintBPM: number | undefined;
-      const apiKey = GETSONGBPM_KEY;
-      if (apiKey && GETSONGBPM_ENABLED) {
-        const parsed = parseFilenameForLookup(name);
-        if (parsed?.title) {
-          const desc = parsed.artist ? `${parsed.title} by ${parsed.artist}` : parsed.title;
-          setStatus(`Looking up ${desc}…`);
-        } else {
-          setStatus('Looking up BPM…');
-        }
-        await new Promise(r => setTimeout(r, 0));
-        const looked = await lookupBPMFromGetSongBPM(name, apiKey);
-        if (looked) { hintBPM = looked; apiHint = looked; }
-      }
-      setStatus('Detecting BPM…');
-      await new Promise(r => setTimeout(r, 0));
-      ({ bpm, ticks } = await detectRhythm(decoded, hintBPM));
-      saveBeatCache(id, bpm, ticks).catch(() => {});
-    }
-    state.detectedBPM = bpm;
-    state.beatTicks = ticks;
-    const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
-    detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
-    detectedTick.style.display = 'block';
-
-    const total = Math.floor(decoded.duration * bpm / 60);
-    const settings = loadFileSettings(id);
-
-    if (settings.loops && settings.loops.length > 0) {
-      state.loops = settings.loops;
-      const savedActiveId = settings.activeLoopId;
-      const activeExists = savedActiveId && state.loops.some(l => l.id === savedActiveId);
-      state.activeLoopId = activeExists ? savedActiveId! : state.loops[0].id;
-    } else {
-      const s = settings.loopStartBeats, e = settings.loopEndBeats;
-      const hasValidLoop = s != null && e != null && s >= 0 && e <= total && s < e;
-      const loopId = genId();
-      state.loops = [{
-        id: loopId,
-        startBeats: hasValidLoop ? s! : 0,
-        endBeats: hasValidLoop ? e! : total,
-        targetBPM: settings.targetBPM ?? bpm,
-      }];
-      state.activeLoopId = loopId;
-    }
-
-    const activeLoop = state.loops.find(l => l.id === state.activeLoopId)!;
-    setTargetBPM(activeLoop.targetBPM, false);
-    setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
-    if (settings.volume != null && Number.isFinite(settings.volume)) {
-      setVolume(clamp(settings.volume, 0, 1), false);
-    }
-    setTransposeSemitones(
-      settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones)
-        ? settings.transposeSemitones
-        : 0,
-      false,
-    );
-    persistCurrentFileSettings();
-
+  const cached = await loadBeatCache(id);
+  let bpm: number, ticks: Float32Array;
+  let apiHint: number | undefined;
+  let tapHint: number | undefined;
+  if (cached) {
+    ({ bpm, ticks } = cached);
     setStatus('Loading…');
-    await ensureNodes();
-
-    const mins = Math.floor(decoded.duration / 60);
-    const secs = Math.round(decoded.duration % 60).toString().padStart(2, '0');
-    setDetectedStatus(`${mins}:${secs}`, bpm, apiHint, tapHint);
-
-    renderLoopCards();
-    updateFilePickerBtn();
-
-    const url = buildUrl(id);
-    if (pushHistory && location.search !== url) history.pushState({ fileId: id }, '', url);
-    else history.replaceState({ fileId: id }, '', url);
-    saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch(() => {});
-  } catch (e) {
-    setStatus(`Error: ${(e as Error).message}`);
+    const meta = await loadFileMeta(id);
+    if (meta?.bpmTapped && meta.bpmTapHint) tapHint = meta.bpmTapHint;
+    else if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
+  } else {
+    let hintBPM: number | undefined;
+    const apiKey = GETSONGBPM_KEY;
+    if (apiKey && GETSONGBPM_ENABLED) {
+      const parsed = parseFilenameForLookup(name);
+      if (parsed?.title) {
+        const desc = parsed.artist ? `${parsed.title} by ${parsed.artist}` : parsed.title;
+        setStatus(`Looking up ${desc}…`);
+      } else {
+        setStatus('Looking up BPM…');
+      }
+      await new Promise(r => setTimeout(r, 0));
+      const looked = await lookupBPMFromGetSongBPM(name, apiKey);
+      if (looked) { hintBPM = looked; apiHint = looked; }
+    }
+    setStatus('Detecting BPM…');
+    await new Promise(r => setTimeout(r, 0));
+    ({ bpm, ticks } = await detectRhythm(decoded, hintBPM));
+    await saveBeatCache(id, bpm, ticks);
   }
+  state.detectedBPM = bpm;
+  state.beatTicks = ticks;
+  const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
+  detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
+  detectedTick.style.display = 'block';
+
+  const total = Math.floor(decoded.duration * bpm / 60);
+  const settings = loadFileSettings(id);
+
+  if (settings.loops && settings.loops.length > 0) {
+    state.loops = settings.loops;
+    const savedActiveId = settings.activeLoopId;
+    const activeExists = savedActiveId && state.loops.some(l => l.id === savedActiveId);
+    state.activeLoopId = activeExists ? savedActiveId! : state.loops[0].id;
+  } else {
+    const s = settings.loopStartBeats, e = settings.loopEndBeats;
+    const hasValidLoop = s != null && e != null && s >= 0 && e <= total && s < e;
+    const loopId = genId();
+    state.loops = [{
+      id: loopId,
+      startBeats: hasValidLoop ? s! : 0,
+      endBeats: hasValidLoop ? e! : total,
+      targetBPM: settings.targetBPM ?? bpm,
+    }];
+    state.activeLoopId = loopId;
+  }
+
+  const activeLoop = state.loops.find(l => l.id === state.activeLoopId)!;
+  setTargetBPM(activeLoop.targetBPM, false);
+  setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
+  if (settings.volume != null && Number.isFinite(settings.volume)) {
+    setVolume(clamp(settings.volume, 0, 1), false);
+  }
+  setTransposeSemitones(
+    settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones)
+      ? settings.transposeSemitones
+      : 0,
+    false,
+  );
+  persistCurrentFileSettings();
+
+  setStatus('Loading…');
+  await ensureNodes();
+
+  const mins = Math.floor(decoded.duration / 60);
+  const secs = Math.round(decoded.duration % 60).toString().padStart(2, '0');
+  setDetectedStatus(`${mins}:${secs}`, bpm, apiHint, tapHint);
+
+  renderLoopCards();
+  updateFilePickerBtn();
+
+  const url = buildUrl(id);
+  if (pushHistory && location.search !== url) history.pushState({ fileId: id }, '', url);
+  else history.replaceState({ fileId: id }, '', url);
+  saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint)
+    .then(() => renderFilePicker())
+    .catch(e => console.error('saveAudioFile/renderFilePicker failed:', e));
 }
 
 async function processFile(file: File) {
@@ -2154,13 +2201,9 @@ document.addEventListener('drop', async e => {
     const file = mp3Files[i];
     setStatus(`Processing ${i + 1}/${mp3Files.length}: ${file.name}…`);
 
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const id = encodeURIComponent(file.name);
-      await saveAudioFile(arrayBuffer, file.name, id);
-    } catch (err) {
-      console.error('Failed to save file:', file.name, err);
-    }
+    const arrayBuffer = await file.arrayBuffer();
+    const id = encodeURIComponent(file.name);
+    await saveAudioFile(arrayBuffer, file.name, id);
   }
 
   await renderFilePicker();
@@ -2179,7 +2222,7 @@ fileInput.addEventListener('change', () => { if (fileInput.files?.[0]) processFi
 
 window.addEventListener('popstate', async () => {
   readUrlSort();
-  renderFilePicker().catch(() => {});
+  void renderFilePicker();
   const id = new URLSearchParams(location.search).get('f');
   if (!id || id === state.currentFileId) return;
   const saved = await loadAudioById(id);
@@ -2291,8 +2334,11 @@ async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promis
   const enc = (s: string) => encodeURIComponent(s).replace(/%20/g, '+');
   const base = `https://api.getsong.co/search/?api_key=${encodeURIComponent(apiKey)}`;
   const tempoFrom = (data: any): number | null => {
-    const tempo = parseInt(data.search?.[0]?.tempo, 10);
-    return Number.isFinite(tempo) && tempo > 0 ? tempo : null;
+    let tempo = parseInt(data.search?.[0]?.tempo, 10);
+    if (!Number.isFinite(tempo) || tempo <= 0) return null;
+    while (tempo <= 70) tempo *= 2;
+    while (tempo >= 140) tempo /= 2;
+    return Math.round(tempo);
   };
   try {
     // Try artist+song together first
@@ -2309,7 +2355,10 @@ async function lookupBPMFromGetSongBPM(filename: string, apiKey: string): Promis
     const res = await fetch(`${base}&type=song&lookup=${enc(parsed.title)}`);
     if (!res.ok) return null;
     return tempoFrom(await res.json());
-  } catch { return null; }
+  } catch (e) {
+    console.error('lookupBPMFromGetSongBPM failed:', e);
+    return null;
+  }
 }
 
 async function runBatchDecode() {
@@ -2351,18 +2400,18 @@ async function runBatchDecode() {
     filenameEl.textContent = f.name;
     sourceEl.textContent = '';
     await new Promise(r => setTimeout(r, 0));
-    try {
-      let hintBPM: number | undefined;
-      if (apiKey && GETSONGBPM_ENABLED) {
-        const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
-        if (bpmFromAPI) {
-          hintBPM = bpmFromAPI;
-          apiHits++;
-          sourceEl.textContent = `GetSongBPM: ${bpmFromAPI} BPM → analyzing…`;
-          await new Promise(r => setTimeout(r, 80)); // be polite to the API
-        }
+    let hintBPM: number | undefined;
+    if (apiKey && GETSONGBPM_ENABLED) {
+      const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
+      if (bpmFromAPI) {
+        hintBPM = bpmFromAPI;
+        apiHits++;
+        sourceEl.textContent = `GetSongBPM: ${bpmFromAPI} BPM → analyzing…`;
+        await new Promise(r => setTimeout(r, 80)); // be polite to the API
       }
-      if (!hintBPM) sourceEl.textContent = 'analyzing audio…';
+    }
+    if (!hintBPM) sourceEl.textContent = 'analyzing audio…';
+    try {
       const saved = await loadAudioById(f.id);
       if (!saved) continue;
       const ctx = getAudioCtx();
@@ -2373,9 +2422,8 @@ async function runBatchDecode() {
       await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
       updateCounts(prevSuccesses + i + 1, skipCount);
     } catch (e) {
-      console.error('Batch decode failed:', f.name, e);
-      location.replace(`?batch&failures=${skipCount + i + 1}&successes=${prevSuccesses + i}`);
-      return;
+      console.error(`batch decode failed for ${f.name}:`, e);
+      sourceEl.textContent = `Error: ${(e as Error).message ?? e}`;
     }
   }
 
@@ -2387,23 +2435,81 @@ async function runBatchDecode() {
   setTimeout(() => modal.setAttribute('hidden', ''), 2500);
 }
 
+function normalizeBPMToRange(bpm: number): number {
+  let v = bpm;
+  while (v <= 70) v *= 2;
+  while (v >= 140) v /= 2;
+  return Math.round(v);
+}
+
+async function runNormalize() {
+  const modal = document.getElementById('batch-decode-modal')!;
+  const progressEl = document.getElementById('batch-decode-progress')!;
+  const filenameEl = document.getElementById('batch-decode-filename')!;
+  const sourceEl = document.getElementById('batch-decode-source')!;
+  const countsEl = document.getElementById('batch-decode-counts')!;
+
+  modal.removeAttribute('hidden');
+  countsEl.textContent = '';
+
+  const allFiles = await loadAllFilesMeta();
+  const toFix = allFiles.filter(f => f.bpmFromAPI && f.bpm != null && (f.bpm < 70 || f.bpm > 140));
+  const total = toFix.length;
+
+  if (total === 0) {
+    progressEl.textContent = 'No out-of-range API BPMs found';
+    filenameEl.textContent = '';
+    await renderFilePicker();
+    setTimeout(() => modal.setAttribute('hidden', ''), 1500);
+    return;
+  }
+
+  let fixed = 0;
+  for (let i = 0; i < total; i++) {
+    const f = toFix[i];
+    const hintBPM = normalizeBPMToRange(f.bpm!);
+    progressEl.textContent = `Normalizing ${i + 1} / ${total}…`;
+    filenameEl.textContent = f.name;
+    sourceEl.textContent = `${f.bpm} BPM → hint ${hintBPM} BPM`;
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      const saved = await loadAudioById(f.id);
+      if (!saved) continue;
+      const ctx = getAudioCtx();
+      const raw = await ctx.decodeAudioData(saved.buffer.slice(0));
+      const decoded = normalizeAudio(trimSilence(raw));
+      const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
+      await saveBeatCache(f.id, bpm, ticks);
+      await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, true, f.bpmAPIHint);
+      fixed++;
+      countsEl.textContent = `${fixed} fixed`;
+    } catch (e) {
+      console.error(`normalize failed for ${f.name}:`, e);
+      sourceEl.textContent = `Error: ${(e as Error).message ?? e}`;
+    }
+  }
+
+  progressEl.textContent = `Done — ${fixed} / ${total} fixed`;
+  filenameEl.textContent = '';
+  sourceEl.textContent = '';
+  await renderFilePicker();
+  setTimeout(() => modal.setAttribute('hidden', ''), 2500);
+}
+
 // Init
 (function init() {
-  try {
-    const saved = localStorage.getItem(STORAGE_THEME);
-    setTheme(saved ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-  } catch (_) {
-    setTheme('dark');
-  }
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-    try { if (localStorage.getItem(STORAGE_THEME) != null) return; } catch (_) {}
+  const saved = localStorage.getItem(STORAGE_THEME);
+  setTheme(saved ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    try { if (localStorage.getItem(STORAGE_THEME) != null) return; } catch (e) { console.error('localStorage failed:', e); }
     setTheme(e.matches ? 'dark' : 'light');
   });
 
   try {
     const v = parseFloat(localStorage.getItem(STORAGE_VOLUME) ?? '1');
     if (Number.isFinite(v)) state.volume = clamp(v, 0, 1);
-  } catch (_) {}
+  } catch (e) { console.error('failed to read STORAGE_VOLUME:', e); }
 
   try {
     if (localStorage.getItem(STORAGE_METRONOME) === '1') {
@@ -2411,7 +2517,7 @@ async function runBatchDecode() {
       const btn = document.getElementById('metronome-toggle');
       if (btn) btn.classList.add('active');
     }
-  } catch (_) {}
+  } catch (e) { console.error('failed to read STORAGE_METRONOME:', e); }
 
   setBpmDisplay(state.targetBPM);
   setVolumeDisplay(state.volume);
@@ -2424,10 +2530,15 @@ async function runBatchDecode() {
     return;
   }
 
+  if (new URLSearchParams(window.location.search).has('normalize')) {
+    runNormalize().catch(console.error);
+    return;
+  }
+
   readUrlSort();
 
   loadAllFilesMeta().then(async files => {
-    renderFilePicker().catch(() => {});
+    renderFilePicker().catch(e => console.error('renderFilePicker failed:', e));
     if (files.length === 0) return;
     const urlId = new URLSearchParams(location.search).get('f');
     const target = (urlId && files.find(f => f.id === urlId))
@@ -2435,5 +2546,5 @@ async function runBatchDecode() {
       : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
     const saved = await loadAudioById(target);
     if (saved) processArrayBuffer(saved.buffer, saved.name, target, false);
-  }).catch(() => {});
+  }).catch(e => console.error('init loadAllFilesMeta failed:', e));
 })();
