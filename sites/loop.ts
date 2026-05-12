@@ -2370,19 +2370,12 @@ async function runBatchDecode() {
   modal.removeAttribute('hidden');
 
   const apiKey = GETSONGBPM_KEY;
-
-  const batchParams = new URLSearchParams(location.search);
-  const skipCount = Math.max(0, parseInt(batchParams.get('failures') ?? '0', 10));
-  const prevSuccesses = Math.max(0, parseInt(batchParams.get('successes') ?? '0', 10));
   const countsEl = document.getElementById('batch-decode-counts')!;
-  const updateCounts = (s: number, f: number) => {
-    countsEl.textContent = `${s} done, ${f} skipped`;
-  };
-  updateCounts(prevSuccesses, skipCount);
+  countsEl.textContent = '';
 
   const allFiles = await loadAllFilesMeta();
   // Include files missing bpm OR duration — API-only hits from previous runs have bpm but no duration/beat cache
-  const undecoded = allFiles.filter(f => f.bpm == null || f.duration == null).slice(skipCount);
+  const undecoded = allFiles.filter(f => f.bpm == null || f.duration == null);
   const total = undecoded.length;
 
   if (total === 0) {
@@ -2420,14 +2413,14 @@ async function runBatchDecode() {
       const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
       await saveBeatCache(f.id, bpm, ticks);
       await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
-      updateCounts(prevSuccesses + i + 1, skipCount);
+      countsEl.textContent = `${i + 1} / ${total} done`;
     } catch (e) {
       console.error(`batch decode failed for ${f.name}:`, e);
       sourceEl.textContent = `Error: ${(e as Error).message ?? e}`;
     }
   }
 
-  const apiNote = apiHits ? ` (${apiHits} API hints, ${total} analyzed)` : '';
+  const apiNote = apiHits ? ` (${apiHits} API hints)` : '';
   progressEl.textContent = `Done — ${total} file${total === 1 ? '' : 's'}${apiNote}`;
   filenameEl.textContent = '';
   sourceEl.textContent = '';
