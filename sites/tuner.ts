@@ -81,6 +81,7 @@ let started = false;
 // Last detected state
 let lastConcertMidi: number | null = null;
 let lastCents: number | null = null;
+const centsHistory: Array<{ t: number; midi: number; cents: number }> = [];
 let lastFreq: number | null = null;
 let noSignalFrames = 0;
 const NO_SIGNAL_THRESHOLD = 12;
@@ -174,6 +175,22 @@ function currentDisplayMidi(): number | null {
 // dB graph history
 const dbRawSamples:  Array<{ t: number; db: number }> = [];
 const dbAvgHistory:  Array<{ t: number; db: number }> = [];
+
+function gaussianCents(midi: number, rawCents: number): number {
+  const now = performance.now();
+  centsHistory.push({ t: now, midi, cents: rawCents });
+  const cut = now - 250;
+  while (centsHistory.length > 1 && centsHistory[0].t < cut) centsHistory.shift();
+  const sigma = 80;
+  let wSum = 0, wTotal = 0;
+  for (const s of centsHistory) {
+    if (s.midi !== midi) continue;
+    const dt = now - s.t;
+    const w = Math.exp(-(dt * dt) / (2 * sigma * sigma));
+    wSum += w * s.cents; wTotal += w;
+  }
+  return wTotal > 0 ? Math.round(wSum / wTotal) : rawCents;
+}
 
 // ── dB meter ───────────────────────────────────────────────────────────────
 
@@ -280,9 +297,11 @@ function threshFromPointer(clientY: number, r: DOMRect) {
 }
 
 tunerLeft.addEventListener('pointerdown', e => {
+  const r = tunerLeft.getBoundingClientRect();
+  if (e.clientY < r.top + r.height * 2 / 3) return;
   tunerLeft.setPointerCapture(e.pointerId);
   dbDragging = true;
-  setDbThreshold(threshFromPointer(e.clientY, tunerLeft.getBoundingClientRect()));
+  setDbThreshold(threshFromPointer(e.clientY, r));
 });
 tunerLeft.addEventListener('pointermove', e => {
   if (!dbDragging) return;
@@ -499,10 +518,10 @@ function tick() {
     noSignalFrames = 0;
     const { midi, cents } = freqToConcertMidi(freq);
     lastConcertMidi = midi;
-    lastCents = cents;
+    lastCents = gaussianCents(midi, cents);
     lastFreq = freq;
     const dm = midi + (trumpetMode ? 2 : 0);
-    const dc = displayCents(cents, dm);
+    const dc = displayCents(lastCents, dm);
     updateDisplay(midiToNoteInfo(dm, dc), freq);
     drawMeter(dc);
     renderStaff(dm, dc);

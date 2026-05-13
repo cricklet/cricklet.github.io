@@ -227,9 +227,8 @@
       cursor: pointer;
       font-size: 1.25rem;
       padding: 0;
-      border: 1.5px solid transparent;
+      border: 2px solid transparent;
       z-index: 10;
-      filter: grayscale(1);
     }
 
     body:hover #visual-toggle {
@@ -247,20 +246,20 @@
     #visual-toggle.active {
       background: var(--bg-color);
       color: var(--text-color);
-      border-color: var(--text-color);
     }
 
     body:hover #visual-toggle.active {
-      opacity: 0.3;
+      opacity: 1;
     }
 
     body.visual-mode #bpm-readout {
-      transition: opacity 0.04s ease;
+      transition: color 0.04s ease;
     }
 
-    body.visual-mode #bpm-readout.beat-dim {
-      opacity: 0.62;
-    }
+    body[data-visual="1"] #bpm-readout.beat-dim { color: #808080; }
+    body[data-visual="2"] #bpm-readout.beat-dim { color: #b8b8b8; }
+    body[data-visual="3"] #bpm-readout.beat-dim { color: #7aaaf5; }
+    body[data-visual="4"] #bpm-readout.beat-dim { color: #f57a7a; }
 
     #jazz-toggle,
     #eighths-toggle {
@@ -313,6 +312,13 @@
       color: var(--text-color);
       border-color: var(--text-color);
     }
+
+    body[data-visual="1"] #visual-toggle { border-color: #808080; }
+    body[data-visual="2"] #visual-toggle { border-color: #b8b8b8; }
+    body[data-visual="3"] #visual-toggle { border-color: #7aaaf5; }
+    body[data-visual="4"] #visual-toggle { border-color: #f57a7a; }
+
+    #visual-eye { filter: grayscale(1); }
 
     body:hover #jazz-toggle.active,
     body:hover #eighths-toggle.active {
@@ -369,7 +375,7 @@
 
   <!-- <span class="hint">Space — start / stop · T — tap tempo</span> -->
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
-  <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode">👁️</button>
+  <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode"><span id="visual-eye">💡</span></button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
   <button type="button" id="eighths-toggle" onclick="toggleEighths()" title="Eighths offbeat">♪</button>
   <audio id="click-audio" src="click.mp3" preload="auto"></audio>
@@ -405,7 +411,7 @@
     let jazzMode = false;
     let eighthsMode = false;
     let nextIsOffbeat = false;
-    let visualMode = false;
+    let visualMode = 0;
     let nextVisualTime = 0;
     let visualPhase = false;
 
@@ -632,7 +638,7 @@
           beatNumber = (beatNumber % 4) + 1;
         }
       }
-      if (visualMode) {
+      if (visualMode > 0) {
         while (nextVisualTime < now + lookahead) {
           flashVisualBeat(nextVisualTime, visualPhase);
           visualPhase = !visualPhase;
@@ -828,16 +834,22 @@
     }
 
     function toggleVisual() {
-      visualMode = !visualMode;
-      document.getElementById('visual-toggle').classList.toggle('active', visualMode);
-      document.body.classList.toggle('visual-mode', visualMode);
-      if (!visualMode) {
+      visualMode = (visualMode + 1) % 5;
+      const btn = document.getElementById('visual-toggle');
+      const on = visualMode > 0;
+      btn.classList.toggle('active', on);
+      document.body.classList.toggle('visual-mode', on);
+      if (on) {
+        document.body.setAttribute('data-visual', String(visualMode));
+      } else {
+        document.body.removeAttribute('data-visual');
         bpmReadout.classList.remove('beat-dim');
-      } else if (running) {
+      }
+      if (on && running) {
         nextVisualTime = clickNowSec();
         visualPhase = false;
       }
-      try { localStorage.setItem(STORAGE_VISUAL, visualMode ? '1' : '0'); } catch (_) {}
+      try { localStorage.setItem(STORAGE_VISUAL, String(visualMode)); } catch (_) {}
     }
 
 
@@ -866,10 +878,12 @@
         eighthsMode = true;
         document.getElementById('eighths-toggle').classList.add('active');
       }
-      if (localStorage.getItem(STORAGE_VISUAL) === '1') {
-        visualMode = true;
+      const savedVisual = parseInt(localStorage.getItem(STORAGE_VISUAL) || '0', 10);
+      if (savedVisual >= 1 && savedVisual <= 4) {
+        visualMode = savedVisual;
         document.getElementById('visual-toggle').classList.add('active');
         document.body.classList.add('visual-mode');
+        document.body.setAttribute('data-visual', String(visualMode));
       }
     } catch (_) {}
 
