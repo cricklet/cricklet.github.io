@@ -7,7 +7,7 @@
   },
   "scripts": {
     "setup": "printf 'Setup HTTPS certs (one-time):\\n  brew install mkcert\\n  mkcert -install\\n  mkdir -p $HOME/.local/share/mkcert\\n  mkcert -cert-file $HOME/.local/share/mkcert/localhost.pem -key-file $HOME/.local/share/mkcert/localhost-key.pem localhost\\n'",
-    "dev": "python3 -m http.server 8080 --tls-cert $HOME/.local/share/mkcert/localhost.pem --tls-key $HOME/.local/share/mkcert/localhost-key.pem",
+    "dev": "yarn watch:graphing & yarn watch:transpose & yarn watch:loop & yarn watch:tuner & python3 -m http.server 8080 --tls-cert $HOME/.local/share/mkcert/localhost.pem --tls-key $HOME/.local/share/mkcert/localhost-key.pem",
     "build:graphing": "esbuild graphing.ts --bundle --outfile=dist/graphing.js",
     "watch:graphing": "esbuild graphing.ts --bundle --outfile=dist/graphing.js --watch",
     "build:transpose": "esbuild transpose.ts --bundle --outfile=dist/transpose.js",

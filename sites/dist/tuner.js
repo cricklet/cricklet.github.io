@@ -891,10 +891,8 @@
   var trumpetBtn = document.getElementById("trumpet-btn");
   var sinewaveBtn = document.getElementById("sinewave-btn");
   var accidentalsBtn = document.getElementById("accidentals-btn");
-  var dbSection = document.getElementById("db-section");
-  var dbFill = document.getElementById("db-fill");
-  var dbThreshLine = document.getElementById("db-threshold-line");
-  var dbReadout = document.getElementById("db-readout");
+  var tunerLeft = document.getElementById("tuner-left");
+  var dbGraphCanvas = document.getElementById("db-graph-canvas");
   function clamp(v, lo, hi) {
     return Math.min(hi, Math.max(lo, v));
   }
@@ -924,34 +922,119 @@
   function currentDisplayMidi() {
     return lastConcertMidi === null ? null : lastConcertMidi + (trumpetMode ? 2 : 0);
   }
-  function updateDbDisplay(currentDb) {
-    dbFill.style.width = `${dbToFrac(currentDb) * 100}%`;
-    dbThreshLine.style.left = `${dbToFrac(dbThreshold) * 100}%`;
-    dbReadout.textContent = `${Math.round(dbThreshold)} dB`;
+  var dbRawSamples = [];
+  var dbAvgHistory = [];
+  function updateDbDisplay(_currentDb) {
+  }
+  function updateDbGraph(db) {
+    const now = performance.now();
+    dbRawSamples.push({ t: now, db });
+    const cut = now - 1e3;
+    while (dbRawSamples.length > 1 && dbRawSamples[0].t < cut) dbRawSamples.shift();
+    const sigma = 300;
+    let wSum = 0, wTotal = 0;
+    for (const s of dbRawSamples) {
+      const dt = now - s.t;
+      const w = Math.exp(-(dt * dt) / (2 * sigma * sigma));
+      wSum += w * s.db;
+      wTotal += w;
+    }
+    const avg = wTotal > 0 ? wSum / wTotal : db;
+    dbAvgHistory.push({ t: now, db: avg });
+    const cut20 = now - 2e4;
+    while (dbAvgHistory.length > 1 && dbAvgHistory[0].t < cut20) dbAvgHistory.shift();
+    drawDbGraph();
+  }
+  function drawDbGraph() {
+    const w = dbGraphCanvas.clientWidth;
+    const h = dbGraphCanvas.clientHeight;
+    if (w === 0 || h === 0) return;
+    dbGraphCanvas.width = w;
+    dbGraphCanvas.height = h;
+    const ctx = dbGraphCanvas.getContext("2d");
+    ctx.clearRect(0, 0, w, h);
+    const graphH = h / 3;
+    const now = performance.now();
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const xOf = (t) => (t - (now - 1e4)) / 1e4 * w;
+    const yOf = (v) => h - dbToFrac(v) * graphH;
+    if (dbAvgHistory.length >= 2) {
+      const fillColor = isDark ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.025)";
+      const strokeColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.09)";
+      const x0 = xOf(dbAvgHistory[0].t);
+      const y0 = yOf(dbAvgHistory[0].db);
+      ctx.beginPath();
+      ctx.moveTo(x0, h);
+      ctx.lineTo(x0, y0);
+      for (let i = 1; i < dbAvgHistory.length; i++)
+        ctx.lineTo(xOf(dbAvgHistory[i].t), yOf(dbAvgHistory[i].db));
+      ctx.lineTo(xOf(dbAvgHistory[dbAvgHistory.length - 1].t), h);
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      for (let i = 1; i < dbAvgHistory.length; i++)
+        ctx.lineTo(xOf(dbAvgHistory[i].t), yOf(dbAvgHistory[i].db));
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      const halfWin = 20;
+      ctx.font = '10px "Reddit Mono", monospace';
+      ctx.textAlign = "center";
+      ctx.fillStyle = isDark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.25)";
+      let lastMaxT = -Infinity;
+      for (let i = halfWin; i < dbAvgHistory.length - halfWin; i++) {
+        const { t, db } = dbAvgHistory[i];
+        if (db <= dbThreshold) continue;
+        if (now - t < 2e3) continue;
+        const x = xOf(t);
+        if (x < 0 || x > w || t - lastMaxT < 800) continue;
+        let isPeak = true;
+        for (let j = i - halfWin; j <= i + halfWin && isPeak; j++)
+          if (j !== i && dbAvgHistory[j].db >= db) isPeak = false;
+        if (isPeak) {
+          ctx.fillText(`${Math.round(db)}`, x, yOf(db) - 5);
+          lastMaxT = t;
+        }
+      }
+    }
+    const threshY = yOf(dbThreshold);
+    ctx.beginPath();
+    ctx.moveTo(0, threshY);
+    ctx.lineTo(w, threshY);
+    ctx.strokeStyle = isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
   function setDbThreshold(db) {
     dbThreshold = clamp(db, DB_MIN, DB_MAX);
+    drawDbGraph();
     try {
       localStorage.setItem("tuner_db_threshold", String(dbThreshold));
     } catch (_) {
     }
   }
   var dbDragging = false;
-  dbSection.addEventListener("pointerdown", (e) => {
-    dbSection.setPointerCapture(e.pointerId);
+  function threshFromPointer(clientY, r) {
+    const graphH = r.height / 3;
+    return fracToDb(clamp((r.top + r.height - clientY) / graphH, 0, 1));
+  }
+  tunerLeft.addEventListener("pointerdown", (e) => {
+    tunerLeft.setPointerCapture(e.pointerId);
     dbDragging = true;
-    const r = dbSection.getBoundingClientRect();
-    setDbThreshold(fracToDb((e.clientX - r.left) / r.width));
+    setDbThreshold(threshFromPointer(e.clientY, tunerLeft.getBoundingClientRect()));
   });
-  dbSection.addEventListener("pointermove", (e) => {
+  tunerLeft.addEventListener("pointermove", (e) => {
     if (!dbDragging) return;
-    const r = dbSection.getBoundingClientRect();
-    setDbThreshold(fracToDb((e.clientX - r.left) / r.width));
+    setDbThreshold(threshFromPointer(e.clientY, tunerLeft.getBoundingClientRect()));
   });
-  dbSection.addEventListener("pointerup", () => {
+  tunerLeft.addEventListener("pointerup", () => {
     dbDragging = false;
   });
-  dbSection.addEventListener("pointercancel", () => {
+  tunerLeft.addEventListener("pointercancel", () => {
     dbDragging = false;
   });
   function drawMeter(cents) {
@@ -1117,6 +1200,7 @@
     statusHint.textContent = formatStopwatch();
     const currentDb = computeDb(input);
     updateDbDisplay(currentDb);
+    updateDbGraph(currentDb);
     const [freq, clarity] = detector.findPitch(input, audioCtx.sampleRate);
     const loud = currentDb > dbThreshold;
     if (loud && clarity > 0.9 && freq > 60 && freq < 5e3) {
@@ -1240,7 +1324,7 @@
     loadStopwatchState();
     drawMeter(null);
     renderStaff(null, null);
-    updateDbDisplay(DB_MIN);
+    drawDbGraph();
     document.addEventListener("click", () => start(), { once: true });
     document.addEventListener("keydown", (e) => {
       if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey && !e.altKey) resetStopwatch();
