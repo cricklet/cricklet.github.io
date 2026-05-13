@@ -42,6 +42,21 @@
       margin-bottom: 1rem;
     }
 
+    #interval-input {
+      font-size: 6rem;
+      font-family: 'Reddit Mono', monospace;
+      color: var(--text-color);
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid var(--text-color);
+      outline: none;
+      text-align: center;
+      width: 5.5ch;
+      opacity: 0.7;
+      margin-bottom: 1rem;
+      display: none;
+    }
+
     #total-timer {
       font-size: 3rem;
       color: var(--text-color);
@@ -71,7 +86,6 @@
       padding: 0;
       border: none;
       transition: all 0.1s ease;
-      overflow: hidden;
       flex-shrink: 0;
     }
 
@@ -92,6 +106,31 @@
     #reset-button:hover,
     #ff-button:hover {
       transform: scale(1.1);
+    }
+
+    [data-tooltip] {
+      position: relative;
+    }
+
+    [data-tooltip]::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 52px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--text-color);
+      color: var(--bg-color);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-family: 'Reddit Mono', monospace;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    [data-tooltip]:hover::after {
+      opacity: 1;
     }
 
     #interval-text {
@@ -177,10 +216,11 @@
 <body>
   <div class="timer-container">
     <div id="countdown-timer">00:00</div>
+    <input type="text" id="interval-input" placeholder="mm:ss">
     <div id="total-timer">00:00</div>
   </div>
-  <button id="ff-button" onclick="skipToNextInterval()">⏩</button>
-  <button id="reset-button" onclick="resetTimer()">↻</button>
+  <button id="ff-button" data-tooltip="skip (s)" onclick="skipToNextInterval()">⏩</button>
+  <button id="reset-button" data-tooltip="reset (r)" onclick="resetTimer()">↻</button>
   <div id="interval-text"></div>
   <div class="volume-container">
     <label for="volume-slider">Volume:</label>
@@ -191,25 +231,29 @@
 
   <script>
     let totalStartTime = null;
-    let nextBellTime = null;
+    let bellEpoch = null;
+    let lastIntervalsPassed = 0;
     let bellIntervalSeconds = 0;
     let interval;
     let pipWindow = null;
+    let pipVideo = null;
     let canvas = null;
     let ctx = null;
     let volumeDebounceTimer = null;
+    let editMode = false;
 
-    // Parse URL parameters
     function getBellIntervalFromParams() {
       const params = new URLSearchParams(window.location.search);
-      const minutes = params.get('minutes') ? parseInt(params.get('minutes')) : 5;
-      const seconds = params.get('seconds') ? parseInt(params.get('seconds')) : 0;
+      const hasMinutes = params.has('minutes');
+      const hasSeconds = params.has('seconds');
+      if (!hasMinutes && !hasSeconds) return 5 * 60;
+      const minutes = hasMinutes ? parseInt(params.get('minutes')) : 0;
+      const seconds = hasSeconds ? parseInt(params.get('seconds')) : 0;
       return minutes * 60 + seconds;
     }
 
     bellIntervalSeconds = getBellIntervalFromParams();
 
-    // Update interval text display
     function updateIntervalText() {
       const minutes = Math.floor(bellIntervalSeconds / 60);
       const seconds = bellIntervalSeconds % 60;
@@ -226,31 +270,39 @@
     }
     updateIntervalText();
 
-    // Use system theme preference
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     setTheme(prefersDark ? 'dark' : 'light');
 
-    // Listen for system theme changes
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
       setTheme(e.matches ? 'dark' : 'light');
     });
 
-    // Initialize PIP support
     initializePIP();
-
-    // Listen for visibility changes
     document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Load saved state or start new timer
     loadTimerState();
-
-    // Load and setup volume
     loadVolume();
     setupVolumeSlider();
 
+    window.addEventListener('popstate', () => {
+      bellIntervalSeconds = getBellIntervalFromParams();
+      updateIntervalText();
+      loadTimerState();
+    });
+
     document.addEventListener('keydown', (e) => {
+      const inInput = document.activeElement && document.activeElement.tagName === 'INPUT';
       if (e.key === 'r' || e.key === 'R') {
-        resetTimer();
+        if (e.metaKey || e.ctrlKey) return;
+        if (!inInput) resetTimer();
+      } else if (e.key === 's' || e.key === 'S') {
+        if (!inInput) skipToNextInterval();
+      } else if (e.key === 'Enter') {
+        if (!inInput) {
+          e.preventDefault();
+          enterEditMode();
+        }
+      } else if (e.key === 'Escape') {
+        if (editMode) exitEditMode(false);
       }
     });
 
@@ -258,92 +310,80 @@
       document.documentElement.setAttribute('data-theme', theme);
     }
 
-    function resetTimer() {
-      const now = Date.now();
-      totalStartTime = now;
-      nextBellTime = now + bellIntervalSeconds * 1000;
-      saveTimerState();
-    }
-
-    function skipToNextInterval() {
-      const now = Date.now();
-      playBell();
-      nextBellTime = now + bellIntervalSeconds * 1000;
-      saveTimerState();
-    }
-
     function saveTimerState() {
-      if (totalStartTime !== null && nextBellTime !== null) {
+      if (totalStartTime !== null && bellEpoch !== null) {
         const prefix = `bell_${bellIntervalSeconds}_`;
         localStorage.setItem(prefix + 'totalStartTime', totalStartTime.toString());
-        localStorage.setItem(prefix + 'nextBellTime', nextBellTime.toString());
+        localStorage.setItem(prefix + 'bellEpoch', bellEpoch.toString());
       }
     }
 
     function loadTimerState() {
-      const prefix = `bell_${bellIntervalSeconds}_`;
-      const savedTotalStartTime = localStorage.getItem(prefix + 'totalStartTime');
-      const savedNextBellTime = localStorage.getItem(prefix + 'nextBellTime');
+      clearInterval(interval);
+      interval = null;
 
+      const prefix = `bell_${bellIntervalSeconds}_`;
+      const savedTotal = localStorage.getItem(prefix + 'totalStartTime');
+      const savedEpoch = localStorage.getItem(prefix + 'bellEpoch');
       const now = Date.now();
 
-      if (savedTotalStartTime && savedNextBellTime) {
-        totalStartTime = parseInt(savedTotalStartTime);
-        const savedNextBell = parseInt(savedNextBellTime);
-
-        if (now >= savedNextBell) {
-          const intervalsPassed = Math.floor((now - savedNextBell) / (bellIntervalSeconds * 1000)) + 1;
-          nextBellTime = savedNextBell + intervalsPassed * bellIntervalSeconds * 1000;
-        } else {
-          nextBellTime = savedNextBell;
-        }
+      if (savedTotal) {
+        totalStartTime = parseInt(savedTotal);
+        bellEpoch = savedEpoch ? parseInt(savedEpoch) : totalStartTime;
       } else {
-        startTimer();
-        return;
+        totalStartTime = now;
+        bellEpoch = now;
+        saveTimerState();
       }
 
+      lastIntervalsPassed = Math.floor((now - bellEpoch) / 1000 / bellIntervalSeconds);
       interval = setInterval(updateTimer, 100);
     }
 
-    function startTimer() {
+    function resetTimer() {
       const now = Date.now();
       totalStartTime = now;
-      nextBellTime = now + bellIntervalSeconds * 1000;
-      interval = setInterval(updateTimer, 100);
+      bellEpoch = now;
+      lastIntervalsPassed = 0;
+      saveTimerState();
+    }
+
+    function skipToNextInterval() {
+      playBell();
+      const now = Date.now();
+      bellEpoch = now;
+      lastIntervalsPassed = 0;
       saveTimerState();
     }
 
     function updateTimer() {
       const now = Date.now();
-
       const totalElapsed = (now - totalStartTime) / 1000;
-      const timeUntilBell = Math.max(0, (nextBellTime - now) / 1000);
+      const bellElapsed = (now - bellEpoch) / 1000;
+      const intervalsPassed = Math.floor(bellElapsed / bellIntervalSeconds);
 
-      if (now >= nextBellTime && (now - nextBellTime) < 100) {
+      if (intervalsPassed > lastIntervalsPassed) {
         playBell();
-        nextBellTime = now + bellIntervalSeconds * 1000;
-        saveTimerState();
+        lastIntervalsPassed = intervalsPassed;
       }
 
+      const timeUntilBell = bellIntervalSeconds - (bellElapsed % bellIntervalSeconds);
       updateDisplay(totalElapsed, timeUntilBell);
     }
 
     function updateDisplay(totalSeconds, countdownSeconds) {
-      // Update countdown timer
       const countdownTotalSeconds = Math.floor(countdownSeconds);
       const countdownMinutes = Math.floor(countdownTotalSeconds / 60);
       const countdownSecs = countdownTotalSeconds % 60;
       const countdownTimeString = `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSecs).padStart(2, '0')}`;
       document.getElementById('countdown-timer').textContent = countdownTimeString;
 
-      // Update total timer
       const totalTotalSeconds = Math.floor(totalSeconds);
       const totalMinutes = Math.floor(totalTotalSeconds / 60);
       const totalSecs = totalTotalSeconds % 60;
       const totalTimeString = `${String(totalMinutes).padStart(2, '0')}:${String(totalSecs).padStart(2, '0')}`;
       document.getElementById('total-timer').textContent = totalTimeString;
 
-      // Update PIP canvas if active
       if (pipWindow && canvas && ctx) {
         updatePIPCanvas(countdownTotalSeconds, countdownMinutes, countdownSecs, totalTotalSeconds, totalMinutes, totalSecs);
       }
@@ -381,7 +421,6 @@
         audio.volume = volume;
         saveVolume(volume);
 
-        // Debounce the bell preview
         if (volumeDebounceTimer) {
           clearTimeout(volumeDebounceTimer);
         }
@@ -391,11 +430,86 @@
       });
     }
 
+    function enterEditMode() {
+      if (editMode) return;
+      editMode = true;
+      const countdownEl = document.getElementById('countdown-timer');
+      const inputEl = document.getElementById('interval-input');
+      const mins = Math.floor(bellIntervalSeconds / 60);
+      const secs = bellIntervalSeconds % 60;
+      inputEl.value = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      countdownEl.style.display = 'none';
+      inputEl.style.display = 'block';
+      inputEl.focus();
+      inputEl.select();
+      inputEl.addEventListener('keydown', handleIntervalInputKey);
+      inputEl.addEventListener('blur', handleIntervalInputBlur);
+    }
+
+    function handleIntervalInputKey(e) {
+      if (e.key === 'Enter') {
+        e.stopPropagation();
+        exitEditMode(true);
+      } else if (e.key === 'Escape') {
+        e.stopPropagation();
+        exitEditMode(false);
+      }
+    }
+
+    function handleIntervalInputBlur() {
+      exitEditMode(false);
+    }
+
+    function exitEditMode(confirm) {
+      if (!editMode) return;
+      editMode = false;
+      const countdownEl = document.getElementById('countdown-timer');
+      const inputEl = document.getElementById('interval-input');
+      inputEl.removeEventListener('keydown', handleIntervalInputKey);
+      inputEl.removeEventListener('blur', handleIntervalInputBlur);
+      countdownEl.style.display = '';
+      inputEl.style.display = 'none';
+
+      if (confirm) {
+        const parsed = parseIntervalInput(inputEl.value);
+        if (parsed > 0) changeInterval(parsed);
+      }
+    }
+
+    function parseIntervalInput(value) {
+      value = value.trim();
+      if (value.includes(':')) {
+        const parts = value.split(':');
+        const mins = parseInt(parts[0]) || 0;
+        const secs = parseInt(parts[1]) || 0;
+        return mins * 60 + secs;
+      }
+      const num = parseFloat(value);
+      if (!isNaN(num) && num > 0) return Math.round(num * 60);
+      return 0;
+    }
+
+    function changeInterval(newSeconds) {
+      clearInterval(interval);
+      interval = null;
+      bellIntervalSeconds = newSeconds;
+      updateIntervalText();
+
+      const mins = Math.floor(newSeconds / 60);
+      const secs = newSeconds % 60;
+      const params = new URLSearchParams();
+      if (mins > 0) params.set('minutes', String(mins));
+      if (secs > 0) params.set('seconds', String(secs));
+      const search = params.toString() ? `?${params.toString()}` : '';
+      history.pushState(null, '', window.location.pathname + search);
+
+      loadTimerState();
+    }
+
     function initializePIP() {
       canvas = document.getElementById('pip-canvas');
       ctx = canvas.getContext('2d');
 
-      // Set high DPI resolution
       const dpr = window.devicePixelRatio || 1;
       canvas.width = 400 * dpr;
       canvas.height = 300 * dpr;
@@ -416,12 +530,11 @@
       if (!canvas || pipWindow) return;
 
       try {
-        // Calculate current elapsed times
         const now = Date.now();
         const totalElapsed = (now - totalStartTime) / 1000;
-        const timeUntilBell = Math.max(0, (nextBellTime - now) / 1000);
+        const bellElapsed = (now - bellEpoch) / 1000;
+        const timeUntilBell = bellIntervalSeconds - (bellElapsed % bellIntervalSeconds);
 
-        // Initialize canvas with current time display
         const countdownTotalSeconds = Math.floor(timeUntilBell);
         const countdownMinutes = Math.floor(countdownTotalSeconds / 60);
         const countdownSecs = countdownTotalSeconds % 60;
@@ -430,18 +543,21 @@
         const totalSecs = totalTotalSeconds % 60;
         updatePIPCanvas(countdownTotalSeconds, countdownMinutes, countdownSecs, totalTotalSeconds, totalMinutes, totalSecs);
 
-        // Create a video element to stream the canvas
-        const video = document.createElement('video');
-        video.srcObject = canvas.captureStream(30);
-        video.muted = true;
+        pipVideo = document.createElement('video');
+        pipVideo.srcObject = canvas.captureStream(30);
+        pipVideo.muted = true;
 
-        // Wait for metadata to load before requesting PIP
         await new Promise((resolve) => {
-          video.addEventListener('loadedmetadata', resolve, { once: true });
-          video.play();
+          pipVideo.addEventListener('loadedmetadata', resolve, { once: true });
+          pipVideo.play();
         });
 
-        pipWindow = await video.requestPictureInPicture();
+        pipWindow = await pipVideo.requestPictureInPicture();
+
+        pipVideo.addEventListener('leavepictureinpicture', () => {
+          pipWindow = null;
+          pipVideo = null;
+        }, { once: true });
 
         pipWindow.addEventListener('resize', () => {
           const dpr = window.devicePixelRatio || 1;
@@ -451,12 +567,11 @@
           canvas.style.height = pipWindow.height + 'px';
           ctx.scale(dpr, dpr);
 
-          // Calculate current elapsed times
           const now = Date.now();
           const totalElapsed = (now - totalStartTime) / 1000;
-          const timeUntilBell = Math.max(0, (nextBellTime - now) / 1000);
+          const bellElapsed = (now - bellEpoch) / 1000;
+          const timeUntilBell = bellIntervalSeconds - (bellElapsed % bellIntervalSeconds);
 
-          // Redraw content after resize
           const countdownTotalSeconds = Math.floor(timeUntilBell);
           const countdownMinutes = Math.floor(countdownTotalSeconds / 60);
           const countdownSecs = countdownTotalSeconds % 60;
@@ -475,6 +590,7 @@
       if (pipWindow) {
         document.exitPictureInPicture();
         pipWindow = null;
+        pipVideo = null;
       }
     }
 
@@ -484,7 +600,6 @@
       const textColor = currentTheme === 'light' ? '#000000' : 'rgba(255, 255, 255, 0.87)';
       const secondaryTextColor = currentTheme === 'light' ? '#666666' : 'rgba(255, 255, 255, 0.5)';
 
-      // Use logical dimensions for drawing
       const logicalWidth = parseInt(canvas.style.width) || 400;
       const logicalHeight = parseInt(canvas.style.height) || 300;
 
@@ -494,7 +609,6 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // Draw countdown timer (top)
       ctx.fillStyle = textColor;
       ctx.font = 'bold 64px "Reddit Mono", monospace';
       const countdownTimeText = `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSecs).padStart(2, '0')}`;
@@ -505,7 +619,6 @@
       ctx.textBaseline = 'middle';
       ctx.fillText(countdownTimeText, centerX, countdownCenterY);
 
-      // Draw total timer (bottom)
       ctx.fillStyle = secondaryTextColor;
       ctx.font = 'bold 48px "Reddit Mono", monospace';
       const totalTimeText = `${String(totalMinutes).padStart(2, '0')}:${String(totalSecs).padStart(2, '0')}`;
