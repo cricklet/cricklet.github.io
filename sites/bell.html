@@ -210,6 +210,24 @@
     :root[data-theme="light"] #volume-slider {
       background: rgba(0, 0, 0, 0.2);
     }
+
+    #sound-select {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--text-color);
+      background: var(--bg-color);
+      border: 1px solid var(--text-color);
+      border-radius: 4px;
+      padding: 2px 6px;
+      outline: none;
+      cursor: pointer;
+      opacity: 0.7;
+      transition: opacity 0.1s ease;
+    }
+
+    #sound-select:hover {
+      opacity: 1;
+    }
   </style>
 </head>
 
@@ -223,6 +241,8 @@
   <button id="reset-button" data-tooltip="reset (r)" onclick="resetTimer()">↻</button>
   <div id="interval-text"></div>
   <div class="volume-container">
+    <label for="sound-select">Sound:</label>
+    <select id="sound-select"></select>
     <label for="volume-slider">Volume:</label>
     <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1">
   </div>
@@ -241,6 +261,11 @@
     let ctx = null;
     let volumeDebounceTimer = null;
     let editMode = false;
+
+    // Bell sound options — add more entries here as you drop mp3s into the folder.
+    const BELL_SOUNDS = [
+      { name: 'Bell', file: 'bell.mp3' },
+    ];
 
     function getBellIntervalFromParams() {
       const params = new URLSearchParams(window.location.search);
@@ -280,8 +305,10 @@
     initializePIP();
     document.addEventListener('visibilitychange', handleVisibilityChange);
     loadTimerState();
+    loadSound();
     loadVolume();
     setupVolumeSlider();
+    setupSoundSelect();
 
     window.addEventListener('popstate', () => {
       bellIntervalSeconds = getBellIntervalFromParams();
@@ -427,6 +454,40 @@
         volumeDebounceTimer = setTimeout(() => {
           playBell();
         }, 300);
+      });
+    }
+
+    function loadSound() {
+      const select = document.getElementById('sound-select');
+      BELL_SOUNDS.forEach(sound => {
+        const opt = document.createElement('option');
+        opt.value = sound.file;
+        opt.textContent = sound.name;
+        select.appendChild(opt);
+      });
+
+      const saved = localStorage.getItem('bell_sound');
+      const chosen = (saved && BELL_SOUNDS.some(s => s.file === saved))
+        ? saved
+        : BELL_SOUNDS[0].file;
+      select.value = chosen;
+
+      const audio = document.getElementById('bell-audio');
+      if (audio.getAttribute('src') !== chosen) {
+        audio.setAttribute('src', chosen);
+        audio.load();
+      }
+    }
+
+    function setupSoundSelect() {
+      const select = document.getElementById('sound-select');
+      select.addEventListener('change', (e) => {
+        const file = e.target.value;
+        const audio = document.getElementById('bell-audio');
+        audio.setAttribute('src', file);
+        audio.load();
+        localStorage.setItem('bell_sound', file);
+        playBell();
       });
     }
 
