@@ -252,6 +252,48 @@
       opacity: 1;
     }
 
+    #bg-tint-toggle {
+      position: fixed;
+      bottom: 112px;
+      left: 8px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
+      opacity: 0;
+      cursor: pointer;
+      font-size: 1.25rem;
+      padding: 0;
+      border: 1.5px solid transparent;
+      z-index: 10;
+    }
+
+    body:hover #bg-tint-toggle {
+      opacity: 1;
+    }
+
+    #bg-tint-toggle:hover {
+      transform: scale(1.08);
+    }
+
+    #bg-tint-toggle:focus {
+      outline: none;
+    }
+
+    #bg-tint-toggle.active {
+      background: var(--bg-color);
+      color: var(--text-color);
+      border-color: var(--border-color);
+    }
+
+    body:hover #bg-tint-toggle.active {
+      opacity: 1;
+    }
+
     body.visual-mode #bpm-readout {
       transition: color 0.04s ease;
     }
@@ -260,6 +302,14 @@
     body[data-visual="2"] #bpm-readout.beat-dim { color: #b8b8b8; }
     body[data-visual="3"] #bpm-readout.beat-dim { color: #7aaaf5; }
     body[data-visual="4"] #bpm-readout.beat-dim { color: #f57a7a; }
+
+    body.bg-tint-mode {
+      transition: background-color 0.04s ease;
+    }
+    body.bg-tint-mode[data-visual="1"].beat-dim { background-color: color-mix(in srgb, var(--bg-color) 82%, #808080); }
+    body.bg-tint-mode[data-visual="2"].beat-dim { background-color: color-mix(in srgb, var(--bg-color) 82%, #b8b8b8); }
+    body.bg-tint-mode[data-visual="3"].beat-dim { background-color: color-mix(in srgb, var(--bg-color) 82%, #7aaaf5); }
+    body.bg-tint-mode[data-visual="4"].beat-dim { background-color: color-mix(in srgb, var(--bg-color) 82%, #f57a7a); }
 
     #jazz-toggle,
     #eighths-toggle {
@@ -319,6 +369,7 @@
     body[data-visual="4"] #visual-toggle { border-color: #f57a7a; }
 
     #visual-eye { filter: grayscale(1); }
+    #bg-tint-icon { filter: grayscale(1); }
 
     body:hover #jazz-toggle.active,
     body:hover #eighths-toggle.active {
@@ -375,6 +426,7 @@
 
   <!-- <span class="hint">Space — start / stop · T — tap tempo</span> -->
   <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
+  <button type="button" id="bg-tint-toggle" onclick="toggleBgTint()" title="Tint background on the off beat"><span id="bg-tint-icon">🖼️</span></button>
   <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode"><span id="visual-eye">💡</span></button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
   <button type="button" id="eighths-toggle" onclick="toggleEighths()" title="Eighths offbeat">♪</button>
@@ -391,6 +443,7 @@
     const STORAGE_JAZZ = 'metronome_jazz';
     const STORAGE_EIGHTHS = 'metronome_eighths';
     const STORAGE_VISUAL = 'metronome_visual';
+    const STORAGE_BG_TINT = 'metronome_bg_tint';
 
     const bpmSection = document.getElementById('bpm-section');
     const volumeSection = document.getElementById('volume-section');
@@ -414,6 +467,7 @@
     let visualMode = 0;
     let nextVisualTime = 0;
     let visualPhase = false;
+    let bgTintMode = false;
 
     function clickNowSec() {
       return performance.now() / 1000;
@@ -614,6 +668,7 @@
       const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
       window.setTimeout(() => {
         bpmReadout.classList.toggle('beat-dim', phase);
+        document.body.classList.toggle('beat-dim', phase);
       }, delayMs);
     }
 
@@ -659,6 +714,7 @@
         nextVisualTime = nextClickTime;
         visualPhase = false;
         bpmReadout.classList.remove('beat-dim');
+        document.body.classList.remove('beat-dim');
         scheduleLoop();
       };
       void waitClickReady().then(begin, begin);
@@ -668,6 +724,7 @@
       running = false;
       document.body.classList.remove('running');
       bpmReadout.classList.remove('beat-dim');
+      document.body.classList.remove('beat-dim');
       if (scheduleRaf != null) {
         cancelAnimationFrame(scheduleRaf);
         scheduleRaf = null;
@@ -844,12 +901,20 @@
       } else {
         document.body.removeAttribute('data-visual');
         bpmReadout.classList.remove('beat-dim');
+        document.body.classList.remove('beat-dim');
       }
       if (on && running) {
         nextVisualTime = clickNowSec();
         visualPhase = false;
       }
       try { localStorage.setItem(STORAGE_VISUAL, String(visualMode)); } catch (_) {}
+    }
+
+    function toggleBgTint() {
+      bgTintMode = !bgTintMode;
+      document.getElementById('bg-tint-toggle').classList.toggle('active', bgTintMode);
+      document.body.classList.toggle('bg-tint-mode', bgTintMode);
+      try { localStorage.setItem(STORAGE_BG_TINT, bgTintMode ? '1' : '0'); } catch (_) {}
     }
 
 
@@ -884,6 +949,11 @@
         document.getElementById('visual-toggle').classList.add('active');
         document.body.classList.add('visual-mode');
         document.body.setAttribute('data-visual', String(visualMode));
+      }
+      if (localStorage.getItem(STORAGE_BG_TINT) === '1') {
+        bgTintMode = true;
+        document.getElementById('bg-tint-toggle').classList.add('active');
+        document.body.classList.add('bg-tint-mode');
       }
     } catch (_) {}
 
