@@ -31,11 +31,24 @@
     -webkit-font-smoothing: antialiased;
     transition: background 0.1s ease, color 0.1s ease;
   }
+  /* Pseudo-element spacers: ::after grows at 2× the rate of ::before, so the
+     space below the list ends up roughly twice the space above. ::before keeps
+     a 1.5rem minimum so the list never pins flush against the top when the
+     viewport is short. */
+  body::before {
+    content: "";
+    flex: 1 0 1.5rem;
+    max-height: 6rem;
+  }
+  body::after {
+    content: "";
+    flex: 2 0 0;
+  }
 
   #grid {
     max-width: 720px;
-    margin: auto;
-    padding: 1.5rem 1rem;
+    margin: 0 auto;
+    padding: 0 1rem;
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
