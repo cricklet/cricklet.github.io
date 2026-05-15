@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sites</title>
+<style>
+  :root {
+    --bg: #f4f4f5;
+    --card: #ffffff;
+    --card-hover: #fbfbfd;
+    --text: #18181b;
+    --muted: #71717a;
+    --border: #e4e4e7;
+    --shadow: rgba(0, 0, 0, 0.06);
+    --accent: #6366f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #18181b;
+      --card: #27272a;
+      --card-hover: #303034;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --border: #3f3f46;
+      --shadow: rgba(0, 0, 0, 0.4);
+      --accent: #818cf8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.5rem 4rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    max-width: 960px;
+    margin: 0 auto 1.75rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  h1 { margin: 0; font-size: 1.5rem; font-weight: 650; }
+  .hint { color: var(--muted); font-size: 0.85rem; }
+  .reset {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+  }
+  .reset:hover { color: var(--accent); }
+  .grid {
+    max-width: 960px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.85rem;
+  }
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.95rem 1rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    text-decoration: none;
+    color: var(--text);
+    box-shadow: 0 1px 2px var(--shadow);
+    cursor: grab;
+    transition: background 0.12s, box-shadow 0.12s, transform 0.12s;
+    user-select: none;
+  }
+  .card:hover {
+    background: var(--card-hover);
+    box-shadow: 0 4px 12px var(--shadow);
+    transform: translateY(-1px);
+  }
+  .card:active { cursor: grabbing; }
+  .card.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+  }
+  .card .icon {
+    font-size: 1.5rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .card .name {
+    font-size: 0.95rem;
+    font-weight: 550;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Sites</h1>
+    <span class="hint">Drag cards to reorder &mdash; <button class="reset" id="reset">reset order</button></span>
+  </header>
+  <div class="grid" id="grid"></div>
+
+  <script>
+    const SITES = [
+      { id: "loop",        href: "loop.html",                  name: "BPM Loop Player",       icon: "\u{1F501}" },
+      { id: "metronome",   href: "metronome.html",             name: "Metronome",             icon: "\u{1F3B5}" },
+      { id: "tuner",       href: "tuner.html",                 name: "Tuner",                 icon: "\u{1F39A}️" },
+      { id: "tapper",      href: "tapper.html",                name: "Tap Tempo",             icon: "\u{1F446}" },
+      { id: "transpose",   href: "transpose.html",             name: "Chord Transposer",      icon: "\u{1F3BC}" },
+      { id: "trumpet",     href: "trumpet.html",               name: "Trumpet",               icon: "\u{1F3BA}" },
+      { id: "timer",       href: "timer.html",                 name: "Timer",                 icon: "⏲️" },
+      { id: "stopwatch",   href: "stopwatch.html",             name: "Stopwatch",             icon: "⏱️" },
+      { id: "pomodoro",    href: "pomodoro.html",              name: "Pomodoro",              icon: "\u{1F345}" },
+      { id: "bell",        href: "bell.html",                  name: "Bell",                  icon: "\u{1F514}" },
+      { id: "days-until",  href: "days-until.html",            name: "Days Remaining",        icon: "\u{1F4C5}" },
+      { id: "estimate",    href: "estimate-completion.html",   name: "Estimate Completion",   icon: "⏳" },
+      { id: "graphing",    href: "graphing.html",              name: "Graphing App",          icon: "\u{1F4C8}" },
+      { id: "helpers",     href: "helpers.html",               name: "Helper Tools",          icon: "\u{1F9F0}" },
+      { id: "json-to-js",  href: "json-to-js.html",            name: "JSON to JS",            icon: "\u{1F527}" },
+      { id: "blue",        href: "blue/index.html",            name: "Operational Transform", icon: "\u{1F535}" },
+      { id: "blue-demo",   href: "blue-demo/demo-textarea.html", name: "OT Textarea Demo",    icon: "\u{1F4DD}" },
+      { id: "boop",        href: "boop/index.html",            name: "boopenguin",            icon: "\u{1F427}" },
+      { id: "ld48",        href: "ld48/index.html",            name: "RIP — LD48",       icon: "\u{1F3AE}" },
+      { id: "starcap",     href: "starcap/index.html",         name: "Star Captain",          icon: "\u{1F680}" },
+      { id: "wasm-chess",  href: "wasm-chess/index.html",      name: "Chess",                 icon: "♟️" },
+    ];
+
+    const STORAGE_KEY = "sites-order";
+    const grid = document.getElementById("grid");
+
+    function loadOrder() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (!Array.isArray(saved)) return SITES;
+        const byId = new Map(SITES.map((s) => [s.id, s]));
+        const ordered = [];
+        for (const id of saved) {
+          if (byId.has(id)) {
+            ordered.push(byId.get(id));
+            byId.delete(id);
+          }
+        }
+        // Any sites not in saved order (newly added) go at the end.
+        for (const s of SITES) if (byId.has(s.id)) ordered.push(s);
+        return ordered;
+      } catch {
+        return SITES;
+      }
+    }
+
+    function saveOrder() {
+      const ids = [...grid.children].map((c) => c.dataset.id);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+    }
+
+    function render(sites) {
+      grid.innerHTML = "";
+      for (const site of sites) {
+        const card = document.createElement("a");
+        card.className = "card";
+        card.href = site.href;
+        card.draggable = true;
+        card.dataset.id = site.id;
+        card.innerHTML =
+          '<span class="icon"></span><span class="name"></span>';
+        card.querySelector(".icon").textContent = site.icon;
+        card.querySelector(".name").textContent = site.name;
+        grid.appendChild(card);
+      }
+    }
+
+    // Returns the card the dragged element should be inserted before, or null to append.
+    function getDragAfterElement(x, y) {
+      const cards = [...grid.querySelectorAll(".card:not(.dragging)")];
+      let closest = { dist: Infinity, el: null };
+      for (const card of cards) {
+        const box = card.getBoundingClientRect();
+        const dx = x - (box.left + box.width / 2);
+        const dy = y - (box.top + box.height / 2);
+        const dist = dx * dx + dy * dy;
+        if (dist < closest.dist) closest = { dist, el: card, box, dx, dy };
+      }
+      if (!closest.el) return null;
+      // If the cursor is past the card's center in reading order, insert after it.
+      const past =
+        closest.dy > closest.box.height / 2 ||
+        (Math.abs(closest.dy) <= closest.box.height / 2 && closest.dx > 0);
+      return past ? closest.el.nextElementSibling : closest.el;
+    }
+
+    let dragged = null;
+
+    grid.addEventListener("dragstart", (e) => {
+      const card = e.target.closest(".card");
+      if (!card) return;
+      dragged = card;
+      e.dataTransfer.effectAllowed = "move";
+      // Defer so the drag image is captured before the card fades.
+      requestAnimationFrame(() => card.classList.add("dragging"));
+    });
+
+    grid.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (!dragged) return;
+      const after = getDragAfterElement(e.clientX, e.clientY);
+      if (after == null) {
+        grid.appendChild(dragged);
+      } else if (after !== dragged) {
+        grid.insertBefore(dragged, after);
+      }
+    });
+
+    grid.addEventListener("drop", (e) => e.preventDefault());
+
+    grid.addEventListener("dragend", () => {
+      if (!dragged) return;
+      dragged.classList.remove("dragging");
+      dragged = null;
+      saveOrder();
+    });
+
+    document.getElementById("reset").addEventListener("click", () => {
+      localStorage.removeItem(STORAGE_KEY);
+      render(SITES);
+    });
+
+    render(loadOrder());
+  </script>
+</body>
+</html>
