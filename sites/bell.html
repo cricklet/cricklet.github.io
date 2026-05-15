@@ -339,9 +339,11 @@
     }
 
     function saveTimerState() {
-      if (totalStartTime !== null && bellEpoch !== null) {
+      if (totalStartTime !== null) {
+        localStorage.setItem('bell_totalStartTime', totalStartTime.toString());
+      }
+      if (bellEpoch !== null) {
         const prefix = `bell_${bellIntervalSeconds}_`;
-        localStorage.setItem(prefix + 'totalStartTime', totalStartTime.toString());
         localStorage.setItem(prefix + 'bellEpoch', bellEpoch.toString());
       }
     }
@@ -351,18 +353,16 @@
       interval = null;
 
       const prefix = `bell_${bellIntervalSeconds}_`;
-      const savedTotal = localStorage.getItem(prefix + 'totalStartTime');
+      // totalStartTime is global so changing the interval doesn't reset the
+      // bottom stopwatch; legacy per-interval key kept as a migration fallback.
+      const savedTotal = localStorage.getItem('bell_totalStartTime')
+        ?? localStorage.getItem(prefix + 'totalStartTime');
       const savedEpoch = localStorage.getItem(prefix + 'bellEpoch');
       const now = Date.now();
 
-      if (savedTotal) {
-        totalStartTime = parseInt(savedTotal);
-        bellEpoch = savedEpoch ? parseInt(savedEpoch) : totalStartTime;
-      } else {
-        totalStartTime = now;
-        bellEpoch = now;
-        saveTimerState();
-      }
+      totalStartTime = savedTotal !== null ? parseInt(savedTotal) : now;
+      bellEpoch = savedEpoch !== null ? parseInt(savedEpoch) : now;
+      saveTimerState();
 
       lastIntervalsPassed = Math.floor((now - bellEpoch) / 1000 / bellIntervalSeconds);
       interval = setInterval(updateTimer, 100);
