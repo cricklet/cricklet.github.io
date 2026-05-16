@@ -8179,25 +8179,76 @@
   var TRANSPOSE_MIN = -24;
   var TRANSPOSE_MAX = 24;
   var DB_NAME = "loop-player";
-  var DB_VERSION = 3;
+  var DB_VERSION = 4;
   var DB_STORE_FILES = "files";
   var DB_STORE_META = "meta";
   var DB_STORE_BEATS = "beats";
+  var DB_STORE_FOLDERS = "folders";
   function openDB() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = (e) => {
+      req.onupgradeneeded = () => {
         const db = req.result;
-        if (db.objectStoreNames.contains(DB_STORE_FILES)) db.deleteObjectStore(DB_STORE_FILES);
-        if (db.objectStoreNames.contains(DB_STORE_META)) db.deleteObjectStore(DB_STORE_META);
-        if (db.objectStoreNames.contains(DB_STORE_BEATS)) db.deleteObjectStore(DB_STORE_BEATS);
-        db.createObjectStore(DB_STORE_FILES, { keyPath: "id" });
-        const metaStore = db.createObjectStore(DB_STORE_META, { keyPath: "id" });
-        metaStore.createIndex("addedAt", "addedAt");
-        db.createObjectStore(DB_STORE_BEATS, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(DB_STORE_FILES)) {
+          db.createObjectStore(DB_STORE_FILES, { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains(DB_STORE_META)) {
+          const metaStore = db.createObjectStore(DB_STORE_META, { keyPath: "id" });
+          metaStore.createIndex("addedAt", "addedAt");
+        }
+        if (!db.objectStoreNames.contains(DB_STORE_BEATS)) {
+          db.createObjectStore(DB_STORE_BEATS, { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains(DB_STORE_FOLDERS)) {
+          db.createObjectStore(DB_STORE_FOLDERS, { keyPath: "path" });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
+    });
+  }
+  async function loadAllFolders() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(DB_STORE_FOLDERS, "readonly").objectStore(DB_STORE_FOLDERS).getAll();
+      req.onsuccess = () => resolve((req.result ?? []).map((r) => r.path));
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function saveFolder(path) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE_FOLDERS, "readwrite");
+      tx.objectStore(DB_STORE_FOLDERS).put({ path });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function deleteFolderRecord(path) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE_FOLDERS, "readwrite");
+      tx.objectStore(DB_STORE_FOLDERS).delete(path);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function updateFileFolder(id, folder) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE_META, "readwrite");
+      const req = tx.objectStore(DB_STORE_META).get(id);
+      req.onsuccess = () => {
+        const existing = req.result;
+        if (!existing) {
+          resolve();
+          return;
+        }
+        existing.folder = folder;
+        tx.objectStore(DB_STORE_META).put(existing);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   }
   async function loadBeatCache(id) {
@@ -8226,7 +8277,7 @@
       console.error("saveBeatCache failed:", e);
     }
   }
-  async function saveAudioFile(arrayBuffer, name, id, duration, bpm, bpmFromAPI, bpmAPIHint, bpmTapped, bpmTapHint) {
+  async function saveAudioFile(arrayBuffer, name, id, folder = "", duration, bpm, bpmFromAPI, bpmAPIHint, bpmTapped, bpmTapHint) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], "readwrite");
@@ -8234,6 +8285,7 @@
       metaReq.onsuccess = () => {
         const existing = metaReq.result;
         const meta = { id, name, addedAt: existing?.addedAt ?? Date.now() };
+        meta.folder = existing?.folder ?? folder;
         meta.duration = duration ?? existing?.duration;
         meta.bpm = bpm ?? existing?.bpm;
         meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
@@ -8402,6 +8454,7 @@
     transposeSemitones: 0,
     currentFileId: null,
     currentFileName: null,
+    currentPath: "",
     beatTicks: null,
     loops: [],
     activeLoopId: null
@@ -10053,10 +10106,10 @@
     } else if ((e.key === "f" || e.key === "F") && !isSidebarMode() && !pickerOpen) {
       e.preventDefault();
       openFilePicker();
-    } else if (e.key === "]") {
+    } else if (e.key === "]" && !e.metaKey && !e.ctrlKey) {
       pushUndo();
       setTargetBPM(state.targetBPM + 5);
-    } else if (e.key === "[") {
+    } else if (e.key === "[" && !e.metaKey && !e.ctrlKey) {
       pushUndo();
       setTargetBPM(state.targetBPM - 5);
     } else if (e.key === "=") {
@@ -10180,19 +10233,81 @@
   var pickerOpen = false;
   var pickerSortCol = "bpm";
   var pickerSortAsc = true;
-  function buildUrl(fileId) {
+  function buildUrl(fileId, path = state.currentPath) {
     const p = new URLSearchParams();
     if (fileId) p.set("f", fileId);
-    p.set("sort", pickerSortCol);
-    p.set("dir", pickerSortAsc ? "asc" : "desc");
+    if (path) p.set("p", path);
     return "?" + p.toString();
   }
-  function readUrlSort() {
-    const p = new URLSearchParams(location.search);
-    const col = p.get("sort");
-    if (col && ["name", "bpm", "length", "addedAt"].includes(col)) pickerSortCol = col;
-    const dir = p.get("dir");
-    if (dir === "asc" || dir === "desc") pickerSortAsc = dir === "asc";
+  var STORAGE_FOLDER_SORT = "loop_folder_sort";
+  var DEFAULT_SORT = { col: "bpm", asc: true };
+  function loadFolderSortPrefs() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_FOLDER_SORT) ?? "{}");
+    } catch (e) {
+      console.error("loadFolderSortPrefs failed:", e);
+      return {};
+    }
+  }
+  function saveFolderSortPrefs(prefs) {
+    try {
+      localStorage.setItem(STORAGE_FOLDER_SORT, JSON.stringify(prefs));
+    } catch (e) {
+      console.error("saveFolderSortPrefs failed:", e);
+    }
+  }
+  function applySortForPath(path) {
+    const pref = loadFolderSortPrefs()[path] ?? DEFAULT_SORT;
+    pickerSortCol = pref.col;
+    pickerSortAsc = pref.asc;
+  }
+  function persistSortForPath(path) {
+    const all = loadFolderSortPrefs();
+    all[path] = { col: pickerSortCol, asc: pickerSortAsc };
+    saveFolderSortPrefs(all);
+  }
+  function normalizePath(path) {
+    return path.split("/").filter(Boolean).join("/");
+  }
+  function parentPath(path) {
+    const segs = path.split("/").filter(Boolean);
+    segs.pop();
+    return segs.join("/");
+  }
+  function directChildFolders(allFolders, path) {
+    const prefix = path ? path + "/" : "";
+    const seen = /* @__PURE__ */ new Set();
+    for (const f of allFolders) {
+      if (!f.startsWith(prefix) || f === path) continue;
+      const rest = f.slice(prefix.length);
+      const first = rest.split("/")[0];
+      if (first) seen.add(prefix + first);
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }
+  function folderHasContents(path, allFolders, allFiles) {
+    const prefix = path + "/";
+    if (allFolders.some((f) => f !== path && f.startsWith(prefix))) return true;
+    if (allFiles.some((f) => (f.folder ?? "") === path || (f.folder ?? "").startsWith(prefix))) return true;
+    return false;
+  }
+  function setCurrentPath(path, push = true) {
+    const normalized = normalizePath(path);
+    state.currentPath = normalized;
+    applySortForPath(normalized);
+    const url = buildUrl(state.currentFileId, normalized);
+    if (push && location.search !== url) {
+      history.pushState({ fileId: state.currentFileId, path: normalized }, "", url);
+    } else {
+      history.replaceState({ fileId: state.currentFileId, path: normalized }, "", url);
+    }
+    updateFolderPathDisplay();
+    renderFilePicker().catch((e) => console.error("renderFilePicker failed:", e));
+  }
+  function updateFolderPathDisplay() {
+    const el = document.getElementById("fp-path");
+    if (!el) return;
+    el.textContent = state.currentPath ? "/" + state.currentPath : "/";
   }
   function updateFilePickerBtn() {
     filePickerBtn.textContent = state.currentFileName ?? "";
@@ -10255,7 +10370,9 @@
   }
   async function advanceToNextFile() {
     if (!state.currentFileId) return;
-    const sorted = sortPickerFiles(await loadAllFilesMeta());
+    const all = await loadAllFilesMeta();
+    const inFolder = all.filter((f) => (f.folder ?? "") === state.currentPath);
+    const sorted = sortPickerFiles(inFolder);
     const idx = sorted.findIndex((f) => f.id === state.currentFileId);
     if (idx === -1 || idx >= sorted.length - 1) return;
     const next = sorted[idx + 1];
@@ -10265,8 +10382,13 @@
     void play();
   }
   async function renderFilePicker() {
-    const files = sortPickerFiles(await loadAllFilesMeta());
-    filePickerBtn.classList.toggle("has-files", files.length > 0);
+    const allFiles = await loadAllFilesMeta();
+    const allFolders = await loadAllFolders();
+    const filesInPath = allFiles.filter((f) => (f.folder ?? "") === state.currentPath);
+    const files = sortPickerFiles(filesInPath);
+    const subfolders = directChildFolders(allFolders, state.currentPath);
+    filePickerBtn.classList.toggle("has-files", allFiles.length > 0);
+    updateFolderPathDisplay();
     const labels = { name: "Name", bpm: "BPM", length: "Length", addedAt: "Added" };
     document.querySelectorAll("#file-picker-table thead th[data-col]").forEach((th) => {
       const col = th.dataset.col;
@@ -10279,6 +10401,56 @@
     if (numCol) numCol.style.width = `calc(${numDigits}ch + 1.4rem)`;
     const tbody = document.getElementById("file-picker-body");
     tbody.innerHTML = "";
+    if (state.currentPath) {
+      const tr = document.createElement("tr");
+      tr.className = "fp-up-row";
+      const numTd = document.createElement("td");
+      numTd.className = "fpc-num-cell";
+      tr.appendChild(numTd);
+      const nameTd = document.createElement("td");
+      nameTd.colSpan = 4;
+      nameTd.textContent = "\u21B0  ..";
+      tr.appendChild(nameTd);
+      const delTd = document.createElement("td");
+      tr.appendChild(delTd);
+      tr.addEventListener("click", () => setCurrentPath(parentPath(state.currentPath)));
+      tbody.appendChild(tr);
+    }
+    for (const folderPath of subfolders) {
+      const folderName = folderPath.split("/").pop() ?? folderPath;
+      const tr = document.createElement("tr");
+      tr.className = "fp-folder-row";
+      const numTd = document.createElement("td");
+      numTd.className = "fpc-num-cell";
+      tr.appendChild(numTd);
+      const nameTd = document.createElement("td");
+      nameTd.colSpan = 4;
+      nameTd.textContent = "\u{1F4C1}  " + folderName;
+      nameTd.title = folderName;
+      tr.appendChild(nameTd);
+      const tdDel = document.createElement("td");
+      tdDel.className = "fp-del-cell";
+      const hasContents = folderHasContents(folderPath, allFolders, allFiles);
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "fp-delete-btn";
+      delBtn.textContent = "\xD7";
+      if (hasContents) {
+        delBtn.disabled = true;
+        delBtn.title = "Folder is not empty";
+      } else {
+        delBtn.title = "Delete folder";
+        delBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          await deleteFolderRecord(folderPath);
+          await renderFilePicker();
+        });
+      }
+      tdDel.appendChild(delBtn);
+      tr.appendChild(tdDel);
+      tr.addEventListener("click", () => setCurrentPath(folderPath));
+      tbody.appendChild(tr);
+    }
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const tr = document.createElement("tr");
@@ -10320,7 +10492,7 @@
           setStatus("Drop audio file(s) anywhere");
           renderLoopCards();
           updateFilePickerBtn();
-          const remaining = (await loadAllFilesMeta()).sort((a, b) => b.addedAt - a.addedAt);
+          const remaining = (await loadAllFilesMeta()).filter((m) => (m.folder ?? "") === state.currentPath).sort((a, b) => b.addedAt - a.addedAt);
           if (remaining.length > 0) {
             const saved = await loadAudioById(remaining[0].id);
             if (saved) processArrayBuffer(saved.buffer, saved.name, remaining[0].id);
@@ -10346,24 +10518,30 @@
       currentRow.scrollIntoView({ block: "nearest" });
     }
   }
+  async function promptAddFolder() {
+    const raw = prompt("New folder name:");
+    if (raw == null) return;
+    const name = raw.trim();
+    if (!name) return;
+    if (name.includes("/")) {
+      alert('Folder name cannot contain "/"');
+      return;
+    }
+    const newPath = state.currentPath ? state.currentPath + "/" + name : name;
+    const existing = await loadAllFolders();
+    if (existing.includes(newPath)) {
+      alert("A folder with that name already exists here");
+      return;
+    }
+    await saveFolder(newPath);
+    await renderFilePicker();
+  }
   filePickerBtn.addEventListener("click", () => {
     if (pickerOpen) closeFilePicker();
     else openFilePicker();
   });
-  document.getElementById("clear-all-btn").addEventListener("click", async () => {
-    if (!confirm("Delete all MP3s? This cannot be undone.")) return;
-    const files = await loadAllFilesMeta();
-    for (const f of files) await deleteAudioFile(f.id);
-    stopSource();
-    state.currentFileId = null;
-    state.currentFileName = null;
-    state.originalBuffer = null;
-    state.loops = [];
-    state.activeLoopId = null;
-    renderLoopCards();
-    updateFilePickerBtn();
-    await renderFilePicker();
-    setStatus("Drop an MP3 to get started");
+  document.getElementById("add-folder-btn").addEventListener("click", () => {
+    promptAddFolder().catch((e) => console.error("promptAddFolder failed:", e));
   });
   document.querySelectorAll("#file-picker-table thead th[data-col]").forEach((th) => {
     th.addEventListener("click", () => {
@@ -10374,7 +10552,7 @@
         pickerSortCol = col;
         pickerSortAsc = col === "name";
       }
-      history.replaceState({ fileId: state.currentFileId }, "", buildUrl(state.currentFileId));
+      persistSortForPath(state.currentPath);
       renderFilePicker().catch((e) => console.error("renderFilePicker failed:", e));
     });
   });
@@ -10385,6 +10563,8 @@
     state.pausedBufferPos = 0;
     state.currentFileId = id;
     state.currentFileName = name;
+    const existingMeta = await loadFileMeta(id);
+    const folderForFile = existingMeta?.folder ?? state.currentPath;
     state.loops = [];
     state.activeLoopId = null;
     lastDetectedArgs = null;
@@ -10471,9 +10651,9 @@
     renderLoopCards();
     updateFilePickerBtn();
     const url = buildUrl(id);
-    if (pushHistory && location.search !== url) history.pushState({ fileId: id }, "", url);
-    else history.replaceState({ fileId: id }, "", url);
-    saveAudioFile(arrayBuffer, name, id, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch((e) => console.error("saveAudioFile/renderFilePicker failed:", e));
+    if (pushHistory && location.search !== url) history.pushState({ fileId: id, path: state.currentPath }, "", url);
+    else history.replaceState({ fileId: id, path: state.currentPath }, "", url);
+    saveAudioFile(arrayBuffer, name, id, folderForFile, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch((e) => console.error("saveAudioFile/renderFilePicker failed:", e));
   }
   async function processFile(file) {
     const id = encodeURIComponent(file.name);
@@ -10518,7 +10698,7 @@
       setStatus(`Adding ${i + 1}/${newFiles.length}${skipNote}: ${file.name}\u2026`);
       const arrayBuffer = await file.arrayBuffer();
       const id = encodeURIComponent(file.name);
-      await saveAudioFile(arrayBuffer, file.name, id);
+      await saveAudioFile(arrayBuffer, file.name, id, state.currentPath);
     }
     await renderFilePicker();
     const lastFile = newFiles[newFiles.length - 1];
@@ -10533,9 +10713,13 @@
     if (fileInput.files?.[0]) processFile(fileInput.files[0]);
   });
   window.addEventListener("popstate", async () => {
-    readUrlSort();
+    const params = new URLSearchParams(location.search);
+    const path = normalizePath(params.get("p") ?? "");
+    state.currentPath = path;
+    applySortForPath(path);
+    updateFolderPathDisplay();
     void renderFilePicker();
-    const id = new URLSearchParams(location.search).get("f");
+    const id = params.get("f");
     if (!id || id === state.currentFileId) return;
     const saved = await loadAudioById(id);
     if (saved) processArrayBuffer(saved.buffer, saved.name, id, false);
@@ -10692,7 +10876,7 @@
         const decoded = normalizeAudio(trimSilence(raw));
         const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
         await saveBeatCache(f.id, bpm, ticks);
-        await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, !!hintBPM, hintBPM);
+        await saveAudioFile(saved.buffer, f.name, f.id, f.folder ?? "", decoded.duration, bpm, !!hintBPM, hintBPM);
         countsEl.textContent = `${i + 1} / ${total} done`;
       } catch (e) {
         console.error(`batch decode failed for ${f.name}:`, e);
@@ -10746,7 +10930,7 @@
         const decoded = normalizeAudio(trimSilence(raw));
         const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
         await saveBeatCache(f.id, bpm, ticks);
-        await saveAudioFile(saved.buffer, f.name, f.id, decoded.duration, bpm, true, f.bpmAPIHint);
+        await saveAudioFile(saved.buffer, f.name, f.id, f.folder ?? "", decoded.duration, bpm, true, f.bpmAPIHint);
         fixed++;
         countsEl.textContent = `${fixed} fixed`;
       } catch (e) {
@@ -10817,15 +11001,52 @@
       runNormalize().catch(console.error);
       return;
     }
-    readUrlSort();
-    loadAllFilesMeta().then(async (files) => {
-      renderFilePicker().catch((e) => console.error("renderFilePicker failed:", e));
-      if (files.length === 0) return;
-      const urlId = new URLSearchParams(location.search).get("f");
-      const target = urlId && files.find((f) => f.id === urlId) ? urlId : files.sort((a, b) => b.addedAt - a.addedAt)[0].id;
-      const saved2 = await loadAudioById(target);
-      if (saved2) processArrayBuffer(saved2.buffer, saved2.name, target, false);
-    }).catch((e) => console.error("init loadAllFilesMeta failed:", e));
+    (async () => {
+      try {
+        const allMeta = await loadAllFilesMeta();
+        const needsMigration = allMeta.some((f) => f.folder == null);
+        if (needsMigration) {
+          await saveFolder("Default");
+          for (const f of allMeta) {
+            if (f.folder == null) await updateFileFolder(f.id, "Default");
+          }
+        }
+        const params = new URLSearchParams(location.search);
+        const urlPath = normalizePath(params.get("p") ?? "");
+        const urlId = params.get("f");
+        const files = await loadAllFilesMeta();
+        let target = null;
+        const matchedById = urlId ? files.find((f) => f.id === urlId) ?? null : null;
+        if (params.has("p")) {
+          state.currentPath = urlPath;
+        } else if (matchedById) {
+          state.currentPath = matchedById.folder ?? "";
+        } else {
+          state.currentPath = "";
+        }
+        if (matchedById) {
+          target = matchedById.id;
+        } else {
+          const inFolder = files.filter((f) => (f.folder ?? "") === state.currentPath);
+          if (inFolder.length > 0) {
+            target = inFolder.sort((a, b) => b.addedAt - a.addedAt)[0].id;
+          } else if (!params.has("p") && !params.has("f") && files.length > 0) {
+            const recent = [...files].sort((a, b) => b.addedAt - a.addedAt)[0];
+            state.currentPath = recent.folder ?? "";
+            target = recent.id;
+          }
+        }
+        applySortForPath(state.currentPath);
+        updateFolderPathDisplay();
+        renderFilePicker().catch((e) => console.error("renderFilePicker failed:", e));
+        if (target) {
+          const saved2 = await loadAudioById(target);
+          if (saved2) processArrayBuffer(saved2.buffer, saved2.name, target, false);
+        }
+      } catch (e) {
+        console.error("init failed:", e);
+      }
+    })();
   })();
 })();
 /*! Bundled license information:

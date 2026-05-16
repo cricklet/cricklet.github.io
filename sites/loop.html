@@ -679,6 +679,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 12px;
     }
 
     #file-picker-footer a {
@@ -690,7 +691,24 @@
       color: rgba(128, 128, 128, 0.75);
     }
 
-    #clear-all-btn {
+    #fp-path {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-color);
+      opacity: 0.7;
+    }
+
+    #fp-footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    #add-folder-btn {
       font-family: 'Reddit Mono', monospace;
       font-size: 0.7rem;
       color: rgba(128, 128, 128, 0.45);
@@ -700,8 +718,24 @@
       padding: 0;
     }
 
-    #clear-all-btn:hover {
-      color: rgba(200, 80, 80, 0.8);
+    #add-folder-btn:hover {
+      color: var(--text-color);
+    }
+
+    #file-picker-table tbody tr.fp-folder-row td,
+    #file-picker-table tbody tr.fp-up-row td {
+      color: var(--text-color);
+      opacity: 0.85;
+    }
+
+    #file-picker-table tbody tr.fp-folder-row,
+    #file-picker-table tbody tr.fp-up-row {
+      cursor: pointer;
+    }
+
+    .fp-delete-btn:disabled {
+      opacity: 0.2;
+      cursor: not-allowed;
     }
 
     #file-picker-table td.fp-del-cell {
@@ -994,8 +1028,11 @@
       </table>
     </div>
     <div id="file-picker-footer">
-      <a href="https://getsongbpm.com" target="_blank" rel="noopener">Thanks GetSongBPM.com!</a>
-      <button id="clear-all-btn" type="button">(clear all)</button>
+      <div id="fp-path" title="Current folder">/</div>
+      <div id="fp-footer-actions">
+        <button id="add-folder-btn" type="button" title="New folder in this path">+ folder</button>
+        <a href="https://getsongbpm.com" target="_blank" rel="noopener">GetSongBPM</a>
+      </div>
     </div>
   </div>
 
