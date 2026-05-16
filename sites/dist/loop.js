@@ -8443,22 +8443,7 @@
   var statusHint = document.getElementById("status-hint");
   var detectedTick = document.getElementById("detected-tick");
   var detectedBpmInput = document.getElementById("detected-bpm-input");
-  var activeLoopCard = null;
-  var loopBetween = null;
-  var loopHint = null;
-  var loopPlayhead = null;
-  var loopPausedPlayhead = null;
-  var loopStartLabel = null;
-  var loopEndLabel = null;
-  var loopLengthInput = null;
-  var loopStartInput = null;
-  var loopEndInput = null;
-  var loopStartHandle = null;
-  var loopEndHandle = null;
-  var loopPlayheadTime = null;
-  var loopPausedPlayheadTime = null;
-  var loopStartTime = null;
-  var loopEndTime = null;
+  var active = null;
   function formatTime(secs) {
     if (!isFinite(secs) || secs < 0) secs = 0;
     const m = Math.floor(secs / 60);
@@ -8467,8 +8452,8 @@
   }
   var PLAYHEAD_TIME_HIDE_PX = 44;
   function updatePlayheadTimeSide(el, bufferPosSecs) {
-    if (!el || !activeLoopCard || !state.originalBuffer) return;
-    const cardW = activeLoopCard.clientWidth;
+    if (!el || !active || !state.originalBuffer) return;
+    const cardW = active.card.clientWidth;
     if (cardW <= 0) return;
     const beatDur = beatDurationSecs();
     const [viewStart, viewEnd] = activeViewRangeBeats();
@@ -8489,17 +8474,18 @@
   }
   function setPausedPos(pos) {
     state.pausedBufferPos = pos;
-    if (loopPausedPlayhead && state.originalBuffer) {
-      loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pos), 0, 1) * 100}%`;
-    }
-    if (loopPausedPlayheadTime) loopPausedPlayheadTime.textContent = formatTime(pos);
-    updatePlayheadTimeSide(loopPausedPlayheadTime, pos);
+    refreshPlayheadUI();
   }
-  function updatePlayheadTime() {
-    if (!loopPlayheadTime || !state.originalBuffer) return;
-    const pos = currentLoopedBufferPos();
-    loopPlayheadTime.textContent = formatTime(pos);
-    updatePlayheadTimeSide(loopPlayheadTime, pos);
+  function refreshPlayheadUI() {
+    if (!active || !state.originalBuffer) return;
+    const livePos = currentLoopedBufferPos();
+    const pausedPos = state.pausedBufferPos;
+    active.playhead.style.left = `${clamp(bufferSecsToViewFrac(livePos), 0, 1) * 100}%`;
+    active.pausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pausedPos), 0, 1) * 100}%`;
+    active.playheadTime.textContent = formatTime(livePos);
+    active.pausedPlayheadTime.textContent = formatTime(pausedPos);
+    updatePlayheadTimeSide(active.playheadTime, livePos);
+    updatePlayheadTimeSide(active.pausedPlayheadTime, pausedPos);
   }
   function setBpmDisplay(bpm) {
     bpmReadout.textContent = `${Math.round(bpm)} BPM`;
@@ -8679,8 +8665,8 @@
     dragViewEnd = null;
   }
   function redrawActiveWaveform() {
-    if (!activeLoopCard) return;
-    const canvas = activeLoopCard.querySelector(".loop-waveform");
+    if (!active) return;
+    const canvas = active.card.querySelector(".loop-waveform");
     const total = totalBeats();
     if (!canvas || total <= 0) return;
     const [viewStart, viewEnd] = activeViewRangeBeats();
@@ -8696,7 +8682,7 @@
     return state.loopEndBeats * beatDurationSecs();
   }
   function updateActiveLoopCardDisplay() {
-    if (!loopBetween || !loopHint || !loopStartLabel || !loopEndLabel) return;
+    if (!active) return;
     const total = totalBeats();
     if (total === 0) return;
     const [viewStart, viewEnd] = activeViewRangeBeats();
@@ -8705,23 +8691,19 @@
     const startFrac = (state.loopStartBeats - viewStart) / viewSpan;
     const endFrac = (state.loopEndBeats - viewStart) / viewSpan;
     const beats = state.loopEndBeats - state.loopStartBeats;
-    loopBetween.style.left = `${startFrac * 100}%`;
-    loopBetween.style.width = `${(endFrac - startFrac) * 100}%`;
-    loopHint.textContent = String(beats);
-    loopStartLabel.textContent = String(state.loopStartBeats);
-    loopStartLabel.style.left = `${startFrac * 100}%`;
-    loopEndLabel.textContent = String(state.loopEndBeats);
-    loopEndLabel.style.left = `${endFrac * 100}%`;
-    if (loopStartHandle) loopStartHandle.style.left = `${startFrac * 100}%`;
-    if (loopEndHandle) loopEndHandle.style.left = `${endFrac * 100}%`;
-    if (loopStartTime) {
-      loopStartTime.style.left = `${startFrac * 100}%`;
-      loopStartTime.textContent = formatTime(loopStartSecs());
-    }
-    if (loopEndTime) {
-      loopEndTime.style.left = `${endFrac * 100}%`;
-      loopEndTime.textContent = formatTime(loopEndSecs());
-    }
+    active.between.style.left = `${startFrac * 100}%`;
+    active.between.style.width = `${(endFrac - startFrac) * 100}%`;
+    active.hint.textContent = String(beats);
+    active.startLabel.textContent = String(state.loopStartBeats);
+    active.startLabel.style.left = `${startFrac * 100}%`;
+    active.endLabel.textContent = String(state.loopEndBeats);
+    active.endLabel.style.left = `${endFrac * 100}%`;
+    active.startHandle.style.left = `${startFrac * 100}%`;
+    active.endHandle.style.left = `${endFrac * 100}%`;
+    active.startTime.style.left = `${startFrac * 100}%`;
+    active.startTime.textContent = formatTime(loopStartSecs());
+    active.endTime.style.left = `${endFrac * 100}%`;
+    active.endTime.textContent = formatTime(loopEndSecs());
   }
   function updateInactiveCardDisplay(card, loop) {
     const between = card.querySelector(".loop-between");
@@ -8764,12 +8746,7 @@
   }
   function tickPlayhead() {
     if (!state.isPlaying || !state.originalBuffer) return;
-    const pos = currentLoopedBufferPos();
-    if (loopPlayhead) loopPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pos), 0, 1) * 100}%`;
-    if (loopPlayheadTime && state.showTimes) {
-      loopPlayheadTime.textContent = formatTime(pos);
-      updatePlayheadTimeSide(loopPlayheadTime, pos);
-    }
+    refreshPlayheadUI();
     playheadRaf = requestAnimationFrame(tickPlayhead);
   }
   function startPlayhead() {
@@ -8795,8 +8772,7 @@
     state.loopEndBeats = newEnd;
     updateActiveLoopCardDisplay();
     if (state.zoomActive && dragViewStart == null) redrawActiveWaveform();
-    updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
-    if (state.isPlaying) updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
+    refreshPlayheadUI();
     if (state.currentSource) {
       state.currentSource.loopStart = loopStartSecs();
       state.currentSource.loopEnd = loopEndSecs();
@@ -9054,8 +9030,7 @@
     if (btn) btn.classList.toggle("active", enabled);
     if (enabled) {
       updateActiveLoopCardDisplay();
-      updatePlayheadTime();
-      if (loopPausedPlayheadTime) loopPausedPlayheadTime.textContent = formatTime(state.pausedBufferPos);
+      refreshPlayheadUI();
     }
     if (persist) {
       try {
@@ -9298,34 +9273,21 @@
   volumeSection.addEventListener("lostpointercapture", () => {
     dragTarget = null;
   });
-  var loopDragActive = false;
-  var loopDragStartX = 0;
-  var loopDragStartBeats = 0;
-  var loopDragSpan = 0;
-  var loopDragDidMove = false;
-  var loopDragInitialTarget = null;
-  var loopDragClickJumpBeats = -1;
-  var loopDragDisableMove = false;
-  var resizeDragActive = false;
-  var resizeDragSide = "start";
-  var resizeDragStartX = 0;
-  var resizeDragStartBeats = 0;
-  var resizeDragClickBeats = 0;
-  var resizeDragStarted = false;
+  var pointerInteraction = null;
   var EDGE_DRAG_THRESHOLD_PX = 32;
   function enterLoopLengthEdit() {
-    if (!loopLengthInput || !loopHint) return;
+    if (!active) return;
     commitLoopStartEdit();
     commitLoopEndEdit();
-    const card = loopHint.closest(".loop-card");
+    const { hint, lengthInput, card } = active;
     const cardRect = card.getBoundingClientRect();
-    const hintRect = loopHint.getBoundingClientRect();
-    loopLengthInput.style.left = `${(hintRect.left + hintRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
-    loopLengthInput.value = String(state.loopEndBeats - state.loopStartBeats);
-    loopLengthInput.style.display = "block";
-    loopHint.style.visibility = "hidden";
-    loopLengthInput.focus();
-    loopLengthInput.select();
+    const hintRect = hint.getBoundingClientRect();
+    lengthInput.style.left = `${(hintRect.left + hintRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
+    lengthInput.value = String(state.loopEndBeats - state.loopStartBeats);
+    lengthInput.style.display = "block";
+    hint.style.visibility = "hidden";
+    lengthInput.focus();
+    lengthInput.select();
   }
   function evalRelative(expr, current) {
     const trimmed = expr.trim();
@@ -9350,32 +9312,32 @@
     }
   }
   function commitLoopLengthEdit() {
-    if (!loopLengthInput || loopLengthInput.style.display === "none") return;
-    const v = evalArithmetic(loopLengthInput.value.trim());
+    if (!active || active.lengthInput.style.display === "none") return;
+    const v = evalArithmetic(active.lengthInput.value.trim());
     if (v !== null && v >= 1) {
       pushUndo();
       setLoopPoints(state.loopStartBeats, state.loopStartBeats + Math.round(v));
     }
-    loopLengthInput.style.display = "none";
-    if (loopHint) loopHint.style.visibility = "";
+    active.lengthInput.style.display = "none";
+    active.hint.style.visibility = "";
   }
   function enterLoopStartEdit() {
-    if (!loopStartInput || !loopStartLabel) return;
+    if (!active) return;
     commitLoopLengthEdit();
     commitLoopEndEdit();
-    const card = loopStartLabel.closest(".loop-card");
+    const { startLabel, startInput, card } = active;
     const cardRect = card.getBoundingClientRect();
-    const lblRect = loopStartLabel.getBoundingClientRect();
-    loopStartInput.style.left = `${(lblRect.left + lblRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
-    loopStartInput.value = String(state.loopStartBeats);
-    loopStartInput.style.display = "block";
-    loopStartLabel.style.visibility = "hidden";
-    loopStartInput.focus();
-    loopStartInput.select();
+    const lblRect = startLabel.getBoundingClientRect();
+    startInput.style.left = `${(lblRect.left + lblRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
+    startInput.value = String(state.loopStartBeats);
+    startInput.style.display = "block";
+    startLabel.style.visibility = "hidden";
+    startInput.focus();
+    startInput.select();
   }
   function commitLoopStartEdit() {
-    if (!loopStartInput || loopStartInput.style.display === "none") return;
-    const v = evalRelative(loopStartInput.value.trim(), state.loopStartBeats);
+    if (!active || active.startInput.style.display === "none") return;
+    const v = evalRelative(active.startInput.value.trim(), state.loopStartBeats);
     if (v !== null) {
       const newStart = Math.round(v);
       if (newStart !== state.loopStartBeats) {
@@ -9387,26 +9349,26 @@
         }
       }
     }
-    loopStartInput.style.display = "none";
-    if (loopStartLabel) loopStartLabel.style.visibility = "";
+    active.startInput.style.display = "none";
+    active.startLabel.style.visibility = "";
   }
   function enterLoopEndEdit() {
-    if (!loopEndInput || !loopEndLabel) return;
+    if (!active) return;
     commitLoopLengthEdit();
     commitLoopStartEdit();
-    const card = loopEndLabel.closest(".loop-card");
+    const { endLabel, endInput, card } = active;
     const cardRect = card.getBoundingClientRect();
-    const lblRect = loopEndLabel.getBoundingClientRect();
-    loopEndInput.style.left = `${(lblRect.left + lblRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
-    loopEndInput.value = String(state.loopEndBeats);
-    loopEndInput.style.display = "block";
-    loopEndLabel.style.visibility = "hidden";
-    loopEndInput.focus();
-    loopEndInput.select();
+    const lblRect = endLabel.getBoundingClientRect();
+    endInput.style.left = `${(lblRect.left + lblRect.width / 2 - cardRect.left) / cardRect.width * 100}%`;
+    endInput.value = String(state.loopEndBeats);
+    endInput.style.display = "block";
+    endLabel.style.visibility = "hidden";
+    endInput.focus();
+    endInput.select();
   }
   function commitLoopEndEdit() {
-    if (!loopEndInput || loopEndInput.style.display === "none") return;
-    const v = evalRelative(loopEndInput.value.trim(), state.loopEndBeats);
+    if (!active || active.endInput.style.display === "none") return;
+    const v = evalRelative(active.endInput.value.trim(), state.loopEndBeats);
     if (v !== null) {
       const newEnd = Math.round(v);
       if (newEnd !== state.loopEndBeats && newEnd > state.loopStartBeats) {
@@ -9414,41 +9376,22 @@
         setLoopPoints(state.loopStartBeats, newEnd);
       }
     }
-    loopEndInput.style.display = "none";
-    if (loopEndLabel) loopEndLabel.style.visibility = "";
+    active.endInput.style.display = "none";
+    active.endLabel.style.visibility = "";
   }
   function setupActiveCardDrag(card) {
-    function clearResizeDrag() {
+    function clearInteraction() {
       const hadSnapshot = dragViewStart != null;
-      resizeDragActive = false;
-      resizeDragStarted = false;
-      loopDragDidMove = false;
-      loopDragInitialTarget = null;
-      card.classList.remove("resizing");
+      const wasResize = pointerInteraction?.kind === "resize";
+      pointerInteraction = null;
+      card.classList.remove(wasResize ? "resizing" : "dragging");
       card.style.cursor = "";
-      if (loopStartHandle) {
-        loopStartHandle.style.opacity = "0";
-        loopStartHandle.classList.remove("active");
+      if (wasResize && active) {
+        active.startHandle.style.opacity = "0";
+        active.startHandle.classList.remove("active");
+        active.endHandle.style.opacity = "0";
+        active.endHandle.classList.remove("active");
       }
-      if (loopEndHandle) {
-        loopEndHandle.style.opacity = "0";
-        loopEndHandle.classList.remove("active");
-      }
-      clearDragView();
-      if (hadSnapshot) {
-        updateActiveLoopCardDisplay();
-        redrawActiveWaveform();
-      }
-    }
-    function clearLoopDrag() {
-      const hadSnapshot = dragViewStart != null;
-      loopDragActive = false;
-      loopDragDidMove = false;
-      loopDragInitialTarget = null;
-      loopDragClickJumpBeats = -1;
-      loopDragDisableMove = false;
-      card.classList.remove("dragging");
-      card.style.cursor = "";
       clearDragView();
       if (hadSnapshot) {
         updateActiveLoopCardDisplay();
@@ -9459,7 +9402,7 @@
       if (!state.originalBuffer) return;
       if (e.target.closest(".loop-icon-btn, .loop-beat-label, .loop-resize-handle")) return;
       const focused = document.activeElement;
-      if (focused === loopLengthInput || focused === loopStartInput || focused === loopEndInput) return;
+      if (active && (focused === active.lengthInput || focused === active.startInput || focused === active.endInput)) return;
       const r = card.getBoundingClientRect();
       const total = totalBeats();
       const [viewStart, viewEnd] = activeViewRangeBeats();
@@ -9472,169 +9415,155 @@
       const distToEndPx = Math.abs(e.clientX - endPx);
       const nearEdge = insideLoop && Math.min(distToStartPx, distToEndPx) <= EDGE_DRAG_THRESHOLD_PX;
       if (nearEdge) {
+        const side = distToStartPx <= distToEndPx ? "start" : "end";
         card.setPointerCapture(e.pointerId);
-        resizeDragActive = true;
-        resizeDragStarted = false;
-        resizeDragSide = distToStartPx <= distToEndPx ? "start" : "end";
-        resizeDragStartX = e.clientX;
-        resizeDragStartBeats = resizeDragSide === "start" ? state.loopStartBeats : state.loopEndBeats;
-        resizeDragClickBeats = clickBeats;
-        loopDragDidMove = false;
-        loopDragInitialTarget = e.target;
+        pointerInteraction = {
+          kind: "resize",
+          side,
+          startX: e.clientX,
+          startBeats: side === "start" ? state.loopStartBeats : state.loopEndBeats,
+          clickBeats,
+          didMove: false,
+          committed: false,
+          initialTarget: e.target
+        };
         return;
       }
       if (state.zoomActive || insideLoop) {
         card.setPointerCapture(e.pointerId);
-        loopDragActive = true;
-        loopDragStartX = e.clientX;
-        loopDragStartBeats = state.loopStartBeats;
-        loopDragSpan = state.loopEndBeats - state.loopStartBeats;
-        loopDragDidMove = false;
-        loopDragInitialTarget = e.target;
-        loopDragClickJumpBeats = clickBeats;
-        loopDragDisableMove = true;
+        pointerInteraction = {
+          kind: "move",
+          startX: e.clientX,
+          startBeats: state.loopStartBeats,
+          span: state.loopEndBeats - state.loopStartBeats,
+          didMove: false,
+          initialTarget: e.target,
+          clickJumpBeats: clickBeats,
+          disableMove: true
+        };
         return;
       }
       pushUndo();
       card.setPointerCapture(e.pointerId);
-      loopDragActive = true;
-      loopDragStartX = e.clientX;
-      loopDragStartBeats = state.loopStartBeats;
-      loopDragSpan = state.loopEndBeats - state.loopStartBeats;
-      loopDragDidMove = false;
-      loopDragInitialTarget = e.target;
-      loopDragClickJumpBeats = -1;
-      loopDragDisableMove = false;
+      pointerInteraction = {
+        kind: "move",
+        startX: e.clientX,
+        startBeats: state.loopStartBeats,
+        span: state.loopEndBeats - state.loopStartBeats,
+        didMove: false,
+        initialTarget: e.target,
+        clickJumpBeats: -1,
+        disableMove: false
+      };
       card.classList.add("dragging");
+      card.style.cursor = "grabbing";
     });
     card.addEventListener("pointermove", (e) => {
-      if (resizeDragActive) {
-        if (e.clientX !== resizeDragStartX) loopDragDidMove = true;
-        if (!loopDragDidMove) return;
-        if (!resizeDragStarted) {
-          resizeDragStarted = true;
+      const pi = pointerInteraction;
+      if (pi?.kind === "resize") {
+        if (e.clientX !== pi.startX) pi.didMove = true;
+        if (!pi.didMove) return;
+        if (!pi.committed) {
+          pi.committed = true;
           pushUndo();
           snapshotDragView();
           card.classList.add("resizing");
           card.style.cursor = "ew-resize";
-          const activeHandle = resizeDragSide === "start" ? loopStartHandle : loopEndHandle;
-          const inactiveHandle = resizeDragSide === "start" ? loopEndHandle : loopStartHandle;
-          if (activeHandle) {
+          if (active) {
+            const activeHandle = pi.side === "start" ? active.startHandle : active.endHandle;
+            const inactiveHandle = pi.side === "start" ? active.endHandle : active.startHandle;
             activeHandle.style.opacity = "1";
             activeHandle.classList.add("active");
+            inactiveHandle.style.opacity = "0";
           }
-          if (inactiveHandle) inactiveHandle.style.opacity = "0";
         }
         const r2 = card.getBoundingClientRect();
         const total2 = totalBeats();
         const [viewStart2, viewEnd2] = activeViewRangeBeats();
         const viewSpan2 = viewEnd2 - viewStart2;
-        const deltaBeats = Math.round((e.clientX - resizeDragStartX) / r2.width * viewSpan2);
-        const newBeats = resizeDragStartBeats + deltaBeats;
-        if (resizeDragSide === "start") {
+        const deltaBeats = Math.round((e.clientX - pi.startX) / r2.width * viewSpan2);
+        const newBeats = pi.startBeats + deltaBeats;
+        if (pi.side === "start") {
           setLoopPoints(clamp(newBeats, 0, state.loopEndBeats - 1), state.loopEndBeats);
         } else {
           setLoopPoints(state.loopStartBeats, clamp(newBeats, state.loopStartBeats + 1, total2));
         }
         return;
       }
-      if (loopDragActive) {
-        if (e.clientX !== loopDragStartX) loopDragDidMove = true;
-        if (!loopDragDidMove) return;
-        if (loopDragDisableMove) return;
+      if (pi?.kind === "move") {
+        if (e.clientX !== pi.startX) pi.didMove = true;
+        if (!pi.didMove) return;
+        if (pi.disableMove) return;
         const r2 = card.getBoundingClientRect();
         const total2 = totalBeats();
         const [viewStart2, viewEnd2] = activeViewRangeBeats();
         const viewSpan2 = viewEnd2 - viewStart2;
-        const deltaBeats = Math.round((e.clientX - loopDragStartX) / r2.width * viewSpan2);
-        const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total2 - loopDragSpan);
-        setLoopPoints(newStart, newStart + loopDragSpan);
+        const deltaBeats = Math.round((e.clientX - pi.startX) / r2.width * viewSpan2);
+        const newStart = clamp(pi.startBeats + deltaBeats, 0, total2 - pi.span);
+        setLoopPoints(newStart, newStart + pi.span);
         return;
       }
       const r = card.getBoundingClientRect();
       const total = totalBeats();
       const [viewStart, viewEnd] = activeViewRangeBeats();
       const viewSpan = viewEnd - viewStart;
-      if (total > 0 && r.width > 0 && viewSpan > 0 && loopStartHandle && loopEndHandle) {
+      if (total > 0 && r.width > 0 && viewSpan > 0 && active) {
+        const hoverBeats = viewStart + (e.clientX - r.left) / r.width * viewSpan;
+        const insideLoop = hoverBeats >= state.loopStartBeats && hoverBeats <= state.loopEndBeats;
         const startPx = r.left + (state.loopStartBeats - viewStart) / viewSpan * r.width;
         const endPx = r.left + (state.loopEndBeats - viewStart) / viewSpan * r.width;
         const distStart = Math.abs(e.clientX - startPx);
         const distEnd = Math.abs(e.clientX - endPx);
-        const within = Math.min(distStart, distEnd) <= EDGE_DRAG_THRESHOLD_PX;
-        if (within) {
+        const nearEdge = insideLoop && Math.min(distStart, distEnd) <= EDGE_DRAG_THRESHOLD_PX;
+        if (nearEdge) {
           const nearStart = distStart <= distEnd;
-          loopStartHandle.style.opacity = nearStart ? "1" : "0";
-          loopEndHandle.style.opacity = nearStart ? "0" : "1";
+          active.startHandle.style.opacity = nearStart ? "1" : "0";
+          active.endHandle.style.opacity = nearStart ? "0" : "1";
           card.style.cursor = "ew-resize";
         } else {
-          loopStartHandle.style.opacity = "0";
-          loopEndHandle.style.opacity = "0";
-          card.style.cursor = "";
+          active.startHandle.style.opacity = "0";
+          active.endHandle.style.opacity = "0";
+          card.style.cursor = !state.zoomActive && !insideLoop ? "grab" : "";
         }
       }
     });
     card.addEventListener("pointerleave", () => {
-      if (resizeDragActive || loopDragActive) return;
-      if (loopStartHandle) loopStartHandle.style.opacity = "0";
-      if (loopEndHandle) loopEndHandle.style.opacity = "0";
+      if (pointerInteraction) return;
+      if (active) {
+        active.startHandle.style.opacity = "0";
+        active.endHandle.style.opacity = "0";
+      }
       card.style.cursor = "";
     });
     card.addEventListener("lostpointercapture", () => {
-      if (resizeDragActive) clearResizeDrag();
-      if (loopDragActive) clearLoopDrag();
+      if (pointerInteraction) clearInteraction();
     });
     card.addEventListener("pointerup", (e) => {
-      if (resizeDragActive) {
-        const didDrag = loopDragDidMove;
-        const initialTarget2 = loopDragInitialTarget;
-        try {
-          card.releasePointerCapture(e.pointerId);
-        } catch (err2) {
-          console.error("releasePointerCapture failed:", err2);
-        }
-        clearResizeDrag();
-        if (!didDrag && initialTarget2?.closest(".loop-hint")) {
-          enterLoopLengthEdit();
-          return;
-        }
-        if (!didDrag && state.rbNode) {
-          const clickSecs = resizeDragClickBeats * beatDurationSecs();
-          const wasPlaying = state.isPlaying;
-          stopSource();
-          if (wasPlaying) startSource(clickSecs);
-          else setPausedPos(clickSecs);
-          return;
-        }
-        if (didDrag && state.originalBuffer && state.rbNode) {
-          const wasPlaying = state.isPlaying;
-          stopSource();
-          if (wasPlaying) startSource(loopStartSecs());
-          else setPausedPos(loopStartSecs());
-        }
-        return;
-      }
-      const didMove = loopDragDidMove;
-      const initialTarget = loopDragInitialTarget;
-      const clickJumpBeats = loopDragClickJumpBeats;
+      const pi = pointerInteraction;
+      if (!pi) return;
+      const didMove = pi.didMove;
+      const initialTarget = pi.initialTarget;
+      const jumpBeats = pi.kind === "resize" ? pi.clickBeats : pi.clickJumpBeats;
+      const movedLoop = pi.kind === "resize" ? didMove : didMove && !pi.disableMove;
       try {
         card.releasePointerCapture(e.pointerId);
       } catch (err2) {
         console.error("releasePointerCapture failed:", err2);
       }
-      clearLoopDrag();
+      clearInteraction();
       if (!didMove && initialTarget?.closest(".loop-hint")) {
         enterLoopLengthEdit();
         return;
       }
-      if (!didMove && clickJumpBeats >= 0 && state.rbNode) {
-        const clickSecs = clickJumpBeats * beatDurationSecs();
+      if (!didMove && jumpBeats >= 0 && state.rbNode) {
+        const clickSecs = jumpBeats * beatDurationSecs();
         const wasPlaying = state.isPlaying;
         stopSource();
         if (wasPlaying) startSource(clickSecs);
         else setPausedPos(clickSecs);
         return;
       }
-      if (didMove && state.originalBuffer && state.rbNode) {
+      if (movedLoop && state.originalBuffer && state.rbNode) {
         const wasPlaying = state.isPlaying;
         stopSource();
         if (wasPlaying) startSource(loopStartSecs());
@@ -9647,8 +9576,7 @@
       } catch (err2) {
         console.error("releasePointerCapture failed:", err2);
       }
-      if (resizeDragActive) clearResizeDrag();
-      if (loopDragActive) clearLoopDrag();
+      if (pointerInteraction) clearInteraction();
     });
   }
   function setupHandleDrag(card, startHandle, endHandle) {
@@ -9658,30 +9586,28 @@
       pushUndo();
       snapshotDragView();
       card.setPointerCapture(e.pointerId);
-      resizeDragActive = true;
-      resizeDragStarted = true;
-      resizeDragSide = side;
-      resizeDragStartX = e.clientX;
-      resizeDragStartBeats = side === "start" ? state.loopStartBeats : state.loopEndBeats;
-      loopDragDidMove = false;
+      const startBeats = side === "start" ? state.loopStartBeats : state.loopEndBeats;
+      pointerInteraction = {
+        kind: "resize",
+        side,
+        startX: e.clientX,
+        startBeats,
+        clickBeats: startBeats,
+        didMove: false,
+        committed: true,
+        initialTarget: null
+      };
       card.classList.add("resizing");
     }
     startHandle.addEventListener("pointerdown", (e) => onDown(e, "start"));
     endHandle.addEventListener("pointerdown", (e) => onDown(e, "end"));
   }
-  function setZoom(active) {
-    if (!state.originalBuffer || state.zoomActive === active) return;
-    state.zoomActive = active;
+  function setZoom(zoom) {
+    if (!state.originalBuffer || state.zoomActive === zoom) return;
+    state.zoomActive = zoom;
     updateActiveLoopCardDisplay();
     redrawActiveWaveform();
-    if (loopPlayhead) {
-      loopPlayhead.style.left = `${clamp(bufferSecsToViewFrac(currentLoopedBufferPos()), 0, 1) * 100}%`;
-    }
-    if (loopPausedPlayhead) {
-      loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(state.pausedBufferPos), 0, 1) * 100}%`;
-    }
-    updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
-    updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
+    refreshPlayheadUI();
   }
   function switchToLoop(id) {
     if (id === state.activeLoopId) return;
@@ -9705,9 +9631,9 @@
   function addLoop() {
     if (!state.originalBuffer) return;
     syncStateToActiveLoop();
-    const active = state.loops.find((l) => l.id === state.activeLoopId);
+    const active2 = state.loops.find((l) => l.id === state.activeLoopId);
     const newId = genId();
-    const newLoop = active ? { id: newId, startBeats: active.startBeats, endBeats: active.endBeats, targetBPM: active.targetBPM } : { id: newId, startBeats: 0, endBeats: totalBeats(), targetBPM: state.detectedBPM };
+    const newLoop = active2 ? { id: newId, startBeats: active2.startBeats, endBeats: active2.endBeats, targetBPM: active2.targetBPM } : { id: newId, startBeats: 0, endBeats: totalBeats(), targetBPM: state.detectedBPM };
     state.loops.push(newLoop);
     state.activeLoopId = newId;
     state.zoomActive = false;
@@ -9745,22 +9671,7 @@
     commitLoopLengthEdit();
     commitLoopStartEdit();
     commitLoopEndEdit();
-    activeLoopCard = null;
-    loopBetween = null;
-    loopHint = null;
-    loopPlayhead = null;
-    loopPausedPlayhead = null;
-    loopStartLabel = null;
-    loopEndLabel = null;
-    loopLengthInput = null;
-    loopStartInput = null;
-    loopEndInput = null;
-    loopStartHandle = null;
-    loopEndHandle = null;
-    loopPlayheadTime = null;
-    loopPausedPlayheadTime = null;
-    loopStartTime = null;
-    loopEndTime = null;
+    active = null;
     container.innerHTML = "";
     for (const loop of state.loops) {
       const isActive = loop.id === state.activeLoopId;
@@ -9836,33 +9747,6 @@
       icons.appendChild(delBtn);
       card.appendChild(icons);
       if (isActive) {
-        activeLoopCard = card;
-        loopBetween = between;
-        loopHint = hint;
-        loopPlayhead = playhead;
-        loopPausedPlayhead = pausedPlayhead;
-        loopPlayheadTime = playheadTime;
-        loopPausedPlayheadTime = pausedTime;
-        loopStartTime = startTimeEl;
-        loopEndTime = endTimeEl;
-        setPausedPos(state.pausedBufferPos);
-        loopStartLabel = startLbl;
-        loopEndLabel = endLbl;
-        loopLengthInput = input;
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            commitLoopLengthEdit();
-            e.preventDefault();
-          }
-          if (e.key === "Escape") {
-            if (loopLengthInput) loopLengthInput.style.display = "none";
-            if (loopHint) loopHint.style.visibility = "";
-            input.blur();
-            e.preventDefault();
-          }
-        });
-        input.addEventListener("blur", commitLoopLengthEdit);
-        input.addEventListener("pointerdown", (e) => e.stopPropagation());
         const startInput = document.createElement("input");
         startInput.className = "loop-start-input";
         startInput.type = "text";
@@ -9871,7 +9755,6 @@
         startInput.spellcheck = false;
         startInput.style.display = "none";
         card.appendChild(startInput);
-        loopStartInput = startInput;
         const endInput = document.createElement("input");
         endInput.className = "loop-end-input";
         endInput.type = "text";
@@ -9880,7 +9763,45 @@
         endInput.spellcheck = false;
         endInput.style.display = "none";
         card.appendChild(endInput);
-        loopEndInput = endInput;
+        const startHandle = document.createElement("div");
+        startHandle.className = "loop-resize-handle";
+        card.appendChild(startHandle);
+        const endHandle = document.createElement("div");
+        endHandle.className = "loop-resize-handle";
+        card.appendChild(endHandle);
+        active = {
+          card,
+          between,
+          hint,
+          playhead,
+          pausedPlayhead,
+          playheadTime,
+          pausedPlayheadTime: pausedTime,
+          startTime: startTimeEl,
+          endTime: endTimeEl,
+          startLabel: startLbl,
+          endLabel: endLbl,
+          lengthInput: input,
+          startInput,
+          endInput,
+          startHandle,
+          endHandle
+        };
+        setPausedPos(state.pausedBufferPos);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            commitLoopLengthEdit();
+            e.preventDefault();
+          }
+          if (e.key === "Escape") {
+            input.style.display = "none";
+            hint.style.visibility = "";
+            input.blur();
+            e.preventDefault();
+          }
+        });
+        input.addEventListener("blur", commitLoopLengthEdit);
+        input.addEventListener("pointerdown", (e) => e.stopPropagation());
         startInput.addEventListener("keydown", (e) => {
           if (e.key === "Enter") {
             commitLoopStartEdit();
@@ -9891,7 +9812,7 @@
             enterLoopEndEdit();
           } else if (e.key === "Escape") {
             startInput.style.display = "none";
-            if (loopStartLabel) loopStartLabel.style.visibility = "";
+            startLbl.style.visibility = "";
             startInput.blur();
             e.preventDefault();
           }
@@ -9908,7 +9829,7 @@
             enterLoopStartEdit();
           } else if (e.key === "Escape") {
             endInput.style.display = "none";
-            if (loopEndLabel) loopEndLabel.style.visibility = "";
+            endLbl.style.visibility = "";
             endInput.blur();
             e.preventDefault();
           }
@@ -9919,14 +9840,6 @@
         startLbl.addEventListener("click", () => enterLoopStartEdit());
         endLbl.addEventListener("pointerdown", (e) => e.stopPropagation());
         endLbl.addEventListener("click", () => enterLoopEndEdit());
-        const startHandle = document.createElement("div");
-        startHandle.className = "loop-resize-handle";
-        card.appendChild(startHandle);
-        loopStartHandle = startHandle;
-        const endHandle = document.createElement("div");
-        endHandle.className = "loop-resize-handle";
-        card.appendChild(endHandle);
-        loopEndHandle = endHandle;
         setupActiveCardDrag(card);
         setupHandleDrag(card, startHandle, endHandle);
         updateActiveLoopCardDisplay();
@@ -9942,8 +9855,7 @@
     }
     addRow.style.display = state.originalBuffer ? "flex" : "none";
     updateRowHeight();
-    updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
-    if (state.isPlaying) updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
+    refreshPlayheadUI();
   }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && tapTimes.length > 0) {
@@ -10053,14 +9965,14 @@
       e.preventDefault();
       const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
       syncStateToActiveLoop();
-      const active = state.loops.find((l) => l.id === state.activeLoopId);
-      if (currentBeat >= active.endBeats) return;
+      const active2 = state.loops.find((l) => l.id === state.activeLoopId);
+      if (currentBeat >= active2.endBeats) return;
       const newId = genId();
       const newLoop = {
         id: newId,
-        startBeats: clamp(currentBeat, 0, active.endBeats - 1),
-        endBeats: active.endBeats,
-        targetBPM: active.targetBPM
+        startBeats: clamp(currentBeat, 0, active2.endBeats - 1),
+        endBeats: active2.endBeats,
+        targetBPM: active2.targetBPM
       };
       state.loops.push(newLoop);
       state.activeLoopId = newId;
@@ -10077,14 +9989,14 @@
       e.preventDefault();
       const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
       syncStateToActiveLoop();
-      const active = state.loops.find((l) => l.id === state.activeLoopId);
-      if (currentBeat <= active.startBeats) return;
+      const active2 = state.loops.find((l) => l.id === state.activeLoopId);
+      if (currentBeat <= active2.startBeats) return;
       const newId = genId();
       const newLoop = {
         id: newId,
-        startBeats: active.startBeats,
-        endBeats: clamp(currentBeat, active.startBeats + 1, totalBeats()),
-        targetBPM: active.targetBPM
+        startBeats: active2.startBeats,
+        endBeats: clamp(currentBeat, active2.startBeats + 1, totalBeats()),
+        targetBPM: active2.targetBPM
       };
       state.loops.push(newLoop);
       state.activeLoopId = newId;
