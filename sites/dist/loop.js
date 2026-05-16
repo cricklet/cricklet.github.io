@@ -8277,7 +8277,7 @@
       console.error("saveBeatCache failed:", e);
     }
   }
-  async function saveAudioFile(arrayBuffer, name, id, folder = "", duration, bpm, bpmFromAPI, bpmAPIHint, bpmTapped, bpmTapHint) {
+  async function saveAudioFile(arrayBuffer, name, id, folder = "", duration, bpm, bpmFromAPI, bpmAPIHint, bpmTapped, bpmTapHint, parentId) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], "readwrite");
@@ -8286,6 +8286,7 @@
         const existing = metaReq.result;
         const meta = { id, name, addedAt: existing?.addedAt ?? Date.now() };
         meta.folder = existing?.folder ?? folder;
+        meta.parentId = existing?.parentId ?? parentId;
         meta.duration = duration ?? existing?.duration;
         meta.bpm = bpm ?? existing?.bpm;
         meta.bpmFromAPI = bpmFromAPI ?? existing?.bpmFromAPI ?? false;
@@ -8299,6 +8300,22 @@
       tx.onerror = () => reject(tx.error);
     });
   }
+  async function loadStemsForParent(parentId) {
+    const all = await loadAllFilesMeta();
+    return all.filter((f) => f.parentId === parentId).sort((a, b) => a.addedAt - b.addedAt);
+  }
+  var STEM_SEP = "---";
+  function parseStemName(name) {
+    const dot = name.lastIndexOf(".");
+    const base = dot >= 0 ? name.slice(0, dot) : name;
+    const ext = dot >= 0 ? name.slice(dot) : "";
+    const sepIdx = base.indexOf(STEM_SEP);
+    if (sepIdx < 0) return null;
+    const parentBase = base.slice(0, sepIdx);
+    const suffix = base.slice(sepIdx);
+    if (!parentBase || !suffix || suffix === STEM_SEP) return null;
+    return { parentName: parentBase + ext, suffix };
+  }
   async function loadAllFilesMeta() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -8309,6 +8326,8 @@
     });
   }
   async function deleteAudioFile(id) {
+    const stems = await loadStemsForParent(id);
+    for (const s of stems) await deleteAudioFile(s.id);
     try {
       localStorage.removeItem(`loop_file_${id}`);
     } catch (e) {
@@ -8346,6 +8365,9 @@
   }
   var waveformPeaks = null;
   function computeWaveform(buffer2) {
+    waveformPeaks = computePeaks(buffer2);
+  }
+  function computePeaks(buffer2) {
     const buckets = 1200;
     const raw = new Float32Array(buckets);
     const nCh = buffer2.numberOfChannels;
@@ -8384,16 +8406,10 @@
       smoothed[b] = v;
     }
     for (let b = 0; b < buckets; b++) smoothed[b] = smoothed[b] ** 1.5;
-    waveformPeaks = smoothed;
+    return smoothed;
   }
-  function drawWaveformOnCanvas(canvas, startFrac = 0, endFrac = 1) {
-    if (!waveformPeaks) return;
-    const peaks = waveformPeaks;
-    const w = canvas.width;
-    const h = canvas.height;
-    const ctx2d = canvas.getContext("2d");
-    ctx2d.clearRect(0, 0, w, h);
-    ctx2d.fillStyle = "rgba(128, 128, 128, 0.18)";
+  function drawPeaksOnCanvas(ctx2d, peaks, w, h, startFrac, endFrac, fillStyle) {
+    ctx2d.fillStyle = fillStyle;
     const startB = startFrac * peaks.length;
     const span = (endFrac - startFrac) * peaks.length;
     for (let x = 0; x < w; x++) {
@@ -8401,6 +8417,20 @@
       const idx = clamp(b, 0, peaks.length - 1);
       const barH = Math.max(1, peaks[idx] * (h - 2) * 0.92);
       ctx2d.fillRect(x, h - barH, 1, barH);
+    }
+  }
+  function drawWaveformOnCanvas(canvas, startFrac = 0, endFrac = 1) {
+    if (!waveformPeaks) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    const ctx2d = canvas.getContext("2d");
+    ctx2d.clearRect(0, 0, w, h);
+    drawPeaksOnCanvas(ctx2d, waveformPeaks, w, h, startFrac, endFrac, "rgba(128, 128, 128, 0.18)");
+    for (const stem of state.stems) {
+      if (stem.peaks) {
+        const style = stem.muted ? "rgba(120, 170, 220, 0.07)" : "rgba(120, 170, 220, 0.18)";
+        drawPeaksOnCanvas(ctx2d, stem.peaks, w, h, startFrac, endFrac, style);
+      }
     }
   }
   function loadFileSettings(id) {
@@ -8426,7 +8456,9 @@
       localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
         loops: state.loops,
         activeLoopId: state.activeLoopId,
-        transposeSemitones: state.transposeSemitones
+        transposeSemitones: state.transposeSemitones,
+        mainMuted: state.mainMuted,
+        stemMutes: state.stems.filter((s) => s.muted).map((s) => s.id)
       }));
     } catch (e) {
       console.error("persistCurrentFileSettings failed:", e);
@@ -8436,6 +8468,7 @@
     audioCtx: null,
     rbNode: null,
     gainNode: null,
+    mainMuteGain: null,
     originalBuffer: null,
     currentSource: null,
     detectedBPM: 120,
@@ -8457,7 +8490,9 @@
     currentPath: "",
     beatTicks: null,
     loops: [],
-    activeLoopId: null
+    activeLoopId: null,
+    mainMuted: false,
+    stems: []
   };
   function getAudioCtx() {
     if (!state.audioCtx) state.audioCtx = new AudioContext();
@@ -8889,6 +8924,12 @@
       state.currentSource.loopStart = loopStartSecs();
       state.currentSource.loopEnd = loopEndSecs();
     }
+    for (const stem of state.stems) {
+      if (stem.source) {
+        stem.source.loopStart = loopStartSecs();
+        stem.source.loopEnd = Math.min(loopEndSecs(), stem.buffer.duration);
+      }
+    }
     if (persist) persistCurrentFileSettings();
   }
   var ESSENTIA_MIN_DURATION = 3;
@@ -9030,20 +9071,106 @@
     if (state.activeLoopId) downloadLoopById(state.activeLoopId);
   }
   window.downloadLoop = downloadLoop;
+  var rbProcessorUrl = null;
+  function getRubberBandProcessorUrl() {
+    if (!rbProcessorUrl) {
+      const blob = new Blob([rubberband_processor_default], { type: "application/javascript" });
+      rbProcessorUrl = URL.createObjectURL(blob);
+    }
+    return rbProcessorUrl;
+  }
   async function ensureNodes() {
     const ctx = getAudioCtx();
-    if (state.rbNode && state.gainNode) return { rb: state.rbNode, gain: state.gainNode };
-    const blob = new Blob([rubberband_processor_default], { type: "application/javascript" });
-    const url = URL.createObjectURL(blob);
-    const rb = await createRubberBandNode(ctx, url);
+    if (state.rbNode && state.gainNode && state.mainMuteGain) return { rb: state.rbNode, gain: state.gainNode };
+    const rb = await createRubberBandNode(ctx, getRubberBandProcessorUrl());
     rb.setHighQuality(true);
-    const gain = ctx.createGain();
-    gain.gain.value = state.volume;
-    rb.connect(gain);
-    gain.connect(ctx.destination);
+    const master = ctx.createGain();
+    master.gain.value = state.volume;
+    const mainMute = ctx.createGain();
+    mainMute.gain.value = state.mainMuted ? 0 : 1;
+    rb.connect(mainMute);
+    mainMute.connect(master);
+    master.connect(ctx.destination);
     state.rbNode = rb;
-    state.gainNode = gain;
-    return { rb, gain };
+    state.gainNode = master;
+    state.mainMuteGain = mainMute;
+    return { rb, gain: master };
+  }
+  async function ensureStemNodes(stem) {
+    const ctx = getAudioCtx();
+    if (stem.rbNode && stem.muteGain) return;
+    const rb = await createRubberBandNode(ctx, getRubberBandProcessorUrl());
+    rb.setHighQuality(true);
+    const mute = ctx.createGain();
+    mute.gain.value = stem.muted ? 0 : 1;
+    rb.connect(mute);
+    mute.connect(state.gainNode);
+    stem.rbNode = rb;
+    stem.muteGain = mute;
+  }
+  function clearStems() {
+    for (const stem of state.stems) {
+      if (stem.source) {
+        try {
+          stem.source.stop();
+        } catch (_) {
+        }
+        stem.source.disconnect();
+      }
+      if (stem.muteGain) stem.muteGain.disconnect();
+      if (stem.rbNode) try {
+        stem.rbNode.disconnect();
+      } catch (_) {
+      }
+    }
+    state.stems = [];
+  }
+  async function loadStemsForCurrent() {
+    if (!state.currentFileId) {
+      clearStems();
+      return;
+    }
+    clearStems();
+    const stemMetas = await loadStemsForParent(state.currentFileId);
+    if (stemMetas.length === 0) return;
+    const mutedIds = new Set(loadFileSettings(state.currentFileId).stemMutes ?? []);
+    const ctx = getAudioCtx();
+    for (const meta of stemMetas) {
+      const audio = await loadAudioById(meta.id);
+      if (!audio) continue;
+      try {
+        const decoded = await ctx.decodeAudioData(audio.buffer.slice(0));
+        const peaks = computePeaks(decoded);
+        const suffix = parseStemName(meta.name)?.suffix ?? meta.name;
+        state.stems.push({
+          id: meta.id,
+          name: meta.name,
+          suffix,
+          buffer: decoded,
+          peaks,
+          source: null,
+          rbNode: null,
+          muteGain: null,
+          muted: mutedIds.has(meta.id)
+        });
+      } catch (e) {
+        console.error("decode stem failed:", meta.name, e);
+      }
+    }
+  }
+  function setMainMuted(muted) {
+    state.mainMuted = muted;
+    if (state.mainMuteGain) state.mainMuteGain.gain.value = muted ? 0 : 1;
+    persistCurrentFileSettings();
+    renderLoopCards();
+  }
+  function setStemMuted(stemId, muted) {
+    const stem = state.stems.find((s) => s.id === stemId);
+    if (!stem) return;
+    stem.muted = muted;
+    if (stem.muteGain) stem.muteGain.gain.value = muted ? 0 : 1;
+    persistCurrentFileSettings();
+    renderLoopCards();
   }
   function currentBufferPos() {
     if (!state.audioCtx || !state.isPlaying) return state.pausedBufferPos;
@@ -9196,7 +9323,9 @@
     updateTransposeBtn();
     if (state.isPlaying && state.rbNode) {
       const ratio = state.targetBPM / state.detectedBPM;
-      state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
+      const pitch = 1 / ratio * Math.pow(2, state.transposeSemitones / 12);
+      state.rbNode.setPitch(pitch);
+      for (const stem of state.stems) stem.rbNode?.setPitch(pitch);
     }
     if (persist) persistCurrentFileSettings();
   }
@@ -9250,6 +9379,16 @@
       state.currentSource.disconnect();
       state.currentSource = null;
     }
+    for (const stem of state.stems) {
+      if (stem.source) {
+        try {
+          stem.source.stop();
+        } catch (_) {
+        }
+        stem.source.disconnect();
+        stem.source = null;
+      }
+    }
     state.isPlaying = false;
     document.body.classList.remove("playing");
     stopPlayhead();
@@ -9262,6 +9401,8 @@
     const lStart = loopStartSecs();
     const lEnd = loopEndSecs();
     const safePos = clamp(bufferPos, lStart, Math.max(lStart, lEnd - 0.01));
+    const pitch = 1 / ratio * Math.pow(2, state.transposeSemitones / 12);
+    const startWhen = ctx.currentTime + 0.02;
     const source = ctx.createBufferSource();
     source.buffer = buffer2;
     source.loop = !state.playerMode;
@@ -9269,12 +9410,26 @@
     source.loopEnd = lEnd;
     source.playbackRate.value = ratio;
     source.connect(state.rbNode);
-    source.start(0, safePos);
+    source.start(startWhen, safePos);
     state.rbNode.setTempo(1);
-    state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
+    state.rbNode.setPitch(pitch);
     state.currentSource = source;
     state.playStartBufferPos = safePos;
-    state.playStartWallTime = ctx.currentTime;
+    state.playStartWallTime = startWhen;
+    for (const stem of state.stems) {
+      if (!stem.rbNode || !stem.muteGain) continue;
+      const ss = ctx.createBufferSource();
+      ss.buffer = stem.buffer;
+      ss.loop = !state.playerMode;
+      ss.loopStart = lStart;
+      ss.loopEnd = Math.min(lEnd, stem.buffer.duration);
+      ss.playbackRate.value = ratio;
+      ss.connect(stem.rbNode);
+      ss.start(startWhen, Math.min(safePos, stem.buffer.duration));
+      stem.rbNode.setTempo(1);
+      stem.rbNode.setPitch(pitch);
+      stem.source = ss;
+    }
     state.isPlaying = true;
     document.body.classList.add("playing");
     startPlayhead();
@@ -9284,6 +9439,16 @@
         state.isPlaying = false;
         setPausedPos(0);
         state.currentSource = null;
+        for (const stem of state.stems) {
+          if (stem.source) {
+            try {
+              stem.source.stop();
+            } catch (_) {
+            }
+            stem.source.disconnect();
+            stem.source = null;
+          }
+        }
         document.body.classList.remove("playing");
         stopPlayhead();
         stopMetronomeLoop();
@@ -9291,14 +9456,18 @@
       }
     };
   }
+  async function ensureAllNodes() {
+    await ensureNodes();
+    for (const stem of state.stems) await ensureStemNodes(stem);
+  }
   async function play() {
     if (!state.originalBuffer) return;
-    await ensureNodes();
+    await ensureAllNodes();
     if (!state.isPlaying) startSource(state.pausedBufferPos);
   }
   async function togglePlay() {
     if (!state.originalBuffer) return;
-    await ensureNodes();
+    await ensureAllNodes();
     if (state.isPlaying) stopSource();
     else startSource(state.pausedBufferPos);
   }
@@ -9310,8 +9479,13 @@
     if (state.isPlaying && state.currentSource) {
       const ratio = clamped / state.detectedBPM;
       const bufPos = currentBufferPos();
+      const pitch = 1 / ratio * Math.pow(2, state.transposeSemitones / 12);
       state.currentSource.playbackRate.value = ratio;
-      state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
+      state.rbNode.setPitch(pitch);
+      for (const stem of state.stems) {
+        if (stem.source) stem.source.playbackRate.value = ratio;
+        stem.rbNode?.setPitch(pitch);
+      }
       state.playStartBufferPos = bufPos;
       state.playStartWallTime = state.audioCtx.currentTime;
     }
@@ -9843,6 +10017,28 @@
       renderLoopCards();
     }
   }
+  function buildStemRow() {
+    const row = document.createElement("div");
+    row.id = "stem-row";
+    const mainBtn = document.createElement("button");
+    mainBtn.type = "button";
+    mainBtn.className = "stem-btn stem-main" + (state.mainMuted ? " muted" : "");
+    mainBtn.textContent = (state.currentFileName ?? "main").replace(/\.[^.]+$/, "");
+    mainBtn.title = state.mainMuted ? "Unmute main" : "Mute main";
+    mainBtn.addEventListener("click", () => setMainMuted(!state.mainMuted));
+    row.appendChild(mainBtn);
+    for (const stem of state.stems) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "stem-btn" + (stem.muted ? " muted" : "");
+      btn.textContent = stem.suffix;
+      btn.title = stem.muted ? `Unmute ${stem.suffix}` : `Mute ${stem.suffix}`;
+      const stemId = stem.id;
+      btn.addEventListener("click", () => setStemMuted(stemId, !stem.muted));
+      row.appendChild(btn);
+    }
+    return row;
+  }
   function renderLoopCards() {
     const container = document.getElementById("loops-container");
     const addRow = document.getElementById("add-loop-row");
@@ -10036,6 +10232,9 @@
         updateInactiveCardDisplay(card, loop);
       }
       container.appendChild(card);
+      if (isActive && state.originalBuffer && state.stems.length > 0) {
+        container.appendChild(buildStemRow());
+      }
     }
     addRow.style.display = state.originalBuffer ? "flex" : "none";
     updateRowHeight();
@@ -10378,7 +10577,7 @@
   async function advanceToNextFile() {
     if (!state.currentFileId) return;
     const all = await loadAllFilesMeta();
-    const inFolder = all.filter((f) => (f.folder ?? "") === state.currentPath);
+    const inFolder = all.filter((f) => f.parentId == null && (f.folder ?? "") === state.currentPath);
     const sorted = sortPickerFiles(inFolder);
     const idx = sorted.findIndex((f) => f.id === state.currentFileId);
     if (idx === -1 || idx >= sorted.length - 1) return;
@@ -10391,7 +10590,7 @@
   async function renderFilePicker() {
     const allFiles = await loadAllFilesMeta();
     const allFolders = await loadAllFolders();
-    const filesInPath = allFiles.filter((f) => (f.folder ?? "") === state.currentPath);
+    const filesInPath = allFiles.filter((f) => f.parentId == null && (f.folder ?? "") === state.currentPath);
     const files = sortPickerFiles(filesInPath);
     const subfolders = directChildFolders(allFolders, state.currentPath);
     filePickerBtn.classList.toggle("has-files", allFiles.length > 0);
@@ -10499,7 +10698,7 @@
           setStatus("Drop audio file(s) anywhere");
           renderLoopCards();
           updateFilePickerBtn();
-          const remaining = (await loadAllFilesMeta()).filter((m) => (m.folder ?? "") === state.currentPath).sort((a, b) => b.addedAt - a.addedAt);
+          const remaining = (await loadAllFilesMeta()).filter((m) => m.parentId == null && (m.folder ?? "") === state.currentPath).sort((a, b) => b.addedAt - a.addedAt);
           if (remaining.length > 0) {
             const saved = await loadAudioById(remaining[0].id);
             if (saved) processArrayBuffer(saved.buffer, saved.name, remaining[0].id);
@@ -10589,9 +10788,22 @@
     const meta = await loadFileMeta(id);
     const beats = await loadBeatCache(id);
     const settings = loadFileSettings(id);
+    const stemMetas = await loadStemsForParent(id);
+    const stems = [];
+    for (const sm of stemMetas) {
+      const sAudio = await loadAudioById(sm.id);
+      if (!sAudio) continue;
+      stems.push({
+        id: sm.id,
+        name: sm.name,
+        suffix: parseStemName(sm.name)?.suffix ?? null,
+        meta: sm,
+        audio: { type: "audio/mpeg", base64: arrayBufferToBase64(sAudio.buffer) }
+      });
+    }
     const bundle = {
       format: "loop-player-backup",
-      version: 1,
+      version: 2,
       exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
       id,
       name: audio.name,
@@ -10601,7 +10813,8 @@
       audio: {
         type: "audio/mpeg",
         base64: arrayBufferToBase64(audio.buffer)
-      }
+      },
+      stems
     };
     const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
     const baseName = sanitizeFilename(audio.name.replace(/\.[^.]+$/, "")) || "loop-backup";
@@ -10630,11 +10843,13 @@
   });
   async function processArrayBuffer(arrayBuffer, name, id = encodeURIComponent(name), pushHistory = true) {
     stopSource();
+    clearStems();
     clearUndoHistory();
     state.originalBuffer = null;
     state.pausedBufferPos = 0;
     state.currentFileId = id;
     state.currentFileName = name;
+    state.mainMuted = false;
     const existingMeta = await loadFileMeta(id);
     const folderForFile = existingMeta?.folder ?? state.currentPath;
     state.loops = [];
@@ -10713,10 +10928,14 @@
       settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones) ? settings.transposeSemitones : 0,
       false
     );
+    state.mainMuted = !!settings.mainMuted;
     state.pausedBufferPos = loopStartSecs();
+    setStatus("Loading stems\u2026");
+    await loadStemsForCurrent();
     persistCurrentFileSettings();
     setStatus("Loading\u2026");
-    await ensureNodes();
+    await ensureAllNodes();
+    if (state.mainMuteGain) state.mainMuteGain.gain.value = state.mainMuted ? 0 : 1;
     const mins = Math.floor(decoded.duration / 60);
     const secs = Math.round(decoded.duration % 60).toString().padStart(2, "0");
     setDetectedStatus(`${mins}:${secs}`, bpm, apiHint, tapHint);
@@ -10727,7 +10946,60 @@
     else history.replaceState({ fileId: id, path: state.currentPath }, "", url);
     saveAudioFile(arrayBuffer, name, id, folderForFile, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch((e) => console.error("saveAudioFile/renderFilePicker failed:", e));
   }
+  async function tryProcessAsStem(file) {
+    const parsed = parseStemName(file.name);
+    if (!parsed) return false;
+    const parentId = encodeURIComponent(parsed.parentName);
+    const parentMeta = await loadFileMeta(parentId);
+    if (!parentMeta || parentMeta.parentId != null) {
+      setStatus(`Parent file "${parsed.parentName}" not found \u2014 drop it first`);
+      return true;
+    }
+    const id = encodeURIComponent(file.name);
+    const arrayBuffer = await file.arrayBuffer();
+    await saveAudioFile(arrayBuffer, file.name, id, parentMeta.folder ?? "", void 0, void 0, void 0, void 0, void 0, void 0, parentId);
+    if (state.currentFileId === parentId) {
+      try {
+        const ctx = getAudioCtx();
+        const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+        const peaks = computePeaks(decoded);
+        const stem = {
+          id,
+          name: file.name,
+          suffix: parsed.suffix,
+          buffer: decoded,
+          peaks,
+          source: null,
+          rbNode: null,
+          muteGain: null,
+          muted: false
+        };
+        state.stems.push(stem);
+        if (state.audioCtx) await ensureStemNodes(stem);
+        if (state.isPlaying && stem.rbNode && stem.muteGain) {
+          const ratio = state.targetBPM / state.detectedBPM;
+          const ss = ctx.createBufferSource();
+          ss.buffer = stem.buffer;
+          ss.loop = !state.playerMode;
+          ss.loopStart = loopStartSecs();
+          ss.loopEnd = Math.min(loopEndSecs(), stem.buffer.duration);
+          ss.playbackRate.value = ratio;
+          ss.connect(stem.rbNode);
+          const livePos = currentBufferPos();
+          ss.start(0, Math.min(livePos, stem.buffer.duration));
+          stem.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
+          stem.source = ss;
+        }
+        renderLoopCards();
+      } catch (e) {
+        console.error("decode new stem failed:", e);
+      }
+    }
+    setStatus(`Added stem ${parsed.suffix} to ${parsed.parentName}`);
+    return true;
+  }
   async function processFile(file) {
+    if (await tryProcessAsStem(file)) return;
     const id = encodeURIComponent(file.name);
     await processArrayBuffer(await file.arrayBuffer(), file.name, id);
   }
@@ -10763,21 +11035,44 @@
       setStatus(`All ${mp3Files.length} file${mp3Files.length === 1 ? "" : "s"} already added`);
       return;
     }
-    for (let i = 0; i < newFiles.length; i++) {
-      const file = newFiles[i];
-      const skipped = mp3Files.length - newFiles.length;
-      const skipNote = skipped > 0 ? ` (${skipped} already exist)` : "";
-      setStatus(`Adding ${i + 1}/${newFiles.length}${skipNote}: ${file.name}\u2026`);
+    const parentFiles = newFiles.filter((f) => !parseStemName(f.name));
+    const stemFiles = newFiles.filter((f) => !!parseStemName(f.name));
+    const skipped = mp3Files.length - newFiles.length;
+    const skipNote = skipped > 0 ? ` (${skipped} already exist)` : "";
+    let progress = 0;
+    const total = newFiles.length;
+    for (const file of parentFiles) {
+      progress++;
+      setStatus(`Adding ${progress}/${total}${skipNote}: ${file.name}\u2026`);
       const arrayBuffer = await file.arrayBuffer();
       const id = encodeURIComponent(file.name);
       await saveAudioFile(arrayBuffer, file.name, id, state.currentPath);
     }
+    for (const file of stemFiles) {
+      progress++;
+      const parsed = parseStemName(file.name);
+      const parentId = encodeURIComponent(parsed.parentName);
+      const parentMeta = await loadFileMeta(parentId);
+      if (!parentMeta || parentMeta.parentId != null) {
+        setStatus(`Skipping stem ${file.name}: parent "${parsed.parentName}" not found`);
+        await new Promise((r) => setTimeout(r, 0));
+        continue;
+      }
+      setStatus(`Adding ${progress}/${total}${skipNote}: ${file.name} (stem of ${parsed.parentName})\u2026`);
+      const arrayBuffer = await file.arrayBuffer();
+      const id = encodeURIComponent(file.name);
+      await saveAudioFile(arrayBuffer, file.name, id, parentMeta.folder ?? "", void 0, void 0, void 0, void 0, void 0, void 0, parentId);
+    }
     await renderFilePicker();
-    const lastFile = newFiles[newFiles.length - 1];
-    const lastId = encodeURIComponent(lastFile.name);
-    const saved = await loadAudioById(lastId);
-    if (saved) {
-      await processArrayBuffer(saved.buffer, saved.name, lastId);
+    if (parentFiles.length > 0) {
+      const lastParent = parentFiles[parentFiles.length - 1];
+      const lastId = encodeURIComponent(lastParent.name);
+      const saved = await loadAudioById(lastId);
+      if (saved) await processArrayBuffer(saved.buffer, saved.name, lastId);
+    } else if (state.currentFileId) {
+      await loadStemsForCurrent();
+      if (state.audioCtx) await ensureAllNodes();
+      renderLoopCards();
     }
   });
   var fileInput = document.getElementById("file-input");
@@ -10913,7 +11208,7 @@
     const countsEl = document.getElementById("batch-decode-counts");
     countsEl.textContent = "";
     const allFiles = await loadAllFilesMeta();
-    const undecoded = allFiles.filter((f) => f.bpm == null || f.duration == null);
+    const undecoded = allFiles.filter((f) => f.parentId == null && (f.bpm == null || f.duration == null));
     const total = undecoded.length;
     if (total === 0) {
       progressEl.textContent = "All files already decoded";
@@ -10977,7 +11272,7 @@
     modal.removeAttribute("hidden");
     countsEl.textContent = "";
     const allFiles = await loadAllFilesMeta();
-    const toFix = allFiles.filter((f) => f.bpmFromAPI && f.bpm != null && (f.bpm < 70 || f.bpm > 140));
+    const toFix = allFiles.filter((f) => f.parentId == null && f.bpmFromAPI && f.bpm != null && (f.bpm < 70 || f.bpm > 140));
     const total = toFix.length;
     if (total === 0) {
       progressEl.textContent = "No out-of-range API BPMs found";
@@ -11096,14 +11391,15 @@
         } else {
           state.currentPath = "";
         }
-        if (matchedById) {
+        const parents = files.filter((f) => f.parentId == null);
+        if (matchedById && matchedById.parentId == null) {
           target = matchedById.id;
         } else {
-          const inFolder = files.filter((f) => (f.folder ?? "") === state.currentPath);
+          const inFolder = parents.filter((f) => (f.folder ?? "") === state.currentPath);
           if (inFolder.length > 0) {
             target = inFolder.sort((a, b) => b.addedAt - a.addedAt)[0].id;
-          } else if (!params.has("p") && !params.has("f") && files.length > 0) {
-            const recent = [...files].sort((a, b) => b.addedAt - a.addedAt)[0];
+          } else if (!params.has("p") && !params.has("f") && parents.length > 0) {
+            const recent = [...parents].sort((a, b) => b.addedAt - a.addedAt)[0];
             state.currentPath = recent.folder ?? "";
             target = recent.id;
           }
