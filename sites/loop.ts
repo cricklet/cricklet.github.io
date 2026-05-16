@@ -388,8 +388,8 @@ function formatTime(secs: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// Hide the playhead time when the playhead is within this many pixels of A or B,
-// to avoid the time text overlapping (or duplicating) the edge markers' own times.
+// Hide the playhead time when the playhead is within this many pixels of B,
+// since the time text sits to the right of the line and would overlap the end marker.
 const PLAYHEAD_TIME_HIDE_PX = 44;
 
 function updatePlayheadTimeSide(el: HTMLElement | null, bufferPosSecs: number) {
@@ -400,9 +400,8 @@ function updatePlayheadTimeSide(el: HTMLElement | null, bufferPosSecs: number) {
   const [viewStart, viewEnd] = activeViewRangeBeats();
   const viewSpanSecs = (viewEnd - viewStart) * beatDur;
   if (viewSpanSecs <= 0) return;
-  const pxFromStart = ((bufferPosSecs - loopStartSecs()) / viewSpanSecs) * cardW;
   const pxToEnd = ((loopEndSecs() - bufferPosSecs) / viewSpanSecs) * cardW;
-  el.classList.toggle('hide', pxToEnd < PLAYHEAD_TIME_HIDE_PX || pxFromStart < PLAYHEAD_TIME_HIDE_PX);
+  el.classList.toggle('hide', pxToEnd < PLAYHEAD_TIME_HIDE_PX);
 }
 
 function bufferSecsToViewFrac(secs: number): number {
@@ -1605,18 +1604,11 @@ function setupActiveCardDrag(card: HTMLElement) {
       return;
     }
     if (!didMove && jumpBeats >= 0 && state.rbNode) {
-      const clickSecs = jumpBeats * beatDurationSecs();
-      const wasPlaying = state.isPlaying;
-      stopSource();
-      if (wasPlaying) startSource(clickSecs);
-      else setPausedPos(clickSecs);
+      restartPlayback(jumpBeats * beatDurationSecs());
       return;
     }
     if (movedLoop && state.originalBuffer && state.rbNode) {
-      const wasPlaying = state.isPlaying;
-      stopSource();
-      if (wasPlaying) startSource(loopStartSecs());
-      else setPausedPos(loopStartSecs());
+      restartPlayback(loopStartSecs());
     }
   });
 
@@ -1659,43 +1651,47 @@ function setZoom(zoom: boolean) {
 }
 
 // Loop management
+
+// Restart audio at `pos` — stays playing if currently playing, else parks paused there.
+function restartPlayback(pos: number) {
+  const wasPlaying = state.isPlaying;
+  stopSource();
+  if (wasPlaying) startSource(pos);
+  else setPausedPos(pos);
+}
+
+// Make `loop` the active loop: resets transient view/undo state, applies BPM
+// and loop bounds, persists, and re-renders. Caller handles playback restart.
+function activateLoop(loop: LoopData) {
+  state.activeLoopId = loop.id;
+  state.zoomActive = false;
+  clearDragView();
+  clearUndoHistory();
+  setTargetBPM(loop.targetBPM, false);
+  setLoopPoints(loop.startBeats, loop.endBeats, false);
+  persistCurrentFileSettings();
+  renderLoopCards();
+}
+
 function switchToLoop(id: string) {
   if (id === state.activeLoopId) return;
   commitLoopLengthEdit();
   syncStateToActiveLoop();
-  state.zoomActive = false;
-  clearDragView();
-  state.activeLoopId = id;
   const loop = state.loops.find(l => l.id === id);
   if (!loop) return;
-  clearUndoHistory();
-  setTargetBPM(loop.targetBPM, false);
-  setLoopPoints(loop.startBeats, loop.endBeats, false);
-  const wasPlaying = state.isPlaying;
-  stopSource();
-  if (wasPlaying) startSource(loopStartSecs());
-  else setPausedPos(loopStartSecs());
-  persistCurrentFileSettings();
-  renderLoopCards();
+  activateLoop(loop);
+  restartPlayback(loopStartSecs());
 }
 
 function addLoop() {
   if (!state.originalBuffer) return;
   syncStateToActiveLoop();
-  const active = state.loops.find(l => l.id === state.activeLoopId);
-  const newId = genId();
-  const newLoop: LoopData = active
-    ? { id: newId, startBeats: active.startBeats, endBeats: active.endBeats, targetBPM: active.targetBPM }
-    : { id: newId, startBeats: 0, endBeats: totalBeats(), targetBPM: state.detectedBPM };
+  const current = state.loops.find(l => l.id === state.activeLoopId);
+  const newLoop: LoopData = current
+    ? { id: genId(), startBeats: current.startBeats, endBeats: current.endBeats, targetBPM: current.targetBPM }
+    : { id: genId(), startBeats: 0, endBeats: totalBeats(), targetBPM: state.detectedBPM };
   state.loops.push(newLoop);
-  state.activeLoopId = newId;
-  state.zoomActive = false;
-  clearDragView();
-  clearUndoHistory();
-  setTargetBPM(newLoop.targetBPM, false);
-  setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
-  persistCurrentFileSettings();
-  renderLoopCards();
+  activateLoop(newLoop);
 }
 
 function deleteLoop(id: string) {
@@ -1705,19 +1701,12 @@ function deleteLoop(id: string) {
   state.loops.splice(idx, 1);
   if (state.activeLoopId === id) {
     const newActive = state.loops[Math.min(idx, state.loops.length - 1)];
-    state.activeLoopId = newActive.id;
-    state.zoomActive = false;
-    clearDragView();
-    clearUndoHistory();
-    setTargetBPM(newActive.targetBPM, false);
-    setLoopPoints(newActive.startBeats, newActive.endBeats, false);
-    const wasPlaying = state.isPlaying;
-    stopSource();
-    if (wasPlaying) startSource(loopStartSecs());
-    else setPausedPos(loopStartSecs());
+    activateLoop(newActive);
+    restartPlayback(loopStartSecs());
+  } else {
+    persistCurrentFileSettings();
+    renderLoopCards();
   }
-  persistCurrentFileSettings();
-  renderLoopCards();
 }
 
 function renderLoopCards() {
@@ -1974,34 +1963,23 @@ document.addEventListener('keydown', e => {
     const newStart = clamp(state.loopStartBeats + delta, 0, totalBeats() - span);
     pushUndo();
     setLoopPoints(newStart, newStart + span);
-    const wasPlaying = state.isPlaying;
-    stopSource();
-    if (wasPlaying) startSource(loopStartSecs());
-    else setPausedPos(loopStartSecs());
+    restartPlayback(loopStartSecs());
   }
   else if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey && !e.altKey) {
     if (!state.originalBuffer || !state.activeLoopId) return;
     e.preventDefault();
     const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
     syncStateToActiveLoop();
-    const active = state.loops.find(l => l.id === state.activeLoopId)!;
-    if (currentBeat >= active.endBeats) return;
-    const newId = genId();
+    const current = state.loops.find(l => l.id === state.activeLoopId)!;
+    if (currentBeat >= current.endBeats) return;
     const newLoop: LoopData = {
-      id: newId,
-      startBeats: clamp(currentBeat, 0, active.endBeats - 1),
-      endBeats: active.endBeats,
-      targetBPM: active.targetBPM,
+      id: genId(),
+      startBeats: clamp(currentBeat, 0, current.endBeats - 1),
+      endBeats: current.endBeats,
+      targetBPM: current.targetBPM,
     };
     state.loops.push(newLoop);
-    state.activeLoopId = newId;
-    state.zoomActive = false;
-    clearDragView();
-    clearUndoHistory();
-    setTargetBPM(newLoop.targetBPM, false);
-    setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
-    persistCurrentFileSettings();
-    renderLoopCards();
+    activateLoop(newLoop);
     if (!state.isPlaying) setPausedPos(loopStartSecs());
   }
   else if ((e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -2009,24 +1987,16 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
     syncStateToActiveLoop();
-    const active = state.loops.find(l => l.id === state.activeLoopId)!;
-    if (currentBeat <= active.startBeats) return;
-    const newId = genId();
+    const current = state.loops.find(l => l.id === state.activeLoopId)!;
+    if (currentBeat <= current.startBeats) return;
     const newLoop: LoopData = {
-      id: newId,
-      startBeats: active.startBeats,
-      endBeats: clamp(currentBeat, active.startBeats + 1, totalBeats()),
-      targetBPM: active.targetBPM,
+      id: genId(),
+      startBeats: current.startBeats,
+      endBeats: clamp(currentBeat, current.startBeats + 1, totalBeats()),
+      targetBPM: current.targetBPM,
     };
     state.loops.push(newLoop);
-    state.activeLoopId = newId;
-    state.zoomActive = false;
-    clearDragView();
-    clearUndoHistory();
-    setTargetBPM(newLoop.targetBPM, false);
-    setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
-    persistCurrentFileSettings();
-    renderLoopCards();
+    activateLoop(newLoop);
     if (!state.isPlaying) setPausedPos(loopStartSecs());
   }
 });
