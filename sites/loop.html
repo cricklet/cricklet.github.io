@@ -248,6 +248,14 @@
       transform: translate(6px, -50%);
     }
 
+    .loop-start-label.inside {
+      transform: translate(6px, -50%);
+    }
+
+    .loop-end-label.inside {
+      transform: translate(calc(-100% - 6px), -50%);
+    }
+
     .loop-playhead {
       position: absolute;
       top: 0;
@@ -301,7 +309,8 @@
     body.show-times .loop-time-hint { display: block; }
 
     .loop-playhead-time,
-    .loop-paused-time {
+    .loop-paused-time,
+    .loop-hover-time {
       left: 0;
       transform: translate(4px, 0);
       text-shadow:
@@ -309,11 +318,16 @@
         0 0 3px var(--bg-color);
     }
 
+    .loop-hover-time { opacity: 0.4; }
+
     .loop-playhead-time.hide,
-    .loop-paused-time.hide { visibility: hidden; }
+    .loop-paused-time.hide,
+    .loop-hover-time.hide { visibility: hidden; }
 
     .loop-start-time { transform: translate(calc(-100% - 6px), 0); }
     .loop-end-time { transform: translate(6px, 0); }
+    .loop-start-time.inside { transform: translate(6px, 0); }
+    .loop-end-time.inside { transform: translate(calc(-100% - 6px), 0); }
 
     /* Loop card hover icons */
     .loop-card-icons {
@@ -841,6 +855,10 @@
       transition: opacity 0.2s;
     }
 
+    #player-mode-toggle {
+      filter: grayscale(1);
+    }
+
     body:hover #metronome-toggle,
     body:hover #show-times-toggle,
     body:hover #player-mode-toggle { opacity: 1; }
@@ -853,7 +871,6 @@
     #metronome-toggle.active,
     #show-times-toggle.active,
     #player-mode-toggle.active {
-      opacity: 1;
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
@@ -903,7 +920,6 @@
     #transpose-btn:hover { transform: scale(1.08); }
     #transpose-btn:focus { outline: none; }
     #transpose-btn.active {
-      opacity: 1;
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
@@ -987,7 +1003,7 @@
     <div id="top-bar">
       <button type="button" id="file-picker-btn" aria-label="Open file list"></button>
       <div id="top-bar-right">
-        <button type="button" id="player-mode-toggle" onclick="togglePlayerMode()" title="Player mode (play through, auto-advance)">▶</button>
+        <button type="button" id="player-mode-toggle" onclick="togglePlayerMode()" title="Loop mode (toggle off to play through and auto-advance)">🔁</button>
         <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
         <div id="transpose-container">
           <button type="button" id="transpose-btn" title="Transpose (semitones)">0</button>

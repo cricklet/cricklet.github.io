@@ -289,7 +289,7 @@
       if (mode === 'timer') {
         if ((event.key === 'r' || event.key === 'R') && !event.metaKey && !event.ctrlKey) {
           event.preventDefault();
-          resetTotalTimer();
+          if (timerDurationSeconds > 0) startTimerMode(timerDurationSeconds);
         }
         return;
       }

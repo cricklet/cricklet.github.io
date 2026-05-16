@@ -381,6 +381,7 @@ interface ActiveRefs {
   pausedPlayheadTime: HTMLElement;
   startTime: HTMLElement;
   endTime: HTMLElement;
+  hoverTime: HTMLElement;
 }
 let active: ActiveRefs | null = null;
 
@@ -391,20 +392,70 @@ function formatTime(secs: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// Hide the playhead time when the playhead is within this many pixels of B,
-// since the time text sits to the right of the line and would overlap the end marker.
-const PLAYHEAD_TIME_HIDE_PX = 44;
+function rectsOverlapX(a: DOMRect, b: DOMRect, padding = 0): boolean {
+  return !(a.right + padding <= b.left || b.right + padding <= a.left);
+}
 
-function updatePlayheadTimeSide(el: HTMLElement | null, bufferPosSecs: number) {
-  if (!el || !active || !state.originalBuffer) return;
+// Single owner of the four loop-card time hints (A, paused, live, B).
+// Positions A/B at startFrac/endFrac, flips them to the loop interior if the
+// outside position would clip the card, then hides paused/live whenever they'd
+// visibly overlap a higher-priority hint. Priority: A/B > paused > live.
+// The paused/live time hints are children of the playhead lines, so they follow
+// those lines automatically — we only need to measure them here.
+function layoutTimeHints() {
+  if (!active) return;
+  const [viewStart, viewEnd] = activeViewRangeBeats();
+  const viewSpan = viewEnd - viewStart;
+  if (viewSpan <= 0) return;
+  const startFrac = (state.loopStartBeats - viewStart) / viewSpan;
+  const endFrac = (state.loopEndBeats - viewStart) / viewSpan;
+
+  const startEl = active.startTime;
+  const endEl = active.endTime;
+  const pausedEl = active.pausedPlayheadTime;
+  const liveEl = active.playheadTime;
+  const hoverEl = active.hoverTime;
+
+  startEl.style.left = `${startFrac * 100}%`;
+  endEl.style.left = `${endFrac * 100}%`;
+  startEl.textContent = formatTime(loopStartSecs());
+  endEl.textContent = formatTime(loopEndSecs());
+
+  // Reset overrideable state so we measure from a clean baseline
+  startEl.classList.remove('inside');
+  endEl.classList.remove('inside');
+  pausedEl.classList.remove('hide');
+  liveEl.classList.remove('hide');
+  hoverEl.classList.remove('hide');
+
+  if (!state.showTimes) return; // nothing visible to lay out
+
   const cardW = active.card.clientWidth;
   if (cardW <= 0) return;
-  const beatDur = beatDurationSecs();
-  const [viewStart, viewEnd] = activeViewRangeBeats();
-  const viewSpanSecs = (viewEnd - viewStart) * beatDur;
-  if (viewSpanSecs <= 0) return;
-  const pxToEnd = ((loopEndSecs() - bufferPosSecs) / viewSpanSecs) * cardW;
-  el.classList.toggle('hide', pxToEnd < PLAYHEAD_TIME_HIDE_PX);
+
+  // Flip A/B to the interior if their natural outside position would clip
+  const margin = 6;
+  const startW = startEl.getBoundingClientRect().width;
+  const endW = endEl.getBoundingClientRect().width;
+  if (startFrac * cardW < startW + margin) startEl.classList.add('inside');
+  if ((1 - endFrac) * cardW < endW + margin) endEl.classList.add('inside');
+
+  // Re-measure with .inside applied, then hide lower-priority hints they collide with.
+  // Priority: A/B > paused > live > hover.
+  const pad = 3;
+  const placed: DOMRect[] = [
+    startEl.getBoundingClientRect(),
+    endEl.getBoundingClientRect(),
+  ];
+  const tryPlace = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0) return;
+    if (placed.some(p => rectsOverlapX(p, r, pad))) el.classList.add('hide');
+    else placed.push(r);
+  };
+  tryPlace(pausedEl);
+  tryPlace(liveEl);
+  if (hoverEl.style.display !== 'none') tryPlace(hoverEl);
 }
 
 function bufferSecsToViewFrac(secs: number): number {
@@ -433,8 +484,7 @@ function refreshPlayheadUI() {
   active.pausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pausedPos), 0, 1) * 100}%`;
   active.playheadTime.textContent = formatTime(livePos);
   active.pausedPlayheadTime.textContent = formatTime(pausedPos);
-  updatePlayheadTimeSide(active.playheadTime, livePos);
-  updatePlayheadTimeSide(active.pausedPlayheadTime, pausedPos);
+  layoutTimeHints();
 }
 
 function setBpmDisplay(bpm: number) {
@@ -658,6 +708,23 @@ function loopEndSecs(): number {
   return state.loopEndBeats * beatDurationSecs();
 }
 
+function flipLabelsIfOverflow(card: HTMLElement, startEl: HTMLElement, endEl: HTMLElement, startFrac: number, endFrac: number) {
+  const check = () => {
+    const cardW = card.clientWidth;
+    if (cardW <= 0) return;
+    const margin = 6;
+    // Temporarily clear .inside so we measure the natural width
+    startEl.classList.remove('inside');
+    endEl.classList.remove('inside');
+    const startNeedsPx = startEl.getBoundingClientRect().width + margin;
+    const endNeedsPx = endEl.getBoundingClientRect().width + margin;
+    if (startFrac * cardW < startNeedsPx) startEl.classList.add('inside');
+    if ((1 - endFrac) * cardW < endNeedsPx) endEl.classList.add('inside');
+  };
+  if (card.clientWidth > 0) check();
+  else requestAnimationFrame(check);
+}
+
 function updateActiveLoopCardDisplay() {
   if (!active) return;
   const total = totalBeats();
@@ -677,10 +744,8 @@ function updateActiveLoopCardDisplay() {
   active.endLabel.style.left = `${endFrac * 100}%`;
   active.startHandle.style.left = `${startFrac * 100}%`;
   active.endHandle.style.left = `${endFrac * 100}%`;
-  active.startTime.style.left = `${startFrac * 100}%`;
-  active.startTime.textContent = formatTime(loopStartSecs());
-  active.endTime.style.left = `${endFrac * 100}%`;
-  active.endTime.textContent = formatTime(loopEndSecs());
+  flipLabelsIfOverflow(active.card, active.startLabel, active.endLabel, startFrac, endFrac);
+  layoutTimeHints();
 }
 
 function updateInactiveCardDisplay(
@@ -713,6 +778,8 @@ function updateInactiveCardDisplay(
     endTime.style.left = `${endFrac * 100}%`;
     endTime.textContent = formatTime(loop.endBeats * beatDur);
   }
+  flipLabelsIfOverflow(card, startLbl, endLbl, startFrac, endFrac);
+  if (startTime && endTime) flipLabelsIfOverflow(card, startTime, endTime, startFrac, endFrac);
 }
 
 // Playhead
@@ -1019,7 +1086,7 @@ function setPlayerMode(enabled: boolean, persist = true) {
   state.playerMode = enabled;
   document.body.classList.toggle('player-mode', enabled);
   const btn = document.getElementById('player-mode-toggle');
-  if (btn) btn.classList.toggle('active', enabled);
+  if (btn) btn.classList.toggle('active', !enabled);
   if (enabled && state.zoomActive) setZoom(false);
   if (persist) {
     try { localStorage.setItem(STORAGE_PLAYER_MODE, enabled ? '1' : '0'); } catch (e) { console.error('localStorage failed:', e); }
@@ -1214,13 +1281,30 @@ function setVolume(v: number, persist = true) {
 }
 
 // Undo / redo
-interface Snapshot { targetBPM: number; loopStartBeats: number; loopEndBeats: number; volume: number; transposeSemitones: number; }
+interface Snapshot {
+  targetBPM: number;
+  loopStartBeats: number;
+  loopEndBeats: number;
+  volume: number;
+  transposeSemitones: number;
+  loops: LoopData[];
+  activeLoopId: string | null;
+}
 const undoStack: Snapshot[] = [];
 const redoStack: Snapshot[] = [];
 const MAX_UNDO = 100;
 
 function captureSnapshot(): Snapshot {
-  return { targetBPM: state.targetBPM, loopStartBeats: state.loopStartBeats, loopEndBeats: state.loopEndBeats, volume: state.volume, transposeSemitones: state.transposeSemitones };
+  syncStateToActiveLoop();
+  return {
+    targetBPM: state.targetBPM,
+    loopStartBeats: state.loopStartBeats,
+    loopEndBeats: state.loopEndBeats,
+    volume: state.volume,
+    transposeSemitones: state.transposeSemitones,
+    loops: state.loops.map(l => ({ ...l })),
+    activeLoopId: state.activeLoopId,
+  };
 }
 
 function pushUndo() {
@@ -1230,10 +1314,19 @@ function pushUndo() {
 }
 
 function applySnapshot(snap: Snapshot) {
-  setTargetBPM(snap.targetBPM, false);
-  setLoopPoints(snap.loopStartBeats, snap.loopEndBeats, false);
+  state.loops = snap.loops.map(l => ({ ...l }));
+  state.activeLoopId = snap.activeLoopId;
+  const active = state.loops.find(l => l.id === state.activeLoopId);
+  if (active) {
+    setTargetBPM(active.targetBPM, false);
+    setLoopPoints(active.startBeats, active.endBeats, false);
+  } else {
+    setTargetBPM(snap.targetBPM, false);
+    setLoopPoints(snap.loopStartBeats, snap.loopEndBeats, false);
+  }
   setVolume(snap.volume, false);
   setTransposeSemitones(snap.transposeSemitones, false);
+  renderLoopCards();
   persistCurrentFileSettings();
   localStorage.setItem(STORAGE_VOLUME, String(snap.volume));
 }
@@ -1351,7 +1444,7 @@ function enterLoopLengthEdit() {
   lengthInput.value = String(state.loopEndBeats - state.loopStartBeats);
   lengthInput.style.display = 'block';
   hint.style.visibility = 'hidden';
-  lengthInput.focus();
+  lengthInput.focus({ preventScroll: true });
   lengthInput.select();
 }
 
@@ -1398,7 +1491,7 @@ function enterLoopStartEdit() {
   startInput.value = String(state.loopStartBeats);
   startInput.style.display = 'block';
   startLabel.style.visibility = 'hidden';
-  startInput.focus();
+  startInput.focus({ preventScroll: true });
   startInput.select();
 }
 
@@ -1431,7 +1524,7 @@ function enterLoopEndEdit() {
   endInput.value = String(state.loopEndBeats);
   endInput.style.display = 'block';
   endLabel.style.visibility = 'hidden';
-  endInput.focus();
+  endInput.focus({ preventScroll: true });
   endInput.select();
 }
 
@@ -1688,6 +1781,29 @@ function setupHandleDrag(card: HTMLElement, startHandle: HTMLElement, endHandle:
   endHandle.addEventListener('pointerdown', e => onDown(e, 'end'));
 }
 
+function setupHoverTimeHint(card: HTMLElement, hoverEl: HTMLElement) {
+  const update = (clientX: number) => {
+    if (!state.originalBuffer) return;
+    const r = card.getBoundingClientRect();
+    if (r.width <= 0) return;
+    const frac = clamp((clientX - r.left) / r.width, 0, 1);
+    const [viewStart, viewEnd] = activeViewRangeBeats();
+    const beat = viewStart + frac * (viewEnd - viewStart);
+    const secs = beat * beatDurationSecs();
+    hoverEl.style.display = 'block';
+    hoverEl.style.left = `${frac * 100}%`;
+    hoverEl.textContent = formatTime(secs);
+    layoutTimeHints();
+  };
+  card.addEventListener('pointermove', e => {
+    if (e.pointerType === 'mouse') update(e.clientX);
+  });
+  card.addEventListener('pointerleave', () => {
+    hoverEl.style.display = 'none';
+    layoutTimeHints();
+  });
+}
+
 function setZoom(zoom: boolean) {
   if (!state.originalBuffer || state.zoomActive === zoom) return;
   state.zoomActive = zoom;
@@ -1712,7 +1828,6 @@ function activateLoop(loop: LoopData) {
   state.activeLoopId = loop.id;
   state.zoomActive = false;
   clearDragView();
-  clearUndoHistory();
   setTargetBPM(loop.targetBPM, false);
   setLoopPoints(loop.startBeats, loop.endBeats, false);
   persistCurrentFileSettings();
@@ -1732,6 +1847,7 @@ function switchToLoop(id: string) {
 function addLoop() {
   if (!state.originalBuffer) return;
   syncStateToActiveLoop();
+  pushUndo();
   const current = state.loops.find(l => l.id === state.activeLoopId);
   const newLoop: LoopData = current
     ? { id: genId(), startBeats: current.startBeats, endBeats: current.endBeats, targetBPM: current.targetBPM }
@@ -1744,6 +1860,8 @@ function deleteLoop(id: string) {
   if (state.loops.length <= 1) return;
   const idx = state.loops.findIndex(l => l.id === id);
   if (idx === -1) return;
+  syncStateToActiveLoop();
+  pushUndo();
   state.loops.splice(idx, 1);
   if (state.activeLoopId === id) {
     const newActive = state.loops[Math.min(idx, state.loops.length - 1)];
@@ -1832,6 +1950,11 @@ function renderLoopCards() {
     endTimeEl.className = 'loop-time-hint loop-end-time';
     card.appendChild(endTimeEl);
 
+    const hoverTimeEl = document.createElement('div');
+    hoverTimeEl.className = 'loop-time-hint loop-hover-time';
+    hoverTimeEl.style.display = 'none';
+    card.appendChild(hoverTimeEl);
+
     // Hover icons
     const icons = document.createElement('div');
     icons.className = 'loop-card-icons';
@@ -1893,6 +2016,7 @@ function renderLoopCards() {
         pausedPlayheadTime: pausedTime,
         startTime: startTimeEl,
         endTime: endTimeEl,
+        hoverTime: hoverTimeEl,
         startLabel: startLbl,
         endLabel: endLbl,
         lengthInput: input,
@@ -1940,6 +2064,7 @@ function renderLoopCards() {
 
       setupActiveCardDrag(card);
       setupHandleDrag(card, startHandle, endHandle);
+      setupHoverTimeHint(card, hoverTimeEl);
       updateActiveLoopCardDisplay();
     } else {
       card.addEventListener('pointerdown', e => {
@@ -1975,14 +2100,13 @@ document.addEventListener('keydown', e => {
   }
   if (inInput) return;
   if (e.key === 'Escape' && state.zoomActive) { e.preventDefault(); setZoom(false); return; }
-  if (e.key === 'Enter' && state.originalBuffer && !state.playerMode) { e.preventDefault(); enterLoopLengthEdit(); return; }
   if ((e.key === 'z' || e.key === 'Z') && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (e.shiftKey) redo(); else undo();
   }
   else if ((e.key === 'z' || e.key === 'Z') && !state.playerMode) { e.preventDefault(); setZoom(!state.zoomActive); }
   else if ((e.key === 'x' || e.key === 'X') && !state.playerMode) { e.preventDefault(); setZoom(false); }
-  else if (e.key === ' ') {
+  else if (e.key === ' ' || e.key === 'Enter') {
     e.preventDefault();
     if (e.shiftKey) { if (state.isPlaying) { stopSource(); } else { setPausedPos(0); play(); } }
     else togglePlay();
@@ -2020,6 +2144,7 @@ document.addEventListener('keydown', e => {
     syncStateToActiveLoop();
     const current = state.loops.find(l => l.id === state.activeLoopId)!;
     if (currentBeat >= current.endBeats) return;
+    pushUndo();
     const newLoop: LoopData = {
       id: genId(),
       startBeats: clamp(currentBeat, 0, current.endBeats - 1),
@@ -2037,6 +2162,7 @@ document.addEventListener('keydown', e => {
     syncStateToActiveLoop();
     const current = state.loops.find(l => l.id === state.activeLoopId)!;
     if (currentBeat <= current.startBeats) return;
+    pushUndo();
     const newLoop: LoopData = {
       id: genId(),
       startBeats: current.startBeats,
@@ -2798,12 +2924,13 @@ async function runNormalize() {
   } catch (e) { console.error('failed to read STORAGE_SHOW_TIMES:', e); }
 
   try {
-    if (localStorage.getItem(STORAGE_PLAYER_MODE) === '1') {
+    const playerOn = localStorage.getItem(STORAGE_PLAYER_MODE) === '1';
+    if (playerOn) {
       state.playerMode = true;
       document.body.classList.add('player-mode');
-      const btn = document.getElementById('player-mode-toggle');
-      if (btn) btn.classList.add('active');
     }
+    const btn = document.getElementById('player-mode-toggle');
+    if (btn) btn.classList.toggle('active', !playerOn);
   } catch (e) { console.error('failed to read STORAGE_PLAYER_MODE:', e); }
 
   setBpmDisplay(state.targetBPM);
