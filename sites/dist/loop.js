@@ -8409,9 +8409,9 @@
     return smoothed;
   }
   function drawPeaksOnCanvas(ctx2d, peaks, w, h, startFrac, endFrac, fillStyle) {
-    ctx2d.fillStyle = fillStyle;
     const startB = startFrac * peaks.length;
     const span = (endFrac - startFrac) * peaks.length;
+    ctx2d.fillStyle = fillStyle;
     for (let x = 0; x < w; x++) {
       const b = Math.floor(startB + x / w * span);
       const idx = clamp(b, 0, peaks.length - 1);
@@ -8419,18 +8419,48 @@
       ctx2d.fillRect(x, h - barH, 1, barH);
     }
   }
+  var STEM_PALETTE = [
+    [205, 75, 68],
+    // blue
+    [140, 50, 60],
+    // green
+    [355, 75, 72],
+    // red / coral
+    [22, 85, 70],
+    // peach
+    [275, 60, 74],
+    // lavender
+    [50, 80, 68],
+    // buttercream
+    [170, 55, 60],
+    // teal
+    [95, 40, 60]
+    // sage
+  ];
+  function stemColor(i, alpha) {
+    const [h, s, l] = STEM_PALETTE[i % STEM_PALETTE.length];
+    return `hsla(${h}, ${s}%, ${l}%, ${alpha})`;
+  }
+  function syncCanvasToDisplay(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const cw = Math.max(1, Math.round((canvas.clientWidth || 1200) * dpr));
+    const ch = Math.max(1, Math.round((canvas.clientHeight || 54) * dpr));
+    if (canvas.width !== cw) canvas.width = cw;
+    if (canvas.height !== ch) canvas.height = ch;
+  }
   function drawWaveformOnCanvas(canvas, startFrac = 0, endFrac = 1) {
     if (!waveformPeaks) return;
+    syncCanvasToDisplay(canvas);
     const w = canvas.width;
     const h = canvas.height;
     const ctx2d = canvas.getContext("2d");
     ctx2d.clearRect(0, 0, w, h);
-    drawPeaksOnCanvas(ctx2d, waveformPeaks, w, h, startFrac, endFrac, "rgba(128, 128, 128, 0.18)");
-    for (const stem of state.stems) {
-      if (stem.peaks) {
-        const style = stem.muted ? "rgba(120, 170, 220, 0.07)" : "rgba(120, 170, 220, 0.18)";
-        drawPeaksOnCanvas(ctx2d, stem.peaks, w, h, startFrac, endFrac, style);
-      }
+    const mainAlpha = state.mainMuted ? 0.05 : 0.2;
+    drawPeaksOnCanvas(ctx2d, waveformPeaks, w, h, startFrac, endFrac, `rgba(128, 128, 128, ${mainAlpha})`);
+    for (let i = 0; i < state.stems.length; i++) {
+      const stem = state.stems[i];
+      if (!stem.peaks) continue;
+      drawPeaksOnCanvas(ctx2d, stem.peaks, w, h, startFrac, endFrac, stemColor(i, stem.muted ? 0.05 : 0.24));
     }
   }
   function loadFileSettings(id) {
@@ -8523,6 +8553,7 @@
   window.addEventListener("resize", () => {
     if (isSidebarMode() && pickerOpen) pickerOpen = false;
     updateRowHeight();
+    redrawAllWaveforms();
   });
   var bpmSection = document.getElementById("bpm-section");
   var volumeSection = document.getElementById("volume-section");
@@ -9088,8 +9119,8 @@
     master.gain.value = state.volume;
     const mainMute = ctx.createGain();
     mainMute.gain.value = state.mainMuted ? 0 : 1;
-    rb.connect(mainMute);
-    mainMute.connect(master);
+    mainMute.connect(rb);
+    rb.connect(master);
     master.connect(ctx.destination);
     state.rbNode = rb;
     state.gainNode = master;
@@ -9098,14 +9129,10 @@
   }
   async function ensureStemNodes(stem) {
     const ctx = getAudioCtx();
-    if (stem.rbNode && stem.muteGain) return;
-    const rb = await createRubberBandNode(ctx, getRubberBandProcessorUrl());
-    rb.setHighQuality(true);
+    if (stem.muteGain) return;
     const mute = ctx.createGain();
     mute.gain.value = stem.muted ? 0 : 1;
-    rb.connect(mute);
-    mute.connect(state.gainNode);
-    stem.rbNode = rb;
+    mute.connect(state.rbNode);
     stem.muteGain = mute;
   }
   function clearStems() {
@@ -9118,10 +9145,6 @@
         stem.source.disconnect();
       }
       if (stem.muteGain) stem.muteGain.disconnect();
-      if (stem.rbNode) try {
-        stem.rbNode.disconnect();
-      } catch (_) {
-      }
     }
     state.stems = [];
   }
@@ -9149,7 +9172,6 @@
           buffer: decoded,
           peaks,
           source: null,
-          rbNode: null,
           muteGain: null,
           muted: mutedIds.has(meta.id)
         });
@@ -9323,9 +9345,7 @@
     updateTransposeBtn();
     if (state.isPlaying && state.rbNode) {
       const ratio = state.targetBPM / state.detectedBPM;
-      const pitch = 1 / ratio * Math.pow(2, state.transposeSemitones / 12);
-      state.rbNode.setPitch(pitch);
-      for (const stem of state.stems) stem.rbNode?.setPitch(pitch);
+      state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
     }
     if (persist) persistCurrentFileSettings();
   }
@@ -9402,6 +9422,8 @@
     const lEnd = loopEndSecs();
     const safePos = clamp(bufferPos, lStart, Math.max(lStart, lEnd - 0.01));
     const pitch = 1 / ratio * Math.pow(2, state.transposeSemitones / 12);
+    state.rbNode.setTempo(1);
+    state.rbNode.setPitch(pitch);
     const startWhen = ctx.currentTime + 0.02;
     const source = ctx.createBufferSource();
     source.buffer = buffer2;
@@ -9409,25 +9431,21 @@
     source.loopStart = lStart;
     source.loopEnd = lEnd;
     source.playbackRate.value = ratio;
-    source.connect(state.rbNode);
+    source.connect(state.mainMuteGain);
     source.start(startWhen, safePos);
-    state.rbNode.setTempo(1);
-    state.rbNode.setPitch(pitch);
     state.currentSource = source;
     state.playStartBufferPos = safePos;
     state.playStartWallTime = startWhen;
     for (const stem of state.stems) {
-      if (!stem.rbNode || !stem.muteGain) continue;
+      if (!stem.muteGain) continue;
       const ss = ctx.createBufferSource();
       ss.buffer = stem.buffer;
       ss.loop = !state.playerMode;
       ss.loopStart = lStart;
       ss.loopEnd = Math.min(lEnd, stem.buffer.duration);
       ss.playbackRate.value = ratio;
-      ss.connect(stem.rbNode);
+      ss.connect(stem.muteGain);
       ss.start(startWhen, Math.min(safePos, stem.buffer.duration));
-      stem.rbNode.setTempo(1);
-      stem.rbNode.setPitch(pitch);
       stem.source = ss;
     }
     state.isPlaying = true;
@@ -9479,12 +9497,10 @@
     if (state.isPlaying && state.currentSource) {
       const ratio = clamped / state.detectedBPM;
       const bufPos = currentBufferPos();
-      const pitch = 1 / ratio * Math.pow(2, state.transposeSemitones / 12);
       state.currentSource.playbackRate.value = ratio;
-      state.rbNode.setPitch(pitch);
+      state.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
       for (const stem of state.stems) {
         if (stem.source) stem.source.playbackRate.value = ratio;
-        stem.rbNode?.setPitch(pitch);
       }
       state.playStartBufferPos = bufPos;
       state.playStartWallTime = state.audioCtx.currentTime;
@@ -10027,12 +10043,15 @@
     mainBtn.title = state.mainMuted ? "Unmute main" : "Mute main";
     mainBtn.addEventListener("click", () => setMainMuted(!state.mainMuted));
     row.appendChild(mainBtn);
-    for (const stem of state.stems) {
+    for (let i = 0; i < state.stems.length; i++) {
+      const stem = state.stems[i];
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "stem-btn" + (stem.muted ? " muted" : "");
       btn.textContent = stem.suffix;
       btn.title = stem.muted ? `Unmute ${stem.suffix}` : `Mute ${stem.suffix}`;
+      btn.style.setProperty("--stem-bg", stemColor(i, 0.18));
+      btn.style.setProperty("--stem-bg-hover", stemColor(i, 0.32));
       const stemId = stem.id;
       btn.addEventListener("click", () => setStemMuted(stemId, !stem.muted));
       row.appendChild(btn);
@@ -10054,9 +10073,6 @@
       card.dataset.loopId = loop.id;
       const waveCanvas = document.createElement("canvas");
       waveCanvas.className = "loop-waveform";
-      waveCanvas.width = 1200;
-      waveCanvas.height = 54;
-      drawWaveformOnCanvas(waveCanvas);
       card.appendChild(waveCanvas);
       const between = document.createElement("div");
       between.className = "loop-between";
@@ -10239,6 +10255,11 @@
     addRow.style.display = state.originalBuffer ? "flex" : "none";
     updateRowHeight();
     refreshPlayheadUI();
+    redrawAllWaveforms();
+  }
+  function redrawAllWaveforms() {
+    document.querySelectorAll(".loop-waveform").forEach((c) => drawWaveformOnCanvas(c));
+    if (state.zoomActive) redrawActiveWaveform();
   }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && tapTimes.length > 0) {
@@ -10928,10 +10949,10 @@
       settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones) ? settings.transposeSemitones : 0,
       false
     );
-    state.mainMuted = !!settings.mainMuted;
     state.pausedBufferPos = loopStartSecs();
     setStatus("Loading stems\u2026");
     await loadStemsForCurrent();
+    state.mainMuted = settings.mainMuted ?? state.stems.length > 0;
     persistCurrentFileSettings();
     setStatus("Loading\u2026");
     await ensureAllNodes();
@@ -10970,13 +10991,12 @@
           buffer: decoded,
           peaks,
           source: null,
-          rbNode: null,
           muteGain: null,
           muted: false
         };
         state.stems.push(stem);
         if (state.audioCtx) await ensureStemNodes(stem);
-        if (state.isPlaying && stem.rbNode && stem.muteGain) {
+        if (state.isPlaying && stem.muteGain) {
           const ratio = state.targetBPM / state.detectedBPM;
           const ss = ctx.createBufferSource();
           ss.buffer = stem.buffer;
@@ -10984,10 +11004,9 @@
           ss.loopStart = loopStartSecs();
           ss.loopEnd = Math.min(loopEndSecs(), stem.buffer.duration);
           ss.playbackRate.value = ratio;
-          ss.connect(stem.rbNode);
+          ss.connect(stem.muteGain);
           const livePos = currentBufferPos();
           ss.start(0, Math.min(livePos, stem.buffer.duration));
-          stem.rbNode.setPitch(1 / ratio * Math.pow(2, state.transposeSemitones / 12));
           stem.source = ss;
         }
         renderLoopCards();

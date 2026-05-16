@@ -297,9 +297,9 @@ function drawPeaksOnCanvas(
   endFrac: number,
   fillStyle: string,
 ) {
-  ctx2d.fillStyle = fillStyle;
   const startB = startFrac * peaks.length;
   const span = (endFrac - startFrac) * peaks.length;
+  ctx2d.fillStyle = fillStyle;
   for (let x = 0; x < w; x++) {
     const b = Math.floor(startB + (x / w) * span);
     const idx = clamp(b, 0, peaks.length - 1);
@@ -308,19 +308,46 @@ function drawPeaksOnCanvas(
   }
 }
 
+// Curated pastel palette for stem waveforms / buttons. Each entry is tuned
+// individually so adjacent stems are easy to tell apart at a glance.
+const STEM_PALETTE: Array<[number, number, number]> = [
+  [205, 75, 68],  // blue
+  [140, 50, 60],  // green
+  [355, 75, 72],  // red / coral
+  [22,  85, 70],  // peach
+  [275, 60, 74],  // lavender
+  [50,  80, 68],  // buttercream
+  [170, 55, 60],  // teal
+  [95,  40, 60],  // sage
+];
+function stemColor(i: number, alpha: number): string {
+  const [h, s, l] = STEM_PALETTE[i % STEM_PALETTE.length];
+  return `hsla(${h}, ${s}%, ${l}%, ${alpha})`;
+}
+
+// Resize a canvas's pixel buffer to match its CSS display size × devicePixelRatio
+// so rendering happens at native resolution (no browser-side stretching/blur).
+function syncCanvasToDisplay(canvas: HTMLCanvasElement) {
+  const dpr = window.devicePixelRatio || 1;
+  const cw = Math.max(1, Math.round((canvas.clientWidth || 1200) * dpr));
+  const ch = Math.max(1, Math.round((canvas.clientHeight || 54) * dpr));
+  if (canvas.width !== cw) canvas.width = cw;
+  if (canvas.height !== ch) canvas.height = ch;
+}
+
 function drawWaveformOnCanvas(canvas: HTMLCanvasElement, startFrac = 0, endFrac = 1) {
   if (!waveformPeaks) return;
+  syncCanvasToDisplay(canvas);
   const w = canvas.width;
   const h = canvas.height;
   const ctx2d = canvas.getContext('2d')!;
   ctx2d.clearRect(0, 0, w, h);
-  drawPeaksOnCanvas(ctx2d, waveformPeaks, w, h, startFrac, endFrac, 'rgba(128, 128, 128, 0.18)');
-  // Overlay each loaded stem so the user can see the contributing layers.
-  for (const stem of state.stems) {
-    if (stem.peaks) {
-      const style = stem.muted ? 'rgba(120, 170, 220, 0.07)' : 'rgba(120, 170, 220, 0.18)';
-      drawPeaksOnCanvas(ctx2d, stem.peaks, w, h, startFrac, endFrac, style);
-    }
+  const mainAlpha = state.mainMuted ? 0.05 : 0.20;
+  drawPeaksOnCanvas(ctx2d, waveformPeaks, w, h, startFrac, endFrac, `rgba(128, 128, 128, ${mainAlpha})`);
+  for (let i = 0; i < state.stems.length; i++) {
+    const stem = state.stems[i];
+    if (!stem.peaks) continue;
+    drawPeaksOnCanvas(ctx2d, stem.peaks, w, h, startFrac, endFrac, stemColor(i, stem.muted ? 0.05 : 0.24));
   }
 }
 
@@ -365,8 +392,9 @@ function persistCurrentFileSettings() {
   } catch (e) { console.error('persistCurrentFileSettings failed:', e); }
 }
 
-// A stem voice: one per loaded stem file. Audio nodes are created lazily on
-// first play; muted state survives source recreation.
+// A stem voice: one per loaded stem file. The mute gain connects directly to
+// the shared RubberBandNode so all stems + main are mixed sample-accurately
+// before pitch correction (avoids per-instance RB latency drift).
 interface Stem {
   id: string;
   name: string;
@@ -374,7 +402,6 @@ interface Stem {
   buffer: AudioBuffer;
   peaks: Float32Array | null;
   source: AudioBufferSourceNode | null;
-  rbNode: RubberBandNode | null;
   muteGain: GainNode | null;
   muted: boolean;
 }
@@ -479,6 +506,7 @@ function updateRowHeight() {
 window.addEventListener('resize', () => {
   if (isSidebarMode() && pickerOpen) pickerOpen = false;
   updateRowHeight();
+  redrawAllWaveforms();
 });
 
 // Static DOM refs
@@ -1136,8 +1164,9 @@ async function ensureNodes(): Promise<{ rb: RubberBandNode; gain: GainNode }> {
   master.gain.value = state.volume;
   const mainMute = ctx.createGain();
   mainMute.gain.value = state.mainMuted ? 0 : 1;
-  rb.connect(mainMute);
-  mainMute.connect(master);
+  // Main source feeds mainMute → rb (shared with stems) → master → destination.
+  mainMute.connect(rb);
+  rb.connect(master);
   master.connect(ctx.destination);
   state.rbNode = rb;
   state.gainNode = master;
@@ -1147,14 +1176,11 @@ async function ensureNodes(): Promise<{ rb: RubberBandNode; gain: GainNode }> {
 
 async function ensureStemNodes(stem: Stem): Promise<void> {
   const ctx = getAudioCtx();
-  if (stem.rbNode && stem.muteGain) return;
-  const rb = await createRubberBandNode(ctx, getRubberBandProcessorUrl());
-  rb.setHighQuality(true);
+  if (stem.muteGain) return;
+  // All stems mix into the same RB by connecting through their mute gain.
   const mute = ctx.createGain();
   mute.gain.value = stem.muted ? 0 : 1;
-  rb.connect(mute);
-  mute.connect(state.gainNode!);
-  stem.rbNode = rb;
+  mute.connect(state.rbNode!);
   stem.muteGain = mute;
 }
 
@@ -1162,7 +1188,6 @@ function clearStems() {
   for (const stem of state.stems) {
     if (stem.source) { try { stem.source.stop(); } catch (_) {} stem.source.disconnect(); }
     if (stem.muteGain) stem.muteGain.disconnect();
-    if (stem.rbNode) try { stem.rbNode.disconnect(); } catch (_) {}
   }
   state.stems = [];
 }
@@ -1188,7 +1213,6 @@ async function loadStemsForCurrent() {
         buffer: decoded,
         peaks,
         source: null,
-        rbNode: null,
         muteGain: null,
         muted: mutedIds.has(meta.id),
       });
@@ -1363,9 +1387,7 @@ function setTransposeSemitones(n: number, persist = true) {
   updateTransposeBtn();
   if (state.isPlaying && state.rbNode) {
     const ratio = state.targetBPM / state.detectedBPM;
-    const pitch = (1 / ratio) * Math.pow(2, state.transposeSemitones / 12);
-    state.rbNode.setPitch(pitch);
-    for (const stem of state.stems) stem.rbNode?.setPitch(pitch);
+    state.rbNode.setPitch((1 / ratio) * Math.pow(2, state.transposeSemitones / 12));
   }
   if (persist) persistCurrentFileSettings();
 }
@@ -1443,7 +1465,11 @@ function startSource(bufferPos: number) {
   const lEnd = loopEndSecs();
   const safePos = clamp(bufferPos, lStart, Math.max(lStart, lEnd - 0.01));
   const pitch = (1 / ratio) * Math.pow(2, state.transposeSemitones / 12);
-  // Schedule a small lead time so all sources start atomically together.
+  // RB params must be set BEFORE audio flows in so the very first samples are
+  // processed with the right pitch/tempo (avoids a brief mismatch on start).
+  state.rbNode!.setTempo(1.0);
+  state.rbNode!.setPitch(pitch);
+  // Schedule a small lead time so every source starts atomically together.
   const startWhen = ctx.currentTime + 0.02;
 
   const source = ctx.createBufferSource();
@@ -1452,26 +1478,22 @@ function startSource(bufferPos: number) {
   source.loopStart = lStart;
   source.loopEnd = lEnd;
   source.playbackRate.value = ratio;
-  source.connect(state.rbNode!);
+  source.connect(state.mainMuteGain!);
   source.start(startWhen, safePos);
-  state.rbNode!.setTempo(1.0);
-  state.rbNode!.setPitch(pitch);
   state.currentSource = source;
   state.playStartBufferPos = safePos;
   state.playStartWallTime = startWhen;
 
   for (const stem of state.stems) {
-    if (!stem.rbNode || !stem.muteGain) continue;
+    if (!stem.muteGain) continue;
     const ss = ctx.createBufferSource();
     ss.buffer = stem.buffer;
     ss.loop = !state.playerMode;
     ss.loopStart = lStart;
     ss.loopEnd = Math.min(lEnd, stem.buffer.duration);
     ss.playbackRate.value = ratio;
-    ss.connect(stem.rbNode);
+    ss.connect(stem.muteGain);
     ss.start(startWhen, Math.min(safePos, stem.buffer.duration));
-    stem.rbNode.setTempo(1.0);
-    stem.rbNode.setPitch(pitch);
     stem.source = ss;
   }
 
@@ -1521,12 +1543,10 @@ function setTargetBPM(bpm: number, persist = true) {
   if (state.isPlaying && state.currentSource) {
     const ratio = clamped / state.detectedBPM;
     const bufPos = currentBufferPos();
-    const pitch = (1 / ratio) * Math.pow(2, state.transposeSemitones / 12);
     state.currentSource.playbackRate.value = ratio;
-    state.rbNode!.setPitch(pitch);
+    state.rbNode!.setPitch((1 / ratio) * Math.pow(2, state.transposeSemitones / 12));
     for (const stem of state.stems) {
       if (stem.source) stem.source.playbackRate.value = ratio;
-      stem.rbNode?.setPitch(pitch);
     }
     state.playStartBufferPos = bufPos;
     state.playStartWallTime = state.audioCtx!.currentTime;
@@ -2148,12 +2168,15 @@ function buildStemRow(): HTMLElement {
   mainBtn.addEventListener('click', () => setMainMuted(!state.mainMuted));
   row.appendChild(mainBtn);
 
-  for (const stem of state.stems) {
+  for (let i = 0; i < state.stems.length; i++) {
+    const stem = state.stems[i];
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'stem-btn' + (stem.muted ? ' muted' : '');
     btn.textContent = stem.suffix;
     btn.title = stem.muted ? `Unmute ${stem.suffix}` : `Mute ${stem.suffix}`;
+    btn.style.setProperty('--stem-bg', stemColor(i, 0.18));
+    btn.style.setProperty('--stem-bg-hover', stemColor(i, 0.32));
     const stemId = stem.id;
     btn.addEventListener('click', () => setStemMuted(stemId, !stem.muted));
     row.appendChild(btn);
@@ -2182,12 +2205,10 @@ function renderLoopCards() {
     card.className = 'loop-card' + (isActive ? ' active' : '');
     card.dataset.loopId = loop.id;
 
-    // Waveform canvas — first child so it sits behind everything
+    // Waveform canvas — first child so it sits behind everything.
+    // Pixel buffer is sized once the canvas is in the DOM (see post-append pass below).
     const waveCanvas = document.createElement('canvas');
     waveCanvas.className = 'loop-waveform';
-    waveCanvas.width = 1200;
-    waveCanvas.height = 54;
-    drawWaveformOnCanvas(waveCanvas);
     card.appendChild(waveCanvas);
 
     const between = document.createElement('div');
@@ -2377,6 +2398,13 @@ function renderLoopCards() {
   // After cards are in the DOM, refresh once more — clientWidth wasn't available
   // when setPausedPos ran during card construction.
   refreshPlayheadUI();
+  redrawAllWaveforms();
+}
+
+function redrawAllWaveforms() {
+  document.querySelectorAll<HTMLCanvasElement>('.loop-waveform').forEach(c => drawWaveformOnCanvas(c));
+  // Active card gets the zoomed range if applicable — overwrites the full-range draw.
+  if (state.zoomActive) redrawActiveWaveform();
 }
 
 // Keyboard shortcuts
@@ -3051,11 +3079,13 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
       : 0,
     false,
   );
-  state.mainMuted = !!settings.mainMuted;
   state.pausedBufferPos = loopStartSecs();
 
   setStatus('Loading stems…');
   await loadStemsForCurrent();
+  // Default to muting the main when stems are present (stems usually carry
+  // the audible content); user toggles still win via the saved setting.
+  state.mainMuted = settings.mainMuted ?? (state.stems.length > 0);
   // Persist AFTER stems are loaded so we don't clobber saved stemMutes with [].
   persistCurrentFileSettings();
 
@@ -3102,12 +3132,12 @@ async function tryProcessAsStem(file: File): Promise<boolean> {
       const stem: Stem = {
         id, name: file.name, suffix: parsed.suffix,
         buffer: decoded, peaks,
-        source: null, rbNode: null, muteGain: null, muted: false,
+        source: null, muteGain: null, muted: false,
       };
       state.stems.push(stem);
       if (state.audioCtx) await ensureStemNodes(stem);
       // If playing, start the stem in sync with the others.
-      if (state.isPlaying && stem.rbNode && stem.muteGain) {
+      if (state.isPlaying && stem.muteGain) {
         const ratio = state.targetBPM / state.detectedBPM;
         const ss = ctx.createBufferSource();
         ss.buffer = stem.buffer;
@@ -3115,11 +3145,10 @@ async function tryProcessAsStem(file: File): Promise<boolean> {
         ss.loopStart = loopStartSecs();
         ss.loopEnd = Math.min(loopEndSecs(), stem.buffer.duration);
         ss.playbackRate.value = ratio;
-        ss.connect(stem.rbNode);
+        ss.connect(stem.muteGain);
         // Start at the current looped position so it lines up with the live playhead.
         const livePos = currentBufferPos();
         ss.start(0, Math.min(livePos, stem.buffer.duration));
-        stem.rbNode.setPitch((1 / ratio) * Math.pow(2, state.transposeSemitones / 12));
         stem.source = ss;
       }
       renderLoopCards();
