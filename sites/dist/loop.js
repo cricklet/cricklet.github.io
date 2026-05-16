@@ -8175,6 +8175,7 @@
   var STORAGE_VOLUME = "loop_volume";
   var STORAGE_METRONOME = "loop_metronome";
   var STORAGE_SHOW_TIMES = "loop_show_times";
+  var STORAGE_PLAYER_MODE = "loop_player_mode";
   var TRANSPOSE_MIN = -24;
   var TRANSPOSE_MAX = 24;
   var DB_NAME = "loop-player";
@@ -8396,6 +8397,7 @@
     pausedBufferPos: 0,
     metronomeEnabled: false,
     showTimes: false,
+    playerMode: false,
     zoomActive: false,
     transposeSemitones: 0,
     currentFileId: null,
@@ -8675,9 +8677,11 @@
     return 60 / state.detectedBPM;
   }
   function loopStartSecs() {
+    if (state.playerMode) return 0;
     return state.loopStartBeats * beatDurationSecs();
   }
   function loopEndSecs() {
+    if (state.playerMode && state.originalBuffer) return state.originalBuffer.duration;
     return state.loopEndBeats * beatDurationSecs();
   }
   function updateActiveLoopCardDisplay() {
@@ -8737,6 +8741,7 @@
     if (!state.audioCtx || !state.isPlaying || !state.originalBuffer) return state.pausedBufferPos;
     const ratio = state.targetBPM / state.detectedBPM;
     const linear = state.playStartBufferPos + (state.audioCtx.currentTime - state.playStartWallTime) * ratio;
+    if (state.playerMode) return clamp(linear, 0, state.originalBuffer.duration);
     const lStart = loopStartSecs();
     const lEnd = loopEndSecs();
     const len = lEnd - lStart;
@@ -9022,6 +9027,34 @@
     }
   }
   window.toggleMetronome = toggleMetronome;
+  function setPlayerMode(enabled, persist = true) {
+    if (state.playerMode === enabled) return;
+    state.playerMode = enabled;
+    document.body.classList.toggle("player-mode", enabled);
+    const btn = document.getElementById("player-mode-toggle");
+    if (btn) btn.classList.toggle("active", enabled);
+    if (enabled && state.zoomActive) setZoom(false);
+    if (persist) {
+      try {
+        localStorage.setItem(STORAGE_PLAYER_MODE, enabled ? "1" : "0");
+      } catch (e) {
+        console.error("localStorage failed:", e);
+      }
+    }
+    renderLoopCards();
+    if (state.isPlaying) {
+      const pos = currentLoopedBufferPos();
+      stopSource();
+      setPausedPos(pos);
+      void play();
+    } else {
+      setPausedPos(clamp(state.pausedBufferPos, loopStartSecs(), loopEndSecs()));
+    }
+  }
+  function togglePlayerMode() {
+    setPlayerMode(!state.playerMode);
+  }
+  window.togglePlayerMode = togglePlayerMode;
   function setShowTimes(enabled, persist = true) {
     state.showTimes = enabled;
     document.body.classList.toggle("show-times", enabled);
@@ -9123,7 +9156,7 @@
     const safePos = clamp(bufferPos, lStart, Math.max(lStart, lEnd - 0.01));
     const source = ctx.createBufferSource();
     source.buffer = buffer2;
-    source.loop = true;
+    source.loop = !state.playerMode;
     source.loopStart = lStart;
     source.loopEnd = lEnd;
     source.playbackRate.value = ratio;
@@ -9144,6 +9177,9 @@
         setPausedPos(0);
         state.currentSource = null;
         document.body.classList.remove("playing");
+        stopPlayhead();
+        stopMetronomeLoop();
+        if (state.playerMode) void advanceToNextFile();
       }
     };
   }
@@ -9407,6 +9443,15 @@
       const [viewStart, viewEnd] = activeViewRangeBeats();
       const viewSpan = viewEnd - viewStart;
       const clickBeats = total > 0 && r.width > 0 && viewSpan > 0 ? viewStart + (e.clientX - r.left) / r.width * viewSpan : -1;
+      if (state.playerMode) {
+        if (clickBeats < 0) return;
+        const pos = clamp(clickBeats * beatDurationSecs(), 0, state.originalBuffer.duration);
+        if (state.isPlaying) {
+          stopSource();
+          startSource(pos);
+        } else setPausedPos(pos);
+        return;
+      }
       const insideLoop = total > 0 && clickBeats >= state.loopStartBeats && clickBeats <= state.loopEndBeats;
       const startPx = total > 0 && viewSpan > 0 ? r.left + (state.loopStartBeats - viewStart) / viewSpan * r.width : 0;
       const endPx = total > 0 && viewSpan > 0 ? r.left + (state.loopEndBeats - viewStart) / viewSpan * r.width : 0;
@@ -9854,7 +9899,7 @@
     if (pickerOpen) return;
     const tag = e.target.tagName;
     const inInput = tag === "INPUT" || tag === "TEXTAREA";
-    if (e.ctrlKey && !e.metaKey && !inInput) {
+    if (e.ctrlKey && !e.metaKey && !inInput && !state.playerMode) {
       if (e.key === "a" && state.originalBuffer) {
         e.preventDefault();
         enterLoopStartEdit();
@@ -9877,7 +9922,7 @@
       setZoom(false);
       return;
     }
-    if (e.key === "Enter" && state.originalBuffer) {
+    if (e.key === "Enter" && state.originalBuffer && !state.playerMode) {
       e.preventDefault();
       enterLoopLengthEdit();
       return;
@@ -9886,10 +9931,10 @@
       e.preventDefault();
       if (e.shiftKey) redo();
       else undo();
-    } else if (e.key === "z" || e.key === "Z") {
+    } else if ((e.key === "z" || e.key === "Z") && !state.playerMode) {
       e.preventDefault();
       setZoom(!state.zoomActive);
-    } else if (e.key === "x" || e.key === "X") {
+    } else if ((e.key === "x" || e.key === "X") && !state.playerMode) {
       e.preventDefault();
       setZoom(false);
     } else if (e.key === " ") {
@@ -9937,7 +9982,7 @@
         stopSource();
         startSource(pos);
       } else setPausedPos(pos);
-    } else if (e.key === "." || e.key === ",") {
+    } else if ((e.key === "." || e.key === ",") && !state.playerMode) {
       if (!state.originalBuffer) return;
       e.preventDefault();
       const span = state.loopEndBeats - state.loopStartBeats;
@@ -9946,7 +9991,7 @@
       pushUndo();
       setLoopPoints(newStart, newStart + span);
       restartPlayback(loopStartSecs());
-    } else if ((e.key === "a" || e.key === "A") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    } else if ((e.key === "a" || e.key === "A") && !e.ctrlKey && !e.metaKey && !e.altKey && !state.playerMode) {
       if (!state.originalBuffer || !state.activeLoopId) return;
       e.preventDefault();
       const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
@@ -9962,7 +10007,7 @@
       state.loops.push(newLoop);
       activateLoop(newLoop);
       if (!state.isPlaying) setPausedPos(loopStartSecs());
-    } else if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    } else if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey && !state.playerMode) {
       if (!state.originalBuffer || !state.activeLoopId) return;
       e.preventDefault();
       const currentBeat = Math.round(currentLoopedBufferPos() / beatDurationSecs());
@@ -10088,9 +10133,7 @@
     const s = Math.round(secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   }
-  async function renderFilePicker() {
-    const files = await loadAllFilesMeta();
-    filePickerBtn.classList.toggle("has-files", files.length > 0);
+  function sortPickerFiles(files) {
     files.sort((a, b) => {
       let va, vb;
       if (pickerSortCol === "bpm") {
@@ -10114,6 +10157,22 @@
       if (va > vb) return pickerSortAsc ? 1 : -1;
       return 0;
     });
+    return files;
+  }
+  async function advanceToNextFile() {
+    if (!state.currentFileId) return;
+    const sorted = sortPickerFiles(await loadAllFilesMeta());
+    const idx = sorted.findIndex((f) => f.id === state.currentFileId);
+    if (idx === -1 || idx >= sorted.length - 1) return;
+    const next = sorted[idx + 1];
+    const saved = await loadAudioById(next.id);
+    if (!saved) return;
+    await processArrayBuffer(saved.buffer, saved.name, next.id);
+    void play();
+  }
+  async function renderFilePicker() {
+    const files = sortPickerFiles(await loadAllFilesMeta());
+    filePickerBtn.classList.toggle("has-files", files.length > 0);
     const labels = { name: "Name", bpm: "BPM", length: "Length", addedAt: "Added" };
     document.querySelectorAll("#file-picker-table thead th[data-col]").forEach((th) => {
       const col = th.dataset.col;
@@ -10639,6 +10698,16 @@
       }
     } catch (e) {
       console.error("failed to read STORAGE_SHOW_TIMES:", e);
+    }
+    try {
+      if (localStorage.getItem(STORAGE_PLAYER_MODE) === "1") {
+        state.playerMode = true;
+        document.body.classList.add("player-mode");
+        const btn = document.getElementById("player-mode-toggle");
+        if (btn) btn.classList.add("active");
+      }
+    } catch (e) {
+      console.error("failed to read STORAGE_PLAYER_MODE:", e);
     }
     setBpmDisplay(state.targetBPM);
     setVolumeDisplay(state.volume);

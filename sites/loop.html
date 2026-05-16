@@ -823,7 +823,8 @@
     }
 
     #metronome-toggle,
-    #show-times-toggle {
+    #show-times-toggle,
+    #player-mode-toggle {
       width: 28px;
       height: 28px;
       border-radius: 50%;
@@ -841,18 +842,37 @@
     }
 
     body:hover #metronome-toggle,
-    body:hover #show-times-toggle { opacity: 1; }
+    body:hover #show-times-toggle,
+    body:hover #player-mode-toggle { opacity: 1; }
     #metronome-toggle:hover,
-    #show-times-toggle:hover { transform: scale(1.08); }
+    #show-times-toggle:hover,
+    #player-mode-toggle:hover { transform: scale(1.08); }
     #metronome-toggle:focus,
-    #show-times-toggle:focus { outline: none; }
+    #show-times-toggle:focus,
+    #player-mode-toggle:focus { outline: none; }
     #metronome-toggle.active,
-    #show-times-toggle.active {
+    #show-times-toggle.active,
+    #player-mode-toggle.active {
       opacity: 1;
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
     }
+
+    /* Player mode: hide loop-editing chrome but keep waveform + playhead */
+    body.player-mode #add-loop-row { display: none !important; }
+    body.player-mode .loop-card:not(.active) { display: none; }
+    body.player-mode .loop-resize-handle,
+    body.player-mode .loop-card-icons,
+    body.player-mode .loop-between,
+    body.player-mode .loop-hint,
+    body.player-mode .loop-beat-label,
+    body.player-mode .loop-length-input,
+    body.player-mode .loop-start-input,
+    body.player-mode .loop-end-input,
+    body.player-mode .loop-start-time,
+    body.player-mode .loop-end-time { display: none !important; }
+    body.player-mode .loop-card { cursor: pointer; }
 
     #transpose-container {
       position: relative;
@@ -967,6 +987,7 @@
     <div id="top-bar">
       <button type="button" id="file-picker-btn" aria-label="Open file list"></button>
       <div id="top-bar-right">
+        <button type="button" id="player-mode-toggle" onclick="togglePlayerMode()" title="Player mode (play through, auto-advance)">▶</button>
         <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
         <div id="transpose-container">
           <button type="button" id="transpose-btn" title="Transpose (semitones)">0</button>
