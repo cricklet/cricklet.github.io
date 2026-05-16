@@ -872,7 +872,8 @@
 
     #metronome-toggle,
     #show-times-toggle,
-    #player-mode-toggle {
+    #player-mode-toggle,
+    #backup-btn {
       width: 28px;
       height: 28px;
       border-radius: 50%;
@@ -895,19 +896,27 @@
 
     body:hover #metronome-toggle,
     body:hover #show-times-toggle,
-    body:hover #player-mode-toggle { opacity: 1; }
+    body:hover #player-mode-toggle,
+    body:hover #backup-btn { opacity: 1; }
     #metronome-toggle:hover,
     #show-times-toggle:hover,
-    #player-mode-toggle:hover { transform: scale(1.08); }
+    #player-mode-toggle:hover,
+    #backup-btn:hover { transform: scale(1.08); }
     #metronome-toggle:focus,
     #show-times-toggle:focus,
-    #player-mode-toggle:focus { outline: none; }
+    #player-mode-toggle:focus,
+    #backup-btn:focus { outline: none; }
     #metronome-toggle.active,
     #show-times-toggle.active,
     #player-mode-toggle.active {
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
+    }
+
+    #backup-btn:disabled {
+      opacity: 0 !important;
+      pointer-events: none;
     }
 
     /* Player mode: hide loop-editing chrome but keep waveform + playhead */
@@ -1047,6 +1056,7 @@
           <input type="text" id="transpose-input" autocomplete="off" spellcheck="false" placeholder="0">
         </div>
         <button type="button" id="show-times-toggle" onclick="toggleShowTimes()" title="Show times">⏱︎</button>
+        <button type="button" id="backup-btn" title="Download backup bundle for this track" disabled>💾</button>
       </div>
     </div>
 

@@ -10312,6 +10312,7 @@
   function updateFilePickerBtn() {
     filePickerBtn.textContent = state.currentFileName ?? "";
     filePickerBtn.classList.toggle("has-files", !!state.currentFileName);
+    updateBackupBtn();
   }
   var PICKER_WIDE_PX = 1e3;
   function isSidebarMode() {
@@ -10543,6 +10544,69 @@
   document.getElementById("add-folder-btn").addEventListener("click", () => {
     promptAddFolder().catch((e) => console.error("promptAddFolder failed:", e));
   });
+  var backupBtn = document.getElementById("backup-btn");
+  backupBtn.addEventListener("click", () => {
+    downloadBackup().catch((e) => {
+      console.error("downloadBackup failed:", e);
+      setStatus(`Backup failed: ${e.message ?? e}`);
+    });
+  });
+  function updateBackupBtn() {
+    backupBtn.disabled = !state.currentFileId;
+  }
+  function arrayBufferToBase64(buffer2) {
+    const bytes = new Uint8Array(buffer2);
+    let binary = "";
+    const chunk = 32768;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+    }
+    return btoa(binary);
+  }
+  function sanitizeFilename(s) {
+    return s.replace(/[\/\\?%*:|"<>]/g, "_").replace(/\s+/g, " ").trim();
+  }
+  async function downloadBackup() {
+    const id = state.currentFileId;
+    if (!id) {
+      setStatus("No file loaded to back up");
+      return;
+    }
+    setStatus("Building backup\u2026");
+    const audio = await loadAudioById(id);
+    if (!audio) {
+      setStatus("Backup failed: audio not found");
+      return;
+    }
+    const meta = await loadFileMeta(id);
+    const beats = await loadBeatCache(id);
+    const settings = loadFileSettings(id);
+    const bundle = {
+      format: "loop-player-backup",
+      version: 1,
+      exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      id,
+      name: audio.name,
+      meta: meta ?? null,
+      settings,
+      beats: beats ? { bpm: beats.bpm, ticks: Array.from(beats.ticks) } : null,
+      audio: {
+        type: "audio/mpeg",
+        base64: arrayBufferToBase64(audio.buffer)
+      }
+    };
+    const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
+    const baseName = sanitizeFilename(audio.name.replace(/\.[^.]+$/, "")) || "loop-backup";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${baseName}.loopbackup.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus(`Backup downloaded: ${a.download}`);
+  }
   document.querySelectorAll("#file-picker-table thead th[data-col]").forEach((th) => {
     th.addEventListener("click", () => {
       const col = th.dataset.col;
