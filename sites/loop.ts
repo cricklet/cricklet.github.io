@@ -357,7 +357,9 @@ interface FileSettings {
   activeLoopId?: string | null;
   transposeSemitones?: number;
   mainMuted?: boolean;
+  mainVolume?: number;
   stemMutes?: string[];
+  stemVolumes?: Record<string, number>;
   // Legacy fields
   targetBPM?: number;
   loopStartBeats?: number;
@@ -382,19 +384,23 @@ function persistCurrentFileSettings() {
   if (!state.currentFileId) return;
   syncStateToActiveLoop();
   try {
+    const stemVolumes: Record<string, number> = {};
+    for (const s of state.stems) stemVolumes[s.id] = s.volume;
     localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
       loops: state.loops,
       activeLoopId: state.activeLoopId,
       transposeSemitones: state.transposeSemitones,
       mainMuted: state.mainMuted,
+      mainVolume: state.mainVolume,
       stemMutes: state.stems.filter(s => s.muted).map(s => s.id),
+      stemVolumes,
     }));
   } catch (e) { console.error('persistCurrentFileSettings failed:', e); }
 }
 
-// A stem voice: one per loaded stem file. The mute gain connects directly to
-// the shared RubberBandNode so all stems + main are mixed sample-accurately
-// before pitch correction (avoids per-instance RB latency drift).
+// A stem voice: one per loaded stem file. Each stem gets its own RubberBand
+// instance so it can be processed independently from the main and from other
+// stems; the volGain handles both mute and per-stem volume scaling.
 interface Stem {
   id: string;
   name: string;
@@ -402,8 +408,10 @@ interface Stem {
   buffer: AudioBuffer;
   peaks: Float32Array | null;
   source: AudioBufferSourceNode | null;
-  muteGain: GainNode | null;
+  rbNode: RubberBandNode | null;
+  volGain: GainNode | null;
   muted: boolean;
+  volume: number;
 }
 
 // App state
@@ -411,7 +419,7 @@ interface AppState {
   audioCtx: AudioContext | null;
   rbNode: RubberBandNode | null;
   gainNode: GainNode | null;
-  mainMuteGain: GainNode | null;
+  mainVolGain: GainNode | null;
   originalBuffer: AudioBuffer | null;
   currentSource: AudioBufferSourceNode | null;
   detectedBPM: number;
@@ -435,6 +443,7 @@ interface AppState {
   loops: LoopData[];
   activeLoopId: string | null;
   mainMuted: boolean;
+  mainVolume: number;
   stems: Stem[];
 }
 
@@ -442,7 +451,7 @@ const state: AppState = {
   audioCtx: null,
   rbNode: null,
   gainNode: null,
-  mainMuteGain: null,
+  mainVolGain: null,
   originalBuffer: null,
   currentSource: null,
   detectedBPM: 120,
@@ -466,6 +475,7 @@ const state: AppState = {
   loops: [],
   activeLoopId: null,
   mainMuted: false,
+  mainVolume: 1,
   stems: [],
 };
 
@@ -1155,39 +1165,46 @@ function getRubberBandProcessorUrl(): string {
   return rbProcessorUrl;
 }
 
+function effectiveGain(volume: number, muted: boolean): number { return muted ? 0 : volume; }
+
 async function ensureNodes(): Promise<{ rb: RubberBandNode; gain: GainNode }> {
   const ctx = getAudioCtx();
-  if (state.rbNode && state.gainNode && state.mainMuteGain) return { rb: state.rbNode, gain: state.gainNode };
+  if (state.rbNode && state.gainNode && state.mainVolGain) return { rb: state.rbNode, gain: state.gainNode };
   const rb = await createRubberBandNode(ctx, getRubberBandProcessorUrl());
   rb.setHighQuality(true);
   const master = ctx.createGain();
   master.gain.value = state.volume;
-  const mainMute = ctx.createGain();
-  mainMute.gain.value = state.mainMuted ? 0 : 1;
-  // Main source feeds mainMute → rb (shared with stems) → master → destination.
-  mainMute.connect(rb);
-  rb.connect(master);
+  const mainVol = ctx.createGain();
+  mainVol.gain.value = effectiveGain(state.mainVolume, state.mainMuted);
+  // Main: source → rb (state.rbNode) → mainVol → master → destination.
+  rb.connect(mainVol);
+  mainVol.connect(master);
   master.connect(ctx.destination);
   state.rbNode = rb;
   state.gainNode = master;
-  state.mainMuteGain = mainMute;
+  state.mainVolGain = mainVol;
   return { rb, gain: master };
 }
 
 async function ensureStemNodes(stem: Stem): Promise<void> {
   const ctx = getAudioCtx();
-  if (stem.muteGain) return;
-  // All stems mix into the same RB by connecting through their mute gain.
-  const mute = ctx.createGain();
-  mute.gain.value = stem.muted ? 0 : 1;
-  mute.connect(state.rbNode!);
-  stem.muteGain = mute;
+  if (stem.rbNode && stem.volGain) return;
+  // Each stem: source → its own rb → its own volGain → master.
+  const rb = await createRubberBandNode(ctx, getRubberBandProcessorUrl());
+  rb.setHighQuality(true);
+  const vol = ctx.createGain();
+  vol.gain.value = effectiveGain(stem.volume, stem.muted);
+  rb.connect(vol);
+  vol.connect(state.gainNode!);
+  stem.rbNode = rb;
+  stem.volGain = vol;
 }
 
 function clearStems() {
   for (const stem of state.stems) {
     if (stem.source) { try { stem.source.stop(); } catch (_) {} stem.source.disconnect(); }
-    if (stem.muteGain) stem.muteGain.disconnect();
+    if (stem.volGain) stem.volGain.disconnect();
+    if (stem.rbNode) { try { stem.rbNode.disconnect(); } catch (_) {} }
   }
   state.stems = [];
 }
@@ -1197,7 +1214,9 @@ async function loadStemsForCurrent() {
   clearStems();
   const stemMetas = await loadStemsForParent(state.currentFileId);
   if (stemMetas.length === 0) return;
-  const mutedIds = new Set(loadFileSettings(state.currentFileId).stemMutes ?? []);
+  const settings = loadFileSettings(state.currentFileId);
+  const mutedIds = new Set(settings.stemMutes ?? []);
+  const volumes = settings.stemVolumes ?? {};
   const ctx = getAudioCtx();
   for (const meta of stemMetas) {
     const audio = await loadAudioById(meta.id);
@@ -1206,6 +1225,7 @@ async function loadStemsForCurrent() {
       const decoded = await ctx.decodeAudioData(audio.buffer.slice(0));
       const peaks = computePeaks(decoded);
       const suffix = parseStemName(meta.name)?.suffix ?? meta.name;
+      const savedVol = volumes[meta.id];
       state.stems.push({
         id: meta.id,
         name: meta.name,
@@ -1213,8 +1233,10 @@ async function loadStemsForCurrent() {
         buffer: decoded,
         peaks,
         source: null,
-        muteGain: null,
+        rbNode: null,
+        volGain: null,
         muted: mutedIds.has(meta.id),
+        volume: Number.isFinite(savedVol) ? clamp(savedVol, 0, 1) : 1,
       });
     } catch (e) {
       console.error('decode stem failed:', meta.name, e);
@@ -1222,20 +1244,42 @@ async function loadStemsForCurrent() {
   }
 }
 
+function applyMainGain() {
+  if (state.mainVolGain) state.mainVolGain.gain.value = effectiveGain(state.mainVolume, state.mainMuted);
+}
+function applyStemGain(stem: Stem) {
+  if (stem.volGain) stem.volGain.gain.value = effectiveGain(stem.volume, stem.muted);
+}
+
 function setMainMuted(muted: boolean) {
   state.mainMuted = muted;
-  if (state.mainMuteGain) state.mainMuteGain.gain.value = muted ? 0 : 1;
+  applyMainGain();
   persistCurrentFileSettings();
   renderLoopCards();
+}
+
+function setMainVolume(v: number) {
+  state.mainVolume = clamp(v, 0, 1);
+  applyMainGain();
+  persistCurrentFileSettings();
+  // Render skipped intentionally — slider drag updates the DOM directly to avoid full re-render churn.
 }
 
 function setStemMuted(stemId: string, muted: boolean) {
   const stem = state.stems.find(s => s.id === stemId);
   if (!stem) return;
   stem.muted = muted;
-  if (stem.muteGain) stem.muteGain.gain.value = muted ? 0 : 1;
+  applyStemGain(stem);
   persistCurrentFileSettings();
   renderLoopCards();
+}
+
+function setStemVolume(stemId: string, v: number) {
+  const stem = state.stems.find(s => s.id === stemId);
+  if (!stem) return;
+  stem.volume = clamp(v, 0, 1);
+  applyStemGain(stem);
+  persistCurrentFileSettings();
 }
 
 function currentBufferPos(): number {
@@ -1387,7 +1431,9 @@ function setTransposeSemitones(n: number, persist = true) {
   updateTransposeBtn();
   if (state.isPlaying && state.rbNode) {
     const ratio = state.targetBPM / state.detectedBPM;
-    state.rbNode.setPitch((1 / ratio) * Math.pow(2, state.transposeSemitones / 12));
+    const pitch = (1 / ratio) * Math.pow(2, state.transposeSemitones / 12);
+    state.rbNode.setPitch(pitch);
+    for (const stem of state.stems) stem.rbNode?.setPitch(pitch);
   }
   if (persist) persistCurrentFileSettings();
 }
@@ -1465,11 +1511,14 @@ function startSource(bufferPos: number) {
   const lEnd = loopEndSecs();
   const safePos = clamp(bufferPos, lStart, Math.max(lStart, lEnd - 0.01));
   const pitch = (1 / ratio) * Math.pow(2, state.transposeSemitones / 12);
-  // RB params must be set BEFORE audio flows in so the very first samples are
-  // processed with the right pitch/tempo (avoids a brief mismatch on start).
+  // Set pitch/tempo on every RB BEFORE the source feeds it audio.
   state.rbNode!.setTempo(1.0);
   state.rbNode!.setPitch(pitch);
-  // Schedule a small lead time so every source starts atomically together.
+  for (const stem of state.stems) {
+    stem.rbNode?.setTempo(1.0);
+    stem.rbNode?.setPitch(pitch);
+  }
+  // Lead time so every source starts at the same audio-clock instant.
   const startWhen = ctx.currentTime + 0.02;
 
   const source = ctx.createBufferSource();
@@ -1478,21 +1527,21 @@ function startSource(bufferPos: number) {
   source.loopStart = lStart;
   source.loopEnd = lEnd;
   source.playbackRate.value = ratio;
-  source.connect(state.mainMuteGain!);
+  source.connect(state.rbNode!);
   source.start(startWhen, safePos);
   state.currentSource = source;
   state.playStartBufferPos = safePos;
   state.playStartWallTime = startWhen;
 
   for (const stem of state.stems) {
-    if (!stem.muteGain) continue;
+    if (!stem.rbNode) continue;
     const ss = ctx.createBufferSource();
     ss.buffer = stem.buffer;
     ss.loop = !state.playerMode;
     ss.loopStart = lStart;
     ss.loopEnd = Math.min(lEnd, stem.buffer.duration);
     ss.playbackRate.value = ratio;
-    ss.connect(stem.muteGain);
+    ss.connect(stem.rbNode);
     ss.start(startWhen, Math.min(safePos, stem.buffer.duration));
     stem.source = ss;
   }
@@ -1543,10 +1592,12 @@ function setTargetBPM(bpm: number, persist = true) {
   if (state.isPlaying && state.currentSource) {
     const ratio = clamped / state.detectedBPM;
     const bufPos = currentBufferPos();
+    const pitch = (1 / ratio) * Math.pow(2, state.transposeSemitones / 12);
     state.currentSource.playbackRate.value = ratio;
-    state.rbNode!.setPitch((1 / ratio) * Math.pow(2, state.transposeSemitones / 12));
+    state.rbNode!.setPitch(pitch);
     for (const stem of state.stems) {
       if (stem.source) stem.source.playbackRate.value = ratio;
+      stem.rbNode?.setPitch(pitch);
     }
     state.playStartBufferPos = bufPos;
     state.playStartWallTime = state.audioCtx!.currentTime;
@@ -2156,30 +2207,103 @@ function deleteLoop(id: string) {
   }
 }
 
+// Build a "track pill" with a mute toggle on the left and a draggable volume
+// bar on the right. `getMuted`/`getVolume` close over the latest mute/volume
+// values so the pill stays in sync without a full re-render on every drag tick.
+function buildTrackPill(opts: {
+  label: string;
+  fillStyle: string;        // background colour for the volume fill
+  bgStyle: string;          // background colour for the unfilled portion / hover
+  getMuted: () => boolean;
+  getVolume: () => number;
+  onToggleMute: () => void;
+  onSetVolume: (v: number) => void;
+  isMain?: boolean;
+}): HTMLElement {
+  const pill = document.createElement('div');
+  pill.className = 'stem-pill' + (opts.getMuted() ? ' muted' : '') + (opts.isMain ? ' stem-pill-main' : '');
+  pill.style.setProperty('--stem-bg', opts.bgStyle);
+  pill.style.setProperty('--stem-fill', opts.fillStyle);
+
+  const muteBtn = document.createElement('button');
+  muteBtn.type = 'button';
+  muteBtn.className = 'stem-mute';
+  muteBtn.textContent = opts.getMuted() ? '🔇' : '🔊';
+  muteBtn.title = opts.getMuted() ? 'Unmute' : 'Mute';
+  muteBtn.addEventListener('click', e => { e.stopPropagation(); opts.onToggleMute(); });
+  pill.appendChild(muteBtn);
+
+  const slider = document.createElement('div');
+  slider.className = 'stem-vol';
+
+  const fill = document.createElement('div');
+  fill.className = 'stem-vol-fill';
+  fill.style.width = `${Math.round(opts.getVolume() * 100)}%`;
+  slider.appendChild(fill);
+
+  const label = document.createElement('span');
+  label.className = 'stem-vol-label';
+  label.textContent = opts.label;
+  slider.appendChild(label);
+
+  const setFromClientX = (clientX: number) => {
+    const r = slider.getBoundingClientRect();
+    if (r.width <= 0) return;
+    const frac = clamp((clientX - r.left) / r.width, 0, 1);
+    opts.onSetVolume(frac);
+    fill.style.width = `${Math.round(frac * 100)}%`;
+  };
+  // Listen at document level during drag so a pointerup outside the pill
+  // (or even outside the window) still ends the drag cleanly.
+  let activePointer = -1;
+  const onMove = (e: PointerEvent) => { if (e.pointerId === activePointer) setFromClientX(e.clientX); };
+  const onUp = (e: PointerEvent) => {
+    if (e.pointerId !== activePointer) return;
+    activePointer = -1;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+  };
+  slider.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    activePointer = e.pointerId;
+    setFromClientX(e.clientX);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  });
+
+  pill.appendChild(slider);
+  return pill;
+}
+
 function buildStemRow(): HTMLElement {
   const row = document.createElement('div');
   row.id = 'stem-row';
 
-  const mainBtn = document.createElement('button');
-  mainBtn.type = 'button';
-  mainBtn.className = 'stem-btn stem-main' + (state.mainMuted ? ' muted' : '');
-  mainBtn.textContent = (state.currentFileName ?? 'main').replace(/\.[^.]+$/, '');
-  mainBtn.title = state.mainMuted ? 'Unmute main' : 'Mute main';
-  mainBtn.addEventListener('click', () => setMainMuted(!state.mainMuted));
-  row.appendChild(mainBtn);
+  row.appendChild(buildTrackPill({
+    label: (state.currentFileName ?? 'main').replace(/\.[^.]+$/, ''),
+    fillStyle: 'rgba(128, 128, 128, 0.45)',
+    bgStyle: 'rgba(128, 128, 128, 0.18)',
+    getMuted: () => state.mainMuted,
+    getVolume: () => state.mainVolume,
+    onToggleMute: () => setMainMuted(!state.mainMuted),
+    onSetVolume: (v) => setMainVolume(v),
+    isMain: true,
+  }));
 
   for (let i = 0; i < state.stems.length; i++) {
     const stem = state.stems[i];
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'stem-btn' + (stem.muted ? ' muted' : '');
-    btn.textContent = stem.suffix;
-    btn.title = stem.muted ? `Unmute ${stem.suffix}` : `Mute ${stem.suffix}`;
-    btn.style.setProperty('--stem-bg', stemColor(i, 0.18));
-    btn.style.setProperty('--stem-bg-hover', stemColor(i, 0.32));
     const stemId = stem.id;
-    btn.addEventListener('click', () => setStemMuted(stemId, !stem.muted));
-    row.appendChild(btn);
+    row.appendChild(buildTrackPill({
+      label: stem.suffix,
+      fillStyle: stemColor(i, 0.55),
+      bgStyle: stemColor(i, 0.18),
+      getMuted: () => stem.muted,
+      getVolume: () => stem.volume,
+      onToggleMute: () => setStemMuted(stemId, !stem.muted),
+      onSetVolume: (v) => setStemVolume(stemId, v),
+    }));
   }
   return row;
 }
@@ -2438,6 +2562,17 @@ document.addEventListener('keydown', e => {
   else if ((e.key === 'f' || e.key === 'F') && !isSidebarMode() && !pickerOpen && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openFilePicker(); }
   else if (e.key === ']' && !e.metaKey && !e.ctrlKey) { pushUndo(); setTargetBPM(state.targetBPM + 5); }
   else if (e.key === '[' && !e.metaKey && !e.ctrlKey) { pushUndo(); setTargetBPM(state.targetBPM - 5); }
+  // Number keys toggle mute on the corresponding track pill, left-to-right
+  // (1 = main, 2 = first stem, 3 = second stem, …). Only fires when stems exist.
+  else if (/^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && state.stems.length > 0) {
+    e.preventDefault();
+    const idx = parseInt(e.key, 10);
+    if (idx === 1) setMainMuted(!state.mainMuted);
+    else {
+      const stem = state.stems[idx - 2];
+      if (stem) setStemMuted(stem.id, !stem.muted);
+    }
+  }
   else if (e.key === '=') { pushUndo(); setTargetBPM(state.targetBPM + 1); }
   else if (e.key === '-') { pushUndo(); setTargetBPM(state.targetBPM - 1); }
   else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -2997,6 +3132,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   state.currentFileId = id;
   state.currentFileName = name;
   state.mainMuted = false;
+  state.mainVolume = 1;
   const existingMeta = await loadFileMeta(id);
   const folderForFile = existingMeta?.folder ?? state.currentPath;
   state.loops = [];
@@ -3086,13 +3222,15 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   // Default to muting the main when stems are present (stems usually carry
   // the audible content); user toggles still win via the saved setting.
   state.mainMuted = settings.mainMuted ?? (state.stems.length > 0);
+  state.mainVolume = Number.isFinite(settings.mainVolume) ? clamp(settings.mainVolume!, 0, 1) : 1;
   // Persist AFTER stems are loaded so we don't clobber saved stemMutes with [].
   persistCurrentFileSettings();
 
   setStatus('Loading…');
   await ensureAllNodes();
-  // mainMuted may have been restored from settings — make sure the live node reflects it.
-  if (state.mainMuteGain) state.mainMuteGain.gain.value = state.mainMuted ? 0 : 1;
+  // Apply restored per-track gains to the live nodes.
+  applyMainGain();
+  for (const stem of state.stems) applyStemGain(stem);
 
   const mins = Math.floor(decoded.duration / 60);
   const secs = Math.round(decoded.duration % 60).toString().padStart(2, '0');
@@ -3132,20 +3270,23 @@ async function tryProcessAsStem(file: File): Promise<boolean> {
       const stem: Stem = {
         id, name: file.name, suffix: parsed.suffix,
         buffer: decoded, peaks,
-        source: null, muteGain: null, muted: false,
+        source: null, rbNode: null, volGain: null, muted: false, volume: 1,
       };
       state.stems.push(stem);
       if (state.audioCtx) await ensureStemNodes(stem);
       // If playing, start the stem in sync with the others.
-      if (state.isPlaying && stem.muteGain) {
+      if (state.isPlaying && stem.rbNode) {
         const ratio = state.targetBPM / state.detectedBPM;
+        const pitch = (1 / ratio) * Math.pow(2, state.transposeSemitones / 12);
+        stem.rbNode.setTempo(1.0);
+        stem.rbNode.setPitch(pitch);
         const ss = ctx.createBufferSource();
         ss.buffer = stem.buffer;
         ss.loop = !state.playerMode;
         ss.loopStart = loopStartSecs();
         ss.loopEnd = Math.min(loopEndSecs(), stem.buffer.duration);
         ss.playbackRate.value = ratio;
-        ss.connect(stem.muteGain);
+        ss.connect(stem.rbNode);
         // Start at the current looped position so it lines up with the live playhead.
         const livePos = currentBufferPos();
         ss.start(0, Math.min(livePos, stem.buffer.duration));
