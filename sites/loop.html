@@ -262,6 +262,9 @@
 
     body:not(.playing) .loop-playhead { opacity: 0; }
 
+    .loop-card:not(.active) .loop-playhead,
+    .loop-card:not(.active) .loop-paused-playhead { display: none; }
+
     .loop-paused-playhead {
       position: absolute;
       top: 0;
@@ -306,10 +309,8 @@
         0 0 3px var(--bg-color);
     }
 
-    .loop-playhead-time.on-left,
-    .loop-paused-time.on-left {
-      transform: translate(calc(-100% - 4px), 0);
-    }
+    .loop-playhead-time.hide,
+    .loop-paused-time.hide { visibility: hidden; }
 
     .loop-start-time { transform: translate(calc(-100% - 6px), 0); }
     .loop-end-time { transform: translate(6px, 0); }

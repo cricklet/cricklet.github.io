@@ -8465,7 +8465,7 @@
     const s = Math.floor(secs % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
-  var PLAYHEAD_TIME_FLIP_PX = 44;
+  var PLAYHEAD_TIME_HIDE_PX = 44;
   function updatePlayheadTimeSide(el, bufferPosSecs) {
     if (!el || !activeLoopCard || !state.originalBuffer) return;
     const cardW = activeLoopCard.clientWidth;
@@ -8474,8 +8474,9 @@
     const [viewStart, viewEnd] = activeViewRangeBeats();
     const viewSpanSecs = (viewEnd - viewStart) * beatDur;
     if (viewSpanSecs <= 0) return;
+    const pxFromStart = (bufferPosSecs - loopStartSecs()) / viewSpanSecs * cardW;
     const pxToEnd = (loopEndSecs() - bufferPosSecs) / viewSpanSecs * cardW;
-    el.classList.toggle("on-left", pxToEnd < PLAYHEAD_TIME_FLIP_PX);
+    el.classList.toggle("hide", pxToEnd < PLAYHEAD_TIME_HIDE_PX || pxFromStart < PLAYHEAD_TIME_HIDE_PX);
   }
   function bufferSecsToViewFrac(secs) {
     const total = totalBeats();
@@ -8794,6 +8795,8 @@
     state.loopEndBeats = newEnd;
     updateActiveLoopCardDisplay();
     if (state.zoomActive && dragViewStart == null) redrawActiveWaveform();
+    updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
+    if (state.isPlaying) updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
     if (state.currentSource) {
       state.currentSource.loopStart = loopStartSecs();
       state.currentSource.loopEnd = loopEndSecs();
@@ -9480,7 +9483,7 @@
         loopDragInitialTarget = e.target;
         return;
       }
-      if (state.zoomActive) {
+      if (state.zoomActive || insideLoop) {
         card.setPointerCapture(e.pointerId);
         loopDragActive = true;
         loopDragStartX = e.clientX;
@@ -9500,7 +9503,7 @@
       loopDragSpan = state.loopEndBeats - state.loopStartBeats;
       loopDragDidMove = false;
       loopDragInitialTarget = e.target;
-      loopDragClickJumpBeats = insideLoop ? clickBeats : -1;
+      loopDragClickJumpBeats = -1;
       loopDragDisableMove = false;
       card.classList.add("dragging");
     });
@@ -9677,6 +9680,8 @@
     if (loopPausedPlayhead) {
       loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(state.pausedBufferPos), 0, 1) * 100}%`;
     }
+    updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
+    updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
   }
   function switchToLoop(id) {
     if (id === state.activeLoopId) return;
@@ -9937,6 +9942,8 @@
     }
     addRow.style.display = state.originalBuffer ? "flex" : "none";
     updateRowHeight();
+    updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
+    if (state.isPlaying) updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
   }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && tapTimes.length > 0) {
@@ -10419,6 +10426,7 @@
       settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones) ? settings.transposeSemitones : 0,
       false
     );
+    state.pausedBufferPos = loopStartSecs();
     persistCurrentFileSettings();
     setStatus("Loading\u2026");
     await ensureNodes();

@@ -385,9 +385,9 @@ function formatTime(secs: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// Flip playhead time to the left of the line when the playhead is within this
-// many pixels of the loop end (B), to avoid overlapping the end marker.
-const PLAYHEAD_TIME_FLIP_PX = 44;
+// Hide the playhead time when the playhead is within this many pixels of A or B,
+// to avoid the time text overlapping (or duplicating) the edge markers' own times.
+const PLAYHEAD_TIME_HIDE_PX = 44;
 
 function updatePlayheadTimeSide(el: HTMLElement | null, bufferPosSecs: number) {
   if (!el || !activeLoopCard || !state.originalBuffer) return;
@@ -397,8 +397,9 @@ function updatePlayheadTimeSide(el: HTMLElement | null, bufferPosSecs: number) {
   const [viewStart, viewEnd] = activeViewRangeBeats();
   const viewSpanSecs = (viewEnd - viewStart) * beatDur;
   if (viewSpanSecs <= 0) return;
+  const pxFromStart = ((bufferPosSecs - loopStartSecs()) / viewSpanSecs) * cardW;
   const pxToEnd = ((loopEndSecs() - bufferPosSecs) / viewSpanSecs) * cardW;
-  el.classList.toggle('on-left', pxToEnd < PLAYHEAD_TIME_FLIP_PX);
+  el.classList.toggle('hide', pxToEnd < PLAYHEAD_TIME_HIDE_PX || pxFromStart < PLAYHEAD_TIME_HIDE_PX);
 }
 
 function bufferSecsToViewFrac(secs: number): number {
@@ -754,6 +755,9 @@ function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
   state.loopEndBeats = newEnd;
   updateActiveLoopCardDisplay();
   if (state.zoomActive && dragViewStart == null) redrawActiveWaveform();
+  // Loop edges moved — re-evaluate which playhead time hints should hide
+  updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
+  if (state.isPlaying) updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
   if (state.currentSource) {
     state.currentSource.loopStart = loopStartSecs();
     state.currentSource.loopEnd = loopEndSecs();
@@ -1472,8 +1476,8 @@ function setupActiveCardDrag(card: HTMLElement) {
       return;
     }
 
-    // Zoomed: track for click-to-jump only (anywhere in view, including margins) — no whole-loop drag
-    if (state.zoomActive) {
+    // Inside the loop (or anywhere in the zoomed view): click-to-jump only — no whole-loop drag
+    if (state.zoomActive || insideLoop) {
       card.setPointerCapture(e.pointerId);
       loopDragActive = true;
       loopDragStartX = e.clientX;
@@ -1486,6 +1490,7 @@ function setupActiveCardDrag(card: HTMLElement) {
       return;
     }
 
+    // Outside the loop (non-zoom only): drag to move the whole loop
     pushUndo();
     card.setPointerCapture(e.pointerId);
     loopDragActive = true;
@@ -1494,7 +1499,7 @@ function setupActiveCardDrag(card: HTMLElement) {
     loopDragSpan = state.loopEndBeats - state.loopStartBeats;
     loopDragDidMove = false;
     loopDragInitialTarget = e.target as Element;
-    loopDragClickJumpBeats = insideLoop ? clickBeats : -1;
+    loopDragClickJumpBeats = -1;
     loopDragDisableMove = false;
     card.classList.add('dragging');
   });
@@ -1662,13 +1667,15 @@ function setZoom(active: boolean) {
   state.zoomActive = active;
   updateActiveLoopCardDisplay();
   redrawActiveWaveform();
-  // Refresh playhead positions for new view mapping
+  // Refresh playhead positions and time-side state for the new view mapping
   if (loopPlayhead) {
     loopPlayhead.style.left = `${clamp(bufferSecsToViewFrac(currentLoopedBufferPos()), 0, 1) * 100}%`;
   }
   if (loopPausedPlayhead) {
     loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(state.pausedBufferPos), 0, 1) * 100}%`;
   }
+  updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
+  updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
 }
 
 // Loop management
@@ -1946,6 +1953,11 @@ function renderLoopCards() {
 
   addRow.style.display = state.originalBuffer ? 'flex' : 'none';
   updateRowHeight();
+
+  // After cards are in the DOM, re-evaluate playhead time visibility (clientWidth
+  // was unavailable when setPausedPos ran during card construction).
+  updatePlayheadTimeSide(loopPausedPlayheadTime, state.pausedBufferPos);
+  if (state.isPlaying) updatePlayheadTimeSide(loopPlayheadTime, currentLoopedBufferPos());
 }
 
 // Keyboard shortcuts
@@ -2398,6 +2410,7 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
       : 0,
     false,
   );
+  state.pausedBufferPos = loopStartSecs();
   persistCurrentFileSettings();
 
   setStatus('Loading…');
