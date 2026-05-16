@@ -27,6 +27,7 @@ const BPM_MAX = 300;
 const STORAGE_THEME = 'loop_theme';
 const STORAGE_VOLUME = 'loop_volume';
 const STORAGE_METRONOME = 'loop_metronome';
+const STORAGE_SHOW_TIMES = 'loop_show_times';
 const TRANSPOSE_MIN = -24;
 const TRANSPOSE_MAX = 24;
 
@@ -201,7 +202,7 @@ function computeWaveform(buffer: AudioBuffer) {
   waveformPeaks = smoothed;
 }
 
-function drawWaveformOnCanvas(canvas: HTMLCanvasElement) {
+function drawWaveformOnCanvas(canvas: HTMLCanvasElement, startFrac = 0, endFrac = 1) {
   if (!waveformPeaks) return;
   const peaks = waveformPeaks;
   const w = canvas.width;
@@ -209,9 +210,12 @@ function drawWaveformOnCanvas(canvas: HTMLCanvasElement) {
   const ctx2d = canvas.getContext('2d')!;
   ctx2d.clearRect(0, 0, w, h);
   ctx2d.fillStyle = 'rgba(128, 128, 128, 0.18)';
+  const startB = startFrac * peaks.length;
+  const span = (endFrac - startFrac) * peaks.length;
   for (let x = 0; x < w; x++) {
-    const b = Math.floor(x / w * peaks.length);
-    const barH = Math.max(1, peaks[b] * (h - 2) * 0.92);
+    const b = Math.floor(startB + (x / w) * span);
+    const idx = clamp(b, 0, peaks.length - 1);
+    const barH = Math.max(1, peaks[idx] * (h - 2) * 0.92);
     ctx2d.fillRect(x, h - barH, 1, barH);
   }
 }
@@ -220,7 +224,6 @@ function drawWaveformOnCanvas(canvas: HTMLCanvasElement) {
 interface FileSettings {
   loops?: LoopData[];
   activeLoopId?: string | null;
-  volume?: number;
   transposeSemitones?: number;
   // Legacy fields
   targetBPM?: number;
@@ -249,7 +252,6 @@ function persistCurrentFileSettings() {
     localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
       loops: state.loops,
       activeLoopId: state.activeLoopId,
-      volume: state.volume,
       transposeSemitones: state.transposeSemitones,
     }));
   } catch (e) { console.error('persistCurrentFileSettings failed:', e); }
@@ -272,6 +274,8 @@ interface AppState {
   playStartWallTime: number;
   pausedBufferPos: number;
   metronomeEnabled: boolean;
+  showTimes: boolean;
+  zoomActive: boolean;
   transposeSemitones: number;
   currentFileId: string | null;
   currentFileName: string | null;
@@ -296,6 +300,8 @@ const state: AppState = {
   playStartWallTime: 0,
   pausedBufferPos: 0,
   metronomeEnabled: false,
+  showTimes: false,
+  zoomActive: false,
   transposeSemitones: 0,
   currentFileId: null,
   currentFileName: null,
@@ -367,13 +373,58 @@ let loopStartInput: HTMLInputElement | null = null;
 let loopEndInput: HTMLInputElement | null = null;
 let loopStartHandle: HTMLElement | null = null;
 let loopEndHandle: HTMLElement | null = null;
+let loopPlayheadTime: HTMLElement | null = null;
+let loopPausedPlayheadTime: HTMLElement | null = null;
+let loopStartTime: HTMLElement | null = null;
+let loopEndTime: HTMLElement | null = null;
+
+function formatTime(secs: number): string {
+  if (!isFinite(secs) || secs < 0) secs = 0;
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+// Flip playhead time to the left of the line when the playhead is within this
+// many pixels of the loop end (B), to avoid overlapping the end marker.
+const PLAYHEAD_TIME_FLIP_PX = 44;
+
+function updatePlayheadTimeSide(el: HTMLElement | null, bufferPosSecs: number) {
+  if (!el || !activeLoopCard || !state.originalBuffer) return;
+  const cardW = activeLoopCard.clientWidth;
+  if (cardW <= 0) return;
+  const beatDur = beatDurationSecs();
+  const [viewStart, viewEnd] = activeViewRangeBeats();
+  const viewSpanSecs = (viewEnd - viewStart) * beatDur;
+  if (viewSpanSecs <= 0) return;
+  const pxToEnd = ((loopEndSecs() - bufferPosSecs) / viewSpanSecs) * cardW;
+  el.classList.toggle('on-left', pxToEnd < PLAYHEAD_TIME_FLIP_PX);
+}
+
+function bufferSecsToViewFrac(secs: number): number {
+  const total = totalBeats();
+  if (total <= 0) return 0;
+  const beatDur = beatDurationSecs();
+  const [viewStart, viewEnd] = activeViewRangeBeats();
+  const viewSpanSecs = (viewEnd - viewStart) * beatDur;
+  if (viewSpanSecs <= 0) return 0;
+  return (secs - viewStart * beatDur) / viewSpanSecs;
+}
 
 function setPausedPos(pos: number) {
   state.pausedBufferPos = pos;
   if (loopPausedPlayhead && state.originalBuffer) {
-    const frac = pos / state.originalBuffer.duration;
-    loopPausedPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+    loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pos), 0, 1) * 100}%`;
   }
+  if (loopPausedPlayheadTime) loopPausedPlayheadTime.textContent = formatTime(pos);
+  updatePlayheadTimeSide(loopPausedPlayheadTime, pos);
+}
+
+function updatePlayheadTime() {
+  if (!loopPlayheadTime || !state.originalBuffer) return;
+  const pos = currentLoopedBufferPos();
+  loopPlayheadTime.textContent = formatTime(pos);
+  updatePlayheadTimeSide(loopPlayheadTime, pos);
 }
 
 function setBpmDisplay(bpm: number) {
@@ -543,6 +594,46 @@ function totalBeats(): number {
   return Math.ceil(state.originalBuffer.duration * state.detectedBPM / 60);
 }
 
+// While a drag is in progress we lock the view to its drag-start range so the
+// cursor stays aligned with the edge handle even as zoom would otherwise rescale.
+let dragViewStart: number | null = null;
+let dragViewEnd: number | null = null;
+
+function activeViewRangeBeats(): [number, number] {
+  if (dragViewStart != null && dragViewEnd != null) return [dragViewStart, dragViewEnd];
+  if (state.zoomActive) {
+    // Loop fills the middle ~50% of the view; the remaining 50% is split into
+    // equal margins on either side so surrounding context stays visible.
+    const loopSpan = state.loopEndBeats - state.loopStartBeats;
+    const margin = loopSpan / 2;
+    const total = totalBeats();
+    return [Math.max(0, state.loopStartBeats - margin), Math.min(total, state.loopEndBeats + margin)];
+  }
+  return [0, totalBeats()];
+}
+
+function snapshotDragView() {
+  if (state.zoomActive) {
+    const [vs, ve] = activeViewRangeBeats();
+    dragViewStart = vs;
+    dragViewEnd = ve;
+  }
+}
+
+function clearDragView() {
+  dragViewStart = null;
+  dragViewEnd = null;
+}
+
+function redrawActiveWaveform() {
+  if (!activeLoopCard) return;
+  const canvas = activeLoopCard.querySelector<HTMLCanvasElement>('.loop-waveform');
+  const total = totalBeats();
+  if (!canvas || total <= 0) return;
+  const [viewStart, viewEnd] = activeViewRangeBeats();
+  drawWaveformOnCanvas(canvas, viewStart / total, viewEnd / total);
+}
+
 function beatDurationSecs(): number {
   return 60 / state.detectedBPM;
 }
@@ -559,8 +650,11 @@ function updateActiveLoopCardDisplay() {
   if (!loopBetween || !loopHint || !loopStartLabel || !loopEndLabel) return;
   const total = totalBeats();
   if (total === 0) return;
-  const startFrac = state.loopStartBeats / total;
-  const endFrac = state.loopEndBeats / total;
+  const [viewStart, viewEnd] = activeViewRangeBeats();
+  const viewSpan = viewEnd - viewStart;
+  if (viewSpan <= 0) return;
+  const startFrac = (state.loopStartBeats - viewStart) / viewSpan;
+  const endFrac = (state.loopEndBeats - viewStart) / viewSpan;
   const beats = state.loopEndBeats - state.loopStartBeats;
   loopBetween.style.left = `${startFrac * 100}%`;
   loopBetween.style.width = `${(endFrac - startFrac) * 100}%`;
@@ -571,6 +665,14 @@ function updateActiveLoopCardDisplay() {
   loopEndLabel.style.left = `${endFrac * 100}%`;
   if (loopStartHandle) loopStartHandle.style.left = `${startFrac * 100}%`;
   if (loopEndHandle) loopEndHandle.style.left = `${endFrac * 100}%`;
+  if (loopStartTime) {
+    loopStartTime.style.left = `${startFrac * 100}%`;
+    loopStartTime.textContent = formatTime(loopStartSecs());
+  }
+  if (loopEndTime) {
+    loopEndTime.style.left = `${endFrac * 100}%`;
+    loopEndTime.textContent = formatTime(loopEndSecs());
+  }
 }
 
 function updateInactiveCardDisplay(
@@ -581,10 +683,13 @@ function updateInactiveCardDisplay(
   const hint = card.querySelector<HTMLElement>('.loop-hint')!;
   const startLbl = card.querySelector<HTMLElement>('.loop-start-label')!;
   const endLbl = card.querySelector<HTMLElement>('.loop-end-label')!;
+  const startTime = card.querySelector<HTMLElement>('.loop-start-time');
+  const endTime = card.querySelector<HTMLElement>('.loop-end-time');
   const total = totalBeats();
   if (total === 0) return;
   const startFrac = loop.startBeats / total;
   const endFrac = loop.endBeats / total;
+  const beatDur = beatDurationSecs();
   between.style.left = `${startFrac * 100}%`;
   between.style.width = `${(endFrac - startFrac) * 100}%`;
   hint.textContent = String(loop.endBeats - loop.startBeats);
@@ -592,6 +697,14 @@ function updateInactiveCardDisplay(
   startLbl.style.left = `${startFrac * 100}%`;
   endLbl.textContent = String(loop.endBeats);
   endLbl.style.left = `${endFrac * 100}%`;
+  if (startTime) {
+    startTime.style.left = `${startFrac * 100}%`;
+    startTime.textContent = formatTime(loop.startBeats * beatDur);
+  }
+  if (endTime) {
+    endTime.style.left = `${endFrac * 100}%`;
+    endTime.textContent = formatTime(loop.endBeats * beatDur);
+  }
 }
 
 // Playhead
@@ -611,8 +724,11 @@ function currentLoopedBufferPos(): number {
 function tickPlayhead() {
   if (!state.isPlaying || !state.originalBuffer) return;
   const pos = currentLoopedBufferPos();
-  const frac = pos / state.originalBuffer.duration;
-  if (loopPlayhead) loopPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+  if (loopPlayhead) loopPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pos), 0, 1) * 100}%`;
+  if (loopPlayheadTime && state.showTimes) {
+    loopPlayheadTime.textContent = formatTime(pos);
+    updatePlayheadTimeSide(loopPlayheadTime, pos);
+  }
   playheadRaf = requestAnimationFrame(tickPlayhead);
 }
 
@@ -637,6 +753,7 @@ function setLoopPoints(startBeats: number, endBeats: number, persist = true) {
   state.loopStartBeats = newStart;
   state.loopEndBeats = newEnd;
   updateActiveLoopCardDisplay();
+  if (state.zoomActive && dragViewStart == null) redrawActiveWaveform();
   if (state.currentSource) {
     state.currentSource.loopStart = loopStartSecs();
     state.currentSource.loopEnd = loopEndSecs();
@@ -891,6 +1008,26 @@ function toggleMetronome() {
 }
 (window as any).toggleMetronome = toggleMetronome;
 
+function setShowTimes(enabled: boolean, persist = true) {
+  state.showTimes = enabled;
+  document.body.classList.toggle('show-times', enabled);
+  const btn = document.getElementById('show-times-toggle');
+  if (btn) btn.classList.toggle('active', enabled);
+  if (enabled) {
+    updateActiveLoopCardDisplay();
+    updatePlayheadTime();
+    if (loopPausedPlayheadTime) loopPausedPlayheadTime.textContent = formatTime(state.pausedBufferPos);
+  }
+  if (persist) {
+    try { localStorage.setItem(STORAGE_SHOW_TIMES, enabled ? '1' : '0'); } catch (e) { console.error('localStorage failed:', e); }
+  }
+}
+
+function toggleShowTimes() {
+  setShowTimes(!state.showTimes);
+}
+(window as any).toggleShowTimes = toggleShowTimes;
+
 // Transpose
 function updateTransposeBtn() {
   const btn = document.getElementById('transpose-btn');
@@ -1144,6 +1281,8 @@ let loopDragStartBeats = 0;
 let loopDragSpan = 0;
 let loopDragDidMove = false;
 let loopDragInitialTarget: Element | null = null;
+let loopDragClickJumpBeats = -1; // if >=0, click-without-move jumps playhead to this beat
+let loopDragDisableMove = false; // true in zoom-mode middle clicks: movement has no effect
 
 // Resize handle drag state
 let resizeDragActive = false;
@@ -1152,6 +1291,9 @@ let resizeDragStartX = 0;
 let resizeDragStartBeats = 0;
 let resizeDragClickBeats = 0;
 let resizeDragStarted = false; // true once pointer has actually moved
+
+// A/B-point drag only initiates when click is within this many pixels of an edge.
+const EDGE_DRAG_THRESHOLD_PX = 32;
 
 function enterLoopLengthEdit() {
   if (!loopLengthInput || !loopHint) return;
@@ -1264,6 +1406,7 @@ function commitLoopEndEdit() {
 
 function setupActiveCardDrag(card: HTMLElement) {
   function clearResizeDrag() {
+    const hadSnapshot = dragViewStart != null;
     resizeDragActive = false;
     resizeDragStarted = false;
     loopDragDidMove = false;
@@ -1272,14 +1415,27 @@ function setupActiveCardDrag(card: HTMLElement) {
     card.style.cursor = '';
     if (loopStartHandle) { loopStartHandle.style.opacity = '0'; loopStartHandle.classList.remove('active'); }
     if (loopEndHandle) { loopEndHandle.style.opacity = '0'; loopEndHandle.classList.remove('active'); }
+    clearDragView();
+    if (hadSnapshot) {
+      updateActiveLoopCardDisplay();
+      redrawActiveWaveform();
+    }
   }
 
   function clearLoopDrag() {
+    const hadSnapshot = dragViewStart != null;
     loopDragActive = false;
     loopDragDidMove = false;
     loopDragInitialTarget = null;
+    loopDragClickJumpBeats = -1;
+    loopDragDisableMove = false;
     card.classList.remove('dragging');
     card.style.cursor = '';
+    clearDragView();
+    if (hadSnapshot) {
+      updateActiveLoopCardDisplay();
+      redrawActiveWaveform();
+    }
   }
 
   card.addEventListener('pointerdown', e => {
@@ -1290,21 +1446,43 @@ function setupActiveCardDrag(card: HTMLElement) {
 
     const r = card.getBoundingClientRect();
     const total = totalBeats();
-    const clickBeats = total > 0 && r.width > 0 ? (e.clientX - r.left) / r.width * total : -1;
+    const [viewStart, viewEnd] = activeViewRangeBeats();
+    const viewSpan = viewEnd - viewStart;
+    const clickBeats = total > 0 && r.width > 0 && viewSpan > 0
+      ? viewStart + (e.clientX - r.left) / r.width * viewSpan
+      : -1;
+    const insideLoop = total > 0 && clickBeats >= state.loopStartBeats && clickBeats <= state.loopEndBeats;
+    const startPx = total > 0 && viewSpan > 0 ? r.left + ((state.loopStartBeats - viewStart) / viewSpan) * r.width : 0;
+    const endPx = total > 0 && viewSpan > 0 ? r.left + ((state.loopEndBeats - viewStart) / viewSpan) * r.width : 0;
+    const distToStartPx = Math.abs(e.clientX - startPx);
+    const distToEndPx = Math.abs(e.clientX - endPx);
+    const nearEdge = insideLoop && Math.min(distToStartPx, distToEndPx) <= EDGE_DRAG_THRESHOLD_PX;
 
-    if (total > 0 && clickBeats >= state.loopStartBeats && clickBeats <= state.loopEndBeats) {
-      // Pointer down inside loop — wait to see if it's a click or a drag
+    if (nearEdge) {
+      // Pointer down near an edge — wait to see if it's a click or a resize drag
       card.setPointerCapture(e.pointerId);
       resizeDragActive = true;
       resizeDragStarted = false;
-      const distToStart = Math.abs(clickBeats - state.loopStartBeats);
-      const distToEnd = Math.abs(clickBeats - state.loopEndBeats);
-      resizeDragSide = distToStart <= distToEnd ? 'start' : 'end';
+      resizeDragSide = distToStartPx <= distToEndPx ? 'start' : 'end';
       resizeDragStartX = e.clientX;
       resizeDragStartBeats = resizeDragSide === 'start' ? state.loopStartBeats : state.loopEndBeats;
       resizeDragClickBeats = clickBeats;
       loopDragDidMove = false;
       loopDragInitialTarget = e.target as Element;
+      return;
+    }
+
+    // Zoomed: track for click-to-jump only (anywhere in view, including margins) — no whole-loop drag
+    if (state.zoomActive) {
+      card.setPointerCapture(e.pointerId);
+      loopDragActive = true;
+      loopDragStartX = e.clientX;
+      loopDragStartBeats = state.loopStartBeats;
+      loopDragSpan = state.loopEndBeats - state.loopStartBeats;
+      loopDragDidMove = false;
+      loopDragInitialTarget = e.target as Element;
+      loopDragClickJumpBeats = clickBeats;
+      loopDragDisableMove = true;
       return;
     }
 
@@ -1316,6 +1494,8 @@ function setupActiveCardDrag(card: HTMLElement) {
     loopDragSpan = state.loopEndBeats - state.loopStartBeats;
     loopDragDidMove = false;
     loopDragInitialTarget = e.target as Element;
+    loopDragClickJumpBeats = insideLoop ? clickBeats : -1;
+    loopDragDisableMove = false;
     card.classList.add('dragging');
   });
 
@@ -1327,6 +1507,7 @@ function setupActiveCardDrag(card: HTMLElement) {
       if (!resizeDragStarted) {
         resizeDragStarted = true;
         pushUndo();
+        snapshotDragView();
         card.classList.add('resizing');
         card.style.cursor = 'ew-resize';
         const activeHandle = resizeDragSide === 'start' ? loopStartHandle : loopEndHandle;
@@ -1336,7 +1517,9 @@ function setupActiveCardDrag(card: HTMLElement) {
       }
       const r = card.getBoundingClientRect();
       const total = totalBeats();
-      const deltaBeats = Math.round((e.clientX - resizeDragStartX) / r.width * total);
+      const [viewStart, viewEnd] = activeViewRangeBeats();
+      const viewSpan = viewEnd - viewStart;
+      const deltaBeats = Math.round((e.clientX - resizeDragStartX) / r.width * viewSpan);
       const newBeats = resizeDragStartBeats + deltaBeats;
       if (resizeDragSide === 'start') {
         setLoopPoints(clamp(newBeats, 0, state.loopEndBeats - 1), state.loopEndBeats);
@@ -1348,25 +1531,36 @@ function setupActiveCardDrag(card: HTMLElement) {
     if (loopDragActive) {
       if (e.clientX !== loopDragStartX) loopDragDidMove = true;
       if (!loopDragDidMove) return;
+      if (loopDragDisableMove) return;
       const r = card.getBoundingClientRect();
       const total = totalBeats();
-      const deltaBeats = Math.round((e.clientX - loopDragStartX) / r.width * total);
+      const [viewStart, viewEnd] = activeViewRangeBeats();
+      const viewSpan = viewEnd - viewStart;
+      const deltaBeats = Math.round((e.clientX - loopDragStartX) / r.width * viewSpan);
       const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total - loopDragSpan);
       setLoopPoints(newStart, newStart + loopDragSpan);
       return;
     }
-    // Hover: show the handle closer to cursor when inside loop region
+    // Hover: show the handle closer to cursor when within edge proximity
     const r = card.getBoundingClientRect();
     const total = totalBeats();
-    if (total > 0 && r.width > 0 && loopStartHandle && loopEndHandle) {
-      const hoverBeats = (e.clientX - r.left) / r.width * total;
-      if (hoverBeats >= state.loopStartBeats && hoverBeats <= state.loopEndBeats) {
-        const nearStart = Math.abs(hoverBeats - state.loopStartBeats) <= Math.abs(hoverBeats - state.loopEndBeats);
+    const [viewStart, viewEnd] = activeViewRangeBeats();
+    const viewSpan = viewEnd - viewStart;
+    if (total > 0 && r.width > 0 && viewSpan > 0 && loopStartHandle && loopEndHandle) {
+      const startPx = r.left + ((state.loopStartBeats - viewStart) / viewSpan) * r.width;
+      const endPx = r.left + ((state.loopEndBeats - viewStart) / viewSpan) * r.width;
+      const distStart = Math.abs(e.clientX - startPx);
+      const distEnd = Math.abs(e.clientX - endPx);
+      const within = Math.min(distStart, distEnd) <= EDGE_DRAG_THRESHOLD_PX;
+      if (within) {
+        const nearStart = distStart <= distEnd;
         loopStartHandle.style.opacity = nearStart ? '1' : '0';
         loopEndHandle.style.opacity = nearStart ? '0' : '1';
+        card.style.cursor = 'ew-resize';
       } else {
         loopStartHandle.style.opacity = '0';
         loopEndHandle.style.opacity = '0';
+        card.style.cursor = '';
       }
     }
   });
@@ -1375,6 +1569,7 @@ function setupActiveCardDrag(card: HTMLElement) {
     if (resizeDragActive || loopDragActive) return;
     if (loopStartHandle) loopStartHandle.style.opacity = '0';
     if (loopEndHandle) loopEndHandle.style.opacity = '0';
+    card.style.cursor = '';
   });
 
   card.addEventListener('lostpointercapture', () => {
@@ -1411,11 +1606,21 @@ function setupActiveCardDrag(card: HTMLElement) {
     }
     const didMove = loopDragDidMove;
     const initialTarget = loopDragInitialTarget;
+    const clickJumpBeats = loopDragClickJumpBeats;
     try { card.releasePointerCapture(e.pointerId); } catch (err) { console.error('releasePointerCapture failed:', err); }
     clearLoopDrag();
 
     if (!didMove && initialTarget?.closest('.loop-hint')) {
       enterLoopLengthEdit();
+      return;
+    }
+    if (!didMove && clickJumpBeats >= 0 && state.rbNode) {
+      // Click in loop middle (not near edge) — jump playhead to clicked position
+      const clickSecs = clickJumpBeats * beatDurationSecs();
+      const wasPlaying = state.isPlaying;
+      stopSource();
+      if (wasPlaying) startSource(clickSecs);
+      else setPausedPos(clickSecs);
       return;
     }
     if (didMove && state.originalBuffer && state.rbNode) {
@@ -1438,15 +1643,32 @@ function setupHandleDrag(card: HTMLElement, startHandle: HTMLElement, endHandle:
     e.stopPropagation();
     if (!state.originalBuffer) return;
     pushUndo();
+    snapshotDragView();
     card.setPointerCapture(e.pointerId);
     resizeDragActive = true;
+    resizeDragStarted = true;
     resizeDragSide = side;
     resizeDragStartX = e.clientX;
     resizeDragStartBeats = side === 'start' ? state.loopStartBeats : state.loopEndBeats;
+    loopDragDidMove = false;
     card.classList.add('resizing');
   }
   startHandle.addEventListener('pointerdown', e => onDown(e, 'start'));
   endHandle.addEventListener('pointerdown', e => onDown(e, 'end'));
+}
+
+function setZoom(active: boolean) {
+  if (!state.originalBuffer || state.zoomActive === active) return;
+  state.zoomActive = active;
+  updateActiveLoopCardDisplay();
+  redrawActiveWaveform();
+  // Refresh playhead positions for new view mapping
+  if (loopPlayhead) {
+    loopPlayhead.style.left = `${clamp(bufferSecsToViewFrac(currentLoopedBufferPos()), 0, 1) * 100}%`;
+  }
+  if (loopPausedPlayhead) {
+    loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(state.pausedBufferPos), 0, 1) * 100}%`;
+  }
 }
 
 // Loop management
@@ -1454,6 +1676,8 @@ function switchToLoop(id: string) {
   if (id === state.activeLoopId) return;
   commitLoopLengthEdit();
   syncStateToActiveLoop();
+  state.zoomActive = false;
+  clearDragView();
   state.activeLoopId = id;
   const loop = state.loops.find(l => l.id === id);
   if (!loop) return;
@@ -1478,6 +1702,8 @@ function addLoop() {
     : { id: newId, startBeats: 0, endBeats: totalBeats(), targetBPM: state.detectedBPM };
   state.loops.push(newLoop);
   state.activeLoopId = newId;
+  state.zoomActive = false;
+  clearDragView();
   clearUndoHistory();
   setTargetBPM(newLoop.targetBPM, false);
   setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
@@ -1493,6 +1719,8 @@ function deleteLoop(id: string) {
   if (state.activeLoopId === id) {
     const newActive = state.loops[Math.min(idx, state.loops.length - 1)];
     state.activeLoopId = newActive.id;
+    state.zoomActive = false;
+    clearDragView();
     clearUndoHistory();
     setTargetBPM(newActive.targetBPM, false);
     setLoopPoints(newActive.startBeats, newActive.endBeats, false);
@@ -1527,6 +1755,10 @@ function renderLoopCards() {
   loopEndInput = null;
   loopStartHandle = null;
   loopEndHandle = null;
+  loopPlayheadTime = null;
+  loopPausedPlayheadTime = null;
+  loopStartTime = null;
+  loopEndTime = null;
 
   container.innerHTML = '';
 
@@ -1573,11 +1805,25 @@ function renderLoopCards() {
 
     const playhead = document.createElement('div');
     playhead.className = 'loop-playhead';
+    const playheadTime = document.createElement('div');
+    playheadTime.className = 'loop-time-hint loop-playhead-time';
+    playhead.appendChild(playheadTime);
     card.appendChild(playhead);
 
     const pausedPlayhead = document.createElement('div');
     pausedPlayhead.className = 'loop-paused-playhead';
+    const pausedTime = document.createElement('div');
+    pausedTime.className = 'loop-time-hint loop-paused-time';
+    pausedPlayhead.appendChild(pausedTime);
     card.appendChild(pausedPlayhead);
+
+    const startTimeEl = document.createElement('div');
+    startTimeEl.className = 'loop-time-hint loop-start-time';
+    card.appendChild(startTimeEl);
+
+    const endTimeEl = document.createElement('div');
+    endTimeEl.className = 'loop-time-hint loop-end-time';
+    card.appendChild(endTimeEl);
 
     // Hover icons
     const icons = document.createElement('div');
@@ -1608,6 +1854,10 @@ function renderLoopCards() {
       loopHint = hint;
       loopPlayhead = playhead;
       loopPausedPlayhead = pausedPlayhead;
+      loopPlayheadTime = playheadTime;
+      loopPausedPlayheadTime = pausedTime;
+      loopStartTime = startTimeEl;
+      loopEndTime = endTimeEl;
       setPausedPos(state.pausedBufferPos);
       loopStartLabel = startLbl;
       loopEndLabel = endLbl;
@@ -1711,11 +1961,14 @@ document.addEventListener('keydown', e => {
     if (e.key === 'j' && state.originalBuffer) { e.preventDefault(); enterLoopLengthEdit(); return; }
   }
   if (inInput) return;
+  if (e.key === 'Escape' && state.zoomActive) { e.preventDefault(); setZoom(false); return; }
   if (e.key === 'Enter' && state.originalBuffer) { e.preventDefault(); enterLoopLengthEdit(); return; }
   if ((e.key === 'z' || e.key === 'Z') && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (e.shiftKey) redo(); else undo();
   }
+  else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); setZoom(!state.zoomActive); }
+  else if (e.key === 'x' || e.key === 'X') { e.preventDefault(); setZoom(false); }
   else if (e.key === ' ') {
     e.preventDefault();
     if (e.shiftKey) { if (state.isPlaying) { stopSource(); } else { setPausedPos(0); play(); } }
@@ -1764,6 +2017,8 @@ document.addEventListener('keydown', e => {
     };
     state.loops.push(newLoop);
     state.activeLoopId = newId;
+    state.zoomActive = false;
+    clearDragView();
     clearUndoHistory();
     setTargetBPM(newLoop.targetBPM, false);
     setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
@@ -1787,6 +2042,8 @@ document.addEventListener('keydown', e => {
     };
     state.loops.push(newLoop);
     state.activeLoopId = newId;
+    state.zoomActive = false;
+    clearDragView();
     clearUndoHistory();
     setTargetBPM(newLoop.targetBPM, false);
     setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
@@ -2135,9 +2392,6 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   const activeLoop = state.loops.find(l => l.id === state.activeLoopId)!;
   setTargetBPM(activeLoop.targetBPM, false);
   setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
-  if (settings.volume != null && Number.isFinite(settings.volume)) {
-    setVolume(clamp(settings.volume, 0, 1), false);
-  }
   setTransposeSemitones(
     settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones)
       ? settings.transposeSemitones
@@ -2524,6 +2778,12 @@ async function runNormalize() {
       if (btn) btn.classList.add('active');
     }
   } catch (e) { console.error('failed to read STORAGE_METRONOME:', e); }
+
+  try {
+    if (localStorage.getItem(STORAGE_SHOW_TIMES) === '1') {
+      setShowTimes(true, false);
+    }
+  } catch (e) { console.error('failed to read STORAGE_SHOW_TIMES:', e); }
 
   setBpmDisplay(state.targetBPM);
   setVolumeDisplay(state.volume);

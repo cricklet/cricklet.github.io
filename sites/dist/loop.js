@@ -8174,6 +8174,7 @@
   var STORAGE_THEME = "loop_theme";
   var STORAGE_VOLUME = "loop_volume";
   var STORAGE_METRONOME = "loop_metronome";
+  var STORAGE_SHOW_TIMES = "loop_show_times";
   var TRANSPOSE_MIN = -24;
   var TRANSPOSE_MAX = 24;
   var DB_NAME = "loop-player";
@@ -8332,7 +8333,7 @@
     for (let b = 0; b < buckets; b++) smoothed[b] = smoothed[b] ** 1.5;
     waveformPeaks = smoothed;
   }
-  function drawWaveformOnCanvas(canvas) {
+  function drawWaveformOnCanvas(canvas, startFrac = 0, endFrac = 1) {
     if (!waveformPeaks) return;
     const peaks = waveformPeaks;
     const w = canvas.width;
@@ -8340,9 +8341,12 @@
     const ctx2d = canvas.getContext("2d");
     ctx2d.clearRect(0, 0, w, h);
     ctx2d.fillStyle = "rgba(128, 128, 128, 0.18)";
+    const startB = startFrac * peaks.length;
+    const span = (endFrac - startFrac) * peaks.length;
     for (let x = 0; x < w; x++) {
-      const b = Math.floor(x / w * peaks.length);
-      const barH = Math.max(1, peaks[b] * (h - 2) * 0.92);
+      const b = Math.floor(startB + x / w * span);
+      const idx = clamp(b, 0, peaks.length - 1);
+      const barH = Math.max(1, peaks[idx] * (h - 2) * 0.92);
       ctx2d.fillRect(x, h - barH, 1, barH);
     }
   }
@@ -8369,7 +8373,6 @@
       localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
         loops: state.loops,
         activeLoopId: state.activeLoopId,
-        volume: state.volume,
         transposeSemitones: state.transposeSemitones
       }));
     } catch (e) {
@@ -8392,6 +8395,8 @@
     playStartWallTime: 0,
     pausedBufferPos: 0,
     metronomeEnabled: false,
+    showTimes: false,
+    zoomActive: false,
     transposeSemitones: 0,
     currentFileId: null,
     currentFileName: null,
@@ -8450,12 +8455,50 @@
   var loopEndInput = null;
   var loopStartHandle = null;
   var loopEndHandle = null;
+  var loopPlayheadTime = null;
+  var loopPausedPlayheadTime = null;
+  var loopStartTime = null;
+  var loopEndTime = null;
+  function formatTime(secs) {
+    if (!isFinite(secs) || secs < 0) secs = 0;
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+  var PLAYHEAD_TIME_FLIP_PX = 44;
+  function updatePlayheadTimeSide(el, bufferPosSecs) {
+    if (!el || !activeLoopCard || !state.originalBuffer) return;
+    const cardW = activeLoopCard.clientWidth;
+    if (cardW <= 0) return;
+    const beatDur = beatDurationSecs();
+    const [viewStart, viewEnd] = activeViewRangeBeats();
+    const viewSpanSecs = (viewEnd - viewStart) * beatDur;
+    if (viewSpanSecs <= 0) return;
+    const pxToEnd = (loopEndSecs() - bufferPosSecs) / viewSpanSecs * cardW;
+    el.classList.toggle("on-left", pxToEnd < PLAYHEAD_TIME_FLIP_PX);
+  }
+  function bufferSecsToViewFrac(secs) {
+    const total = totalBeats();
+    if (total <= 0) return 0;
+    const beatDur = beatDurationSecs();
+    const [viewStart, viewEnd] = activeViewRangeBeats();
+    const viewSpanSecs = (viewEnd - viewStart) * beatDur;
+    if (viewSpanSecs <= 0) return 0;
+    return (secs - viewStart * beatDur) / viewSpanSecs;
+  }
   function setPausedPos(pos) {
     state.pausedBufferPos = pos;
     if (loopPausedPlayhead && state.originalBuffer) {
-      const frac = pos / state.originalBuffer.duration;
-      loopPausedPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+      loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pos), 0, 1) * 100}%`;
     }
+    if (loopPausedPlayheadTime) loopPausedPlayheadTime.textContent = formatTime(pos);
+    updatePlayheadTimeSide(loopPausedPlayheadTime, pos);
+  }
+  function updatePlayheadTime() {
+    if (!loopPlayheadTime || !state.originalBuffer) return;
+    const pos = currentLoopedBufferPos();
+    loopPlayheadTime.textContent = formatTime(pos);
+    updatePlayheadTimeSide(loopPlayheadTime, pos);
   }
   function setBpmDisplay(bpm) {
     bpmReadout.textContent = `${Math.round(bpm)} BPM`;
@@ -8611,6 +8654,37 @@
     if (!state.originalBuffer) return 0;
     return Math.ceil(state.originalBuffer.duration * state.detectedBPM / 60);
   }
+  var dragViewStart = null;
+  var dragViewEnd = null;
+  function activeViewRangeBeats() {
+    if (dragViewStart != null && dragViewEnd != null) return [dragViewStart, dragViewEnd];
+    if (state.zoomActive) {
+      const loopSpan = state.loopEndBeats - state.loopStartBeats;
+      const margin = loopSpan / 2;
+      const total = totalBeats();
+      return [Math.max(0, state.loopStartBeats - margin), Math.min(total, state.loopEndBeats + margin)];
+    }
+    return [0, totalBeats()];
+  }
+  function snapshotDragView() {
+    if (state.zoomActive) {
+      const [vs, ve] = activeViewRangeBeats();
+      dragViewStart = vs;
+      dragViewEnd = ve;
+    }
+  }
+  function clearDragView() {
+    dragViewStart = null;
+    dragViewEnd = null;
+  }
+  function redrawActiveWaveform() {
+    if (!activeLoopCard) return;
+    const canvas = activeLoopCard.querySelector(".loop-waveform");
+    const total = totalBeats();
+    if (!canvas || total <= 0) return;
+    const [viewStart, viewEnd] = activeViewRangeBeats();
+    drawWaveformOnCanvas(canvas, viewStart / total, viewEnd / total);
+  }
   function beatDurationSecs() {
     return 60 / state.detectedBPM;
   }
@@ -8624,8 +8698,11 @@
     if (!loopBetween || !loopHint || !loopStartLabel || !loopEndLabel) return;
     const total = totalBeats();
     if (total === 0) return;
-    const startFrac = state.loopStartBeats / total;
-    const endFrac = state.loopEndBeats / total;
+    const [viewStart, viewEnd] = activeViewRangeBeats();
+    const viewSpan = viewEnd - viewStart;
+    if (viewSpan <= 0) return;
+    const startFrac = (state.loopStartBeats - viewStart) / viewSpan;
+    const endFrac = (state.loopEndBeats - viewStart) / viewSpan;
     const beats = state.loopEndBeats - state.loopStartBeats;
     loopBetween.style.left = `${startFrac * 100}%`;
     loopBetween.style.width = `${(endFrac - startFrac) * 100}%`;
@@ -8636,16 +8713,27 @@
     loopEndLabel.style.left = `${endFrac * 100}%`;
     if (loopStartHandle) loopStartHandle.style.left = `${startFrac * 100}%`;
     if (loopEndHandle) loopEndHandle.style.left = `${endFrac * 100}%`;
+    if (loopStartTime) {
+      loopStartTime.style.left = `${startFrac * 100}%`;
+      loopStartTime.textContent = formatTime(loopStartSecs());
+    }
+    if (loopEndTime) {
+      loopEndTime.style.left = `${endFrac * 100}%`;
+      loopEndTime.textContent = formatTime(loopEndSecs());
+    }
   }
   function updateInactiveCardDisplay(card, loop) {
     const between = card.querySelector(".loop-between");
     const hint = card.querySelector(".loop-hint");
     const startLbl = card.querySelector(".loop-start-label");
     const endLbl = card.querySelector(".loop-end-label");
+    const startTime = card.querySelector(".loop-start-time");
+    const endTime = card.querySelector(".loop-end-time");
     const total = totalBeats();
     if (total === 0) return;
     const startFrac = loop.startBeats / total;
     const endFrac = loop.endBeats / total;
+    const beatDur = beatDurationSecs();
     between.style.left = `${startFrac * 100}%`;
     between.style.width = `${(endFrac - startFrac) * 100}%`;
     hint.textContent = String(loop.endBeats - loop.startBeats);
@@ -8653,6 +8741,14 @@
     startLbl.style.left = `${startFrac * 100}%`;
     endLbl.textContent = String(loop.endBeats);
     endLbl.style.left = `${endFrac * 100}%`;
+    if (startTime) {
+      startTime.style.left = `${startFrac * 100}%`;
+      startTime.textContent = formatTime(loop.startBeats * beatDur);
+    }
+    if (endTime) {
+      endTime.style.left = `${endFrac * 100}%`;
+      endTime.textContent = formatTime(loop.endBeats * beatDur);
+    }
   }
   var playheadRaf = null;
   function currentLoopedBufferPos() {
@@ -8668,8 +8764,11 @@
   function tickPlayhead() {
     if (!state.isPlaying || !state.originalBuffer) return;
     const pos = currentLoopedBufferPos();
-    const frac = pos / state.originalBuffer.duration;
-    if (loopPlayhead) loopPlayhead.style.left = `${clamp(frac, 0, 1) * 100}%`;
+    if (loopPlayhead) loopPlayhead.style.left = `${clamp(bufferSecsToViewFrac(pos), 0, 1) * 100}%`;
+    if (loopPlayheadTime && state.showTimes) {
+      loopPlayheadTime.textContent = formatTime(pos);
+      updatePlayheadTimeSide(loopPlayheadTime, pos);
+    }
     playheadRaf = requestAnimationFrame(tickPlayhead);
   }
   function startPlayhead() {
@@ -8694,6 +8793,7 @@
     state.loopStartBeats = newStart;
     state.loopEndBeats = newEnd;
     updateActiveLoopCardDisplay();
+    if (state.zoomActive && dragViewStart == null) redrawActiveWaveform();
     if (state.currentSource) {
       state.currentSource.loopStart = loopStartSecs();
       state.currentSource.loopEnd = loopEndSecs();
@@ -8944,6 +9044,28 @@
     }
   }
   window.toggleMetronome = toggleMetronome;
+  function setShowTimes(enabled, persist = true) {
+    state.showTimes = enabled;
+    document.body.classList.toggle("show-times", enabled);
+    const btn = document.getElementById("show-times-toggle");
+    if (btn) btn.classList.toggle("active", enabled);
+    if (enabled) {
+      updateActiveLoopCardDisplay();
+      updatePlayheadTime();
+      if (loopPausedPlayheadTime) loopPausedPlayheadTime.textContent = formatTime(state.pausedBufferPos);
+    }
+    if (persist) {
+      try {
+        localStorage.setItem(STORAGE_SHOW_TIMES, enabled ? "1" : "0");
+      } catch (e) {
+        console.error("localStorage failed:", e);
+      }
+    }
+  }
+  function toggleShowTimes() {
+    setShowTimes(!state.showTimes);
+  }
+  window.toggleShowTimes = toggleShowTimes;
   function updateTransposeBtn() {
     const btn = document.getElementById("transpose-btn");
     if (!btn) return;
@@ -9179,12 +9301,15 @@
   var loopDragSpan = 0;
   var loopDragDidMove = false;
   var loopDragInitialTarget = null;
+  var loopDragClickJumpBeats = -1;
+  var loopDragDisableMove = false;
   var resizeDragActive = false;
   var resizeDragSide = "start";
   var resizeDragStartX = 0;
   var resizeDragStartBeats = 0;
   var resizeDragClickBeats = 0;
   var resizeDragStarted = false;
+  var EDGE_DRAG_THRESHOLD_PX = 32;
   function enterLoopLengthEdit() {
     if (!loopLengthInput || !loopHint) return;
     commitLoopStartEdit();
@@ -9291,6 +9416,7 @@
   }
   function setupActiveCardDrag(card) {
     function clearResizeDrag() {
+      const hadSnapshot = dragViewStart != null;
       resizeDragActive = false;
       resizeDragStarted = false;
       loopDragDidMove = false;
@@ -9305,13 +9431,26 @@
         loopEndHandle.style.opacity = "0";
         loopEndHandle.classList.remove("active");
       }
+      clearDragView();
+      if (hadSnapshot) {
+        updateActiveLoopCardDisplay();
+        redrawActiveWaveform();
+      }
     }
     function clearLoopDrag() {
+      const hadSnapshot = dragViewStart != null;
       loopDragActive = false;
       loopDragDidMove = false;
       loopDragInitialTarget = null;
+      loopDragClickJumpBeats = -1;
+      loopDragDisableMove = false;
       card.classList.remove("dragging");
       card.style.cursor = "";
+      clearDragView();
+      if (hadSnapshot) {
+        updateActiveLoopCardDisplay();
+        redrawActiveWaveform();
+      }
     }
     card.addEventListener("pointerdown", (e) => {
       if (!state.originalBuffer) return;
@@ -9320,19 +9459,37 @@
       if (focused === loopLengthInput || focused === loopStartInput || focused === loopEndInput) return;
       const r = card.getBoundingClientRect();
       const total = totalBeats();
-      const clickBeats = total > 0 && r.width > 0 ? (e.clientX - r.left) / r.width * total : -1;
-      if (total > 0 && clickBeats >= state.loopStartBeats && clickBeats <= state.loopEndBeats) {
+      const [viewStart, viewEnd] = activeViewRangeBeats();
+      const viewSpan = viewEnd - viewStart;
+      const clickBeats = total > 0 && r.width > 0 && viewSpan > 0 ? viewStart + (e.clientX - r.left) / r.width * viewSpan : -1;
+      const insideLoop = total > 0 && clickBeats >= state.loopStartBeats && clickBeats <= state.loopEndBeats;
+      const startPx = total > 0 && viewSpan > 0 ? r.left + (state.loopStartBeats - viewStart) / viewSpan * r.width : 0;
+      const endPx = total > 0 && viewSpan > 0 ? r.left + (state.loopEndBeats - viewStart) / viewSpan * r.width : 0;
+      const distToStartPx = Math.abs(e.clientX - startPx);
+      const distToEndPx = Math.abs(e.clientX - endPx);
+      const nearEdge = insideLoop && Math.min(distToStartPx, distToEndPx) <= EDGE_DRAG_THRESHOLD_PX;
+      if (nearEdge) {
         card.setPointerCapture(e.pointerId);
         resizeDragActive = true;
         resizeDragStarted = false;
-        const distToStart = Math.abs(clickBeats - state.loopStartBeats);
-        const distToEnd = Math.abs(clickBeats - state.loopEndBeats);
-        resizeDragSide = distToStart <= distToEnd ? "start" : "end";
+        resizeDragSide = distToStartPx <= distToEndPx ? "start" : "end";
         resizeDragStartX = e.clientX;
         resizeDragStartBeats = resizeDragSide === "start" ? state.loopStartBeats : state.loopEndBeats;
         resizeDragClickBeats = clickBeats;
         loopDragDidMove = false;
         loopDragInitialTarget = e.target;
+        return;
+      }
+      if (state.zoomActive) {
+        card.setPointerCapture(e.pointerId);
+        loopDragActive = true;
+        loopDragStartX = e.clientX;
+        loopDragStartBeats = state.loopStartBeats;
+        loopDragSpan = state.loopEndBeats - state.loopStartBeats;
+        loopDragDidMove = false;
+        loopDragInitialTarget = e.target;
+        loopDragClickJumpBeats = clickBeats;
+        loopDragDisableMove = true;
         return;
       }
       pushUndo();
@@ -9343,6 +9500,8 @@
       loopDragSpan = state.loopEndBeats - state.loopStartBeats;
       loopDragDidMove = false;
       loopDragInitialTarget = e.target;
+      loopDragClickJumpBeats = insideLoop ? clickBeats : -1;
+      loopDragDisableMove = false;
       card.classList.add("dragging");
     });
     card.addEventListener("pointermove", (e) => {
@@ -9352,6 +9511,7 @@
         if (!resizeDragStarted) {
           resizeDragStarted = true;
           pushUndo();
+          snapshotDragView();
           card.classList.add("resizing");
           card.style.cursor = "ew-resize";
           const activeHandle = resizeDragSide === "start" ? loopStartHandle : loopEndHandle;
@@ -9364,7 +9524,9 @@
         }
         const r2 = card.getBoundingClientRect();
         const total2 = totalBeats();
-        const deltaBeats = Math.round((e.clientX - resizeDragStartX) / r2.width * total2);
+        const [viewStart2, viewEnd2] = activeViewRangeBeats();
+        const viewSpan2 = viewEnd2 - viewStart2;
+        const deltaBeats = Math.round((e.clientX - resizeDragStartX) / r2.width * viewSpan2);
         const newBeats = resizeDragStartBeats + deltaBeats;
         if (resizeDragSide === "start") {
           setLoopPoints(clamp(newBeats, 0, state.loopEndBeats - 1), state.loopEndBeats);
@@ -9376,24 +9538,35 @@
       if (loopDragActive) {
         if (e.clientX !== loopDragStartX) loopDragDidMove = true;
         if (!loopDragDidMove) return;
+        if (loopDragDisableMove) return;
         const r2 = card.getBoundingClientRect();
         const total2 = totalBeats();
-        const deltaBeats = Math.round((e.clientX - loopDragStartX) / r2.width * total2);
+        const [viewStart2, viewEnd2] = activeViewRangeBeats();
+        const viewSpan2 = viewEnd2 - viewStart2;
+        const deltaBeats = Math.round((e.clientX - loopDragStartX) / r2.width * viewSpan2);
         const newStart = clamp(loopDragStartBeats + deltaBeats, 0, total2 - loopDragSpan);
         setLoopPoints(newStart, newStart + loopDragSpan);
         return;
       }
       const r = card.getBoundingClientRect();
       const total = totalBeats();
-      if (total > 0 && r.width > 0 && loopStartHandle && loopEndHandle) {
-        const hoverBeats = (e.clientX - r.left) / r.width * total;
-        if (hoverBeats >= state.loopStartBeats && hoverBeats <= state.loopEndBeats) {
-          const nearStart = Math.abs(hoverBeats - state.loopStartBeats) <= Math.abs(hoverBeats - state.loopEndBeats);
+      const [viewStart, viewEnd] = activeViewRangeBeats();
+      const viewSpan = viewEnd - viewStart;
+      if (total > 0 && r.width > 0 && viewSpan > 0 && loopStartHandle && loopEndHandle) {
+        const startPx = r.left + (state.loopStartBeats - viewStart) / viewSpan * r.width;
+        const endPx = r.left + (state.loopEndBeats - viewStart) / viewSpan * r.width;
+        const distStart = Math.abs(e.clientX - startPx);
+        const distEnd = Math.abs(e.clientX - endPx);
+        const within = Math.min(distStart, distEnd) <= EDGE_DRAG_THRESHOLD_PX;
+        if (within) {
+          const nearStart = distStart <= distEnd;
           loopStartHandle.style.opacity = nearStart ? "1" : "0";
           loopEndHandle.style.opacity = nearStart ? "0" : "1";
+          card.style.cursor = "ew-resize";
         } else {
           loopStartHandle.style.opacity = "0";
           loopEndHandle.style.opacity = "0";
+          card.style.cursor = "";
         }
       }
     });
@@ -9401,6 +9574,7 @@
       if (resizeDragActive || loopDragActive) return;
       if (loopStartHandle) loopStartHandle.style.opacity = "0";
       if (loopEndHandle) loopEndHandle.style.opacity = "0";
+      card.style.cursor = "";
     });
     card.addEventListener("lostpointercapture", () => {
       if (resizeDragActive) clearResizeDrag();
@@ -9438,6 +9612,7 @@
       }
       const didMove = loopDragDidMove;
       const initialTarget = loopDragInitialTarget;
+      const clickJumpBeats = loopDragClickJumpBeats;
       try {
         card.releasePointerCapture(e.pointerId);
       } catch (err2) {
@@ -9446,6 +9621,14 @@
       clearLoopDrag();
       if (!didMove && initialTarget?.closest(".loop-hint")) {
         enterLoopLengthEdit();
+        return;
+      }
+      if (!didMove && clickJumpBeats >= 0 && state.rbNode) {
+        const clickSecs = clickJumpBeats * beatDurationSecs();
+        const wasPlaying = state.isPlaying;
+        stopSource();
+        if (wasPlaying) startSource(clickSecs);
+        else setPausedPos(clickSecs);
         return;
       }
       if (didMove && state.originalBuffer && state.rbNode) {
@@ -9470,20 +9653,37 @@
       e.stopPropagation();
       if (!state.originalBuffer) return;
       pushUndo();
+      snapshotDragView();
       card.setPointerCapture(e.pointerId);
       resizeDragActive = true;
+      resizeDragStarted = true;
       resizeDragSide = side;
       resizeDragStartX = e.clientX;
       resizeDragStartBeats = side === "start" ? state.loopStartBeats : state.loopEndBeats;
+      loopDragDidMove = false;
       card.classList.add("resizing");
     }
     startHandle.addEventListener("pointerdown", (e) => onDown(e, "start"));
     endHandle.addEventListener("pointerdown", (e) => onDown(e, "end"));
   }
+  function setZoom(active) {
+    if (!state.originalBuffer || state.zoomActive === active) return;
+    state.zoomActive = active;
+    updateActiveLoopCardDisplay();
+    redrawActiveWaveform();
+    if (loopPlayhead) {
+      loopPlayhead.style.left = `${clamp(bufferSecsToViewFrac(currentLoopedBufferPos()), 0, 1) * 100}%`;
+    }
+    if (loopPausedPlayhead) {
+      loopPausedPlayhead.style.left = `${clamp(bufferSecsToViewFrac(state.pausedBufferPos), 0, 1) * 100}%`;
+    }
+  }
   function switchToLoop(id) {
     if (id === state.activeLoopId) return;
     commitLoopLengthEdit();
     syncStateToActiveLoop();
+    state.zoomActive = false;
+    clearDragView();
     state.activeLoopId = id;
     const loop = state.loops.find((l) => l.id === id);
     if (!loop) return;
@@ -9505,6 +9705,8 @@
     const newLoop = active ? { id: newId, startBeats: active.startBeats, endBeats: active.endBeats, targetBPM: active.targetBPM } : { id: newId, startBeats: 0, endBeats: totalBeats(), targetBPM: state.detectedBPM };
     state.loops.push(newLoop);
     state.activeLoopId = newId;
+    state.zoomActive = false;
+    clearDragView();
     clearUndoHistory();
     setTargetBPM(newLoop.targetBPM, false);
     setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
@@ -9519,6 +9721,8 @@
     if (state.activeLoopId === id) {
       const newActive = state.loops[Math.min(idx, state.loops.length - 1)];
       state.activeLoopId = newActive.id;
+      state.zoomActive = false;
+      clearDragView();
       clearUndoHistory();
       setTargetBPM(newActive.targetBPM, false);
       setLoopPoints(newActive.startBeats, newActive.endBeats, false);
@@ -9548,6 +9752,10 @@
     loopEndInput = null;
     loopStartHandle = null;
     loopEndHandle = null;
+    loopPlayheadTime = null;
+    loopPausedPlayheadTime = null;
+    loopStartTime = null;
+    loopEndTime = null;
     container.innerHTML = "";
     for (const loop of state.loops) {
       const isActive = loop.id === state.activeLoopId;
@@ -9582,10 +9790,22 @@
       card.appendChild(endLbl);
       const playhead = document.createElement("div");
       playhead.className = "loop-playhead";
+      const playheadTime = document.createElement("div");
+      playheadTime.className = "loop-time-hint loop-playhead-time";
+      playhead.appendChild(playheadTime);
       card.appendChild(playhead);
       const pausedPlayhead = document.createElement("div");
       pausedPlayhead.className = "loop-paused-playhead";
+      const pausedTime = document.createElement("div");
+      pausedTime.className = "loop-time-hint loop-paused-time";
+      pausedPlayhead.appendChild(pausedTime);
       card.appendChild(pausedPlayhead);
+      const startTimeEl = document.createElement("div");
+      startTimeEl.className = "loop-time-hint loop-start-time";
+      card.appendChild(startTimeEl);
+      const endTimeEl = document.createElement("div");
+      endTimeEl.className = "loop-time-hint loop-end-time";
+      card.appendChild(endTimeEl);
       const icons = document.createElement("div");
       icons.className = "loop-card-icons";
       const dlBtn = document.createElement("button");
@@ -9616,6 +9836,10 @@
         loopHint = hint;
         loopPlayhead = playhead;
         loopPausedPlayhead = pausedPlayhead;
+        loopPlayheadTime = playheadTime;
+        loopPausedPlayheadTime = pausedTime;
+        loopStartTime = startTimeEl;
+        loopEndTime = endTimeEl;
         setPausedPos(state.pausedBufferPos);
         loopStartLabel = startLbl;
         loopEndLabel = endLbl;
@@ -9746,6 +9970,11 @@
       }
     }
     if (inInput) return;
+    if (e.key === "Escape" && state.zoomActive) {
+      e.preventDefault();
+      setZoom(false);
+      return;
+    }
     if (e.key === "Enter" && state.originalBuffer) {
       e.preventDefault();
       enterLoopLengthEdit();
@@ -9755,6 +9984,12 @@
       e.preventDefault();
       if (e.shiftKey) redo();
       else undo();
+    } else if (e.key === "z" || e.key === "Z") {
+      e.preventDefault();
+      setZoom(!state.zoomActive);
+    } else if (e.key === "x" || e.key === "X") {
+      e.preventDefault();
+      setZoom(false);
     } else if (e.key === " ") {
       e.preventDefault();
       if (e.shiftKey) {
@@ -9822,6 +10057,8 @@
       };
       state.loops.push(newLoop);
       state.activeLoopId = newId;
+      state.zoomActive = false;
+      clearDragView();
       clearUndoHistory();
       setTargetBPM(newLoop.targetBPM, false);
       setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
@@ -9844,6 +10081,8 @@
       };
       state.loops.push(newLoop);
       state.activeLoopId = newId;
+      state.zoomActive = false;
+      clearDragView();
       clearUndoHistory();
       setTargetBPM(newLoop.targetBPM, false);
       setLoopPoints(newLoop.startBeats, newLoop.endBeats, false);
@@ -10176,9 +10415,6 @@
     const activeLoop = state.loops.find((l) => l.id === state.activeLoopId);
     setTargetBPM(activeLoop.targetBPM, false);
     setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
-    if (settings.volume != null && Number.isFinite(settings.volume)) {
-      setVolume(clamp(settings.volume, 0, 1), false);
-    }
     setTransposeSemitones(
       settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones) ? settings.transposeSemitones : 0,
       false
@@ -10506,6 +10742,13 @@
       }
     } catch (e) {
       console.error("failed to read STORAGE_METRONOME:", e);
+    }
+    try {
+      if (localStorage.getItem(STORAGE_SHOW_TIMES) === "1") {
+        setShowTimes(true, false);
+      }
+    } catch (e) {
+      console.error("failed to read STORAGE_SHOW_TIMES:", e);
     }
     setBpmDisplay(state.targetBPM);
     setVolumeDisplay(state.volume);
