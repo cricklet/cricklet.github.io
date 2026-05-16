@@ -1943,6 +1943,8 @@ document.addEventListener('keydown', e => {
   }
   else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); stopSource(); setPausedPos(0); play(); }
   else if (e.key === 't' || e.key === 'T') { e.preventDefault(); handleTapTempo(); }
+  else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); toggleMetronome(); }
+  else if ((e.key === 'f' || e.key === 'F') && !isSidebarMode() && !pickerOpen) { e.preventDefault(); openFilePicker(); }
   else if (e.key === ']') { pushUndo(); setTargetBPM(state.targetBPM + 5); }
   else if (e.key === '[') { pushUndo(); setTargetBPM(state.targetBPM - 5); }
   else if (e.key === '=') { pushUndo(); setTargetBPM(state.targetBPM + 1); }
