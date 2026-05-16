@@ -372,7 +372,8 @@
 
     function ensureAudioCtx() {
       if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new Ctx({ latencyHint: 'interactive' });
       } else if (audioCtx.state === 'suspended') {
         audioCtx.resume();
       }
@@ -421,8 +422,7 @@
 
       const noteGain = audioCtx.createGain();
       noteGain.gain.setValueAtTime(0, audioCtx.currentTime);
-      // Slower attack for a softer onset
-      noteGain.gain.linearRampToValueAtTime(0.22, audioCtx.currentTime + 0.06);
+      noteGain.gain.linearRampToValueAtTime(0.22, audioCtx.currentTime + 0.008);
       noteGain.connect(masterGain);
 
       // Low-pass to roll off harshness above ~3.5 kHz
