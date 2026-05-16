@@ -63,6 +63,20 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+// In-memory cache; invalidated by the mutation helpers below.
+let filesMetaCache: FileMeta[] | null = null;
+let foldersCache: string[] | null = null;
+function invalidatePickerCache() { filesMetaCache = null; foldersCache = null; }
+
+async function loadAllFilesMetaCached(): Promise<FileMeta[]> {
+  if (!filesMetaCache) filesMetaCache = await loadAllFilesMeta();
+  return filesMetaCache;
+}
+async function loadAllFoldersCached(): Promise<string[]> {
+  if (!foldersCache) foldersCache = await loadAllFolders();
+  return foldersCache;
+}
+
 async function loadAllFolders(): Promise<string[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -73,6 +87,7 @@ async function loadAllFolders(): Promise<string[]> {
 }
 
 async function saveFolder(path: string): Promise<void> {
+  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_FOLDERS, 'readwrite');
@@ -83,6 +98,7 @@ async function saveFolder(path: string): Promise<void> {
 }
 
 async function deleteFolderRecord(path: string): Promise<void> {
+  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_FOLDERS, 'readwrite');
@@ -93,6 +109,7 @@ async function deleteFolderRecord(path: string): Promise<void> {
 }
 
 async function updateFileFolder(id: string, folder: string): Promise<void> {
+  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readwrite');
@@ -137,6 +154,7 @@ async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Prom
 }
 
 async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, folder: string = '', duration?: number, bpm?: number, bpmFromAPI?: boolean, bpmAPIHint?: number, bpmTapped?: boolean, bpmTapHint?: number): Promise<void> {
+  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readwrite');
@@ -172,6 +190,7 @@ async function loadAllFilesMeta(): Promise<Array<FileMeta>> {
 }
 
 async function deleteAudioFile(id: string): Promise<void> {
+  invalidatePickerCache();
   try { localStorage.removeItem(`loop_file_${id}`); } catch (e) { console.error('localStorage.removeItem failed:', e); }
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -566,8 +585,14 @@ function setDetectedStatus(durationStr: string, bpm: number, apiHint?: number, t
   statusHint.style.pointerEvents = 'auto';
   statusHint.style.opacity = '0.5';
   const hintSuffix = tapHint != null ? ` (tapped at ${tapHint})` : apiHint != null ? ` (GetSongBPM ${apiHint})` : '';
-  statusHint.innerHTML = `${durationStr} · detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM${hintSuffix}`;
-  statusHint.querySelector('.detected-bpm-clickable')!.addEventListener('click', enterDetectedBPMHintEdit);
+  statusHint.textContent = '';
+  statusHint.append(`${durationStr} · detected `);
+  const span = document.createElement('span');
+  span.className = 'detected-bpm-clickable';
+  span.title = 'Click to re-detect with a BPM hint';
+  span.textContent = String(bpm);
+  span.addEventListener('click', enterDetectedBPMHintEdit);
+  statusHint.append(span, ` BPM${hintSuffix}`);
 }
 
 function enterDetectedBPMHintEdit() {
@@ -2162,16 +2187,16 @@ document.addEventListener('keydown', e => {
     if (e.shiftKey) redo(); else undo();
   }
   else if ((e.key === 'z' || e.key === 'Z') && !state.playerMode) { e.preventDefault(); setZoom(!state.zoomActive); }
-  else if ((e.key === 'x' || e.key === 'X') && !state.playerMode) { e.preventDefault(); setZoom(false); }
+  else if ((e.key === 'x' || e.key === 'X') && !state.playerMode && !e.metaKey && !e.ctrlKey) { e.preventDefault(); setZoom(false); }
   else if (e.key === ' ' || e.key === 'Enter') {
     e.preventDefault();
     if (e.shiftKey) { if (state.isPlaying) { stopSource(); } else { setPausedPos(0); play(); } }
     else togglePlay();
   }
   else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); stopSource(); setPausedPos(0); play(); }
-  else if (e.key === 't' || e.key === 'T') { e.preventDefault(); handleTapTempo(); }
-  else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); toggleMetronome(); }
-  else if ((e.key === 'f' || e.key === 'F') && !isSidebarMode() && !pickerOpen) { e.preventDefault(); openFilePicker(); }
+  else if ((e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); handleTapTempo(); }
+  else if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); toggleMetronome(); }
+  else if ((e.key === 'f' || e.key === 'F') && !isSidebarMode() && !pickerOpen && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openFilePicker(); }
   else if (e.key === ']' && !e.metaKey && !e.ctrlKey) { pushUndo(); setTargetBPM(state.targetBPM + 5); }
   else if (e.key === '[' && !e.metaKey && !e.ctrlKey) { pushUndo(); setTargetBPM(state.targetBPM - 5); }
   else if (e.key === '=') { pushUndo(); setTargetBPM(state.targetBPM + 1); }
@@ -2448,8 +2473,8 @@ async function advanceToNextFile() {
 }
 
 async function renderFilePicker() {
-  const allFiles = await loadAllFilesMeta();
-  const allFolders = await loadAllFolders();
+  const allFiles = await loadAllFilesMetaCached();
+  const allFolders = await loadAllFoldersCached();
   const filesInPath = allFiles.filter(f => (f.folder ?? '') === state.currentPath);
   const files = sortPickerFiles(filesInPath);
   const subfolders = directChildFolders(allFolders, state.currentPath);
@@ -2582,6 +2607,8 @@ async function renderFilePicker() {
         if (remaining.length > 0) {
           const saved = await loadAudioById(remaining[0].id);
           if (saved) processArrayBuffer(saved.buffer, saved.name, remaining[0].id);
+        } else {
+          history.replaceState({ fileId: null, path: state.currentPath }, '', buildUrl(null));
         }
       }
       await renderFilePicker();
@@ -2905,6 +2932,7 @@ const GETSONGBPM_KEY = '86904f2347dfb31bf0ba23414847c7df';
 const GETSONGBPM_ENABLED = ['cricklet.github.io', 'localhost'].includes(location.hostname);
 
 async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number; bpmFromAPI?: boolean; bpmAPIHint?: number; bpmTapped?: boolean; bpmTapHint?: number }): Promise<void> {
+  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readwrite');

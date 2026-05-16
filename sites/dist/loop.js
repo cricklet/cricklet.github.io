@@ -8207,6 +8207,20 @@
       req.onerror = () => reject(req.error);
     });
   }
+  var filesMetaCache = null;
+  var foldersCache = null;
+  function invalidatePickerCache() {
+    filesMetaCache = null;
+    foldersCache = null;
+  }
+  async function loadAllFilesMetaCached() {
+    if (!filesMetaCache) filesMetaCache = await loadAllFilesMeta();
+    return filesMetaCache;
+  }
+  async function loadAllFoldersCached() {
+    if (!foldersCache) foldersCache = await loadAllFolders();
+    return foldersCache;
+  }
   async function loadAllFolders() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -8216,6 +8230,7 @@
     });
   }
   async function saveFolder(path) {
+    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_FOLDERS, "readwrite");
@@ -8225,6 +8240,7 @@
     });
   }
   async function deleteFolderRecord(path) {
+    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_FOLDERS, "readwrite");
@@ -8234,6 +8250,7 @@
     });
   }
   async function updateFileFolder(id, folder) {
+    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_META, "readwrite");
@@ -8278,6 +8295,7 @@
     }
   }
   async function saveAudioFile(arrayBuffer, name, id, folder = "", duration, bpm, bpmFromAPI, bpmAPIHint, bpmTapped, bpmTapHint) {
+    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], "readwrite");
@@ -8309,6 +8327,7 @@
     });
   }
   async function deleteAudioFile(id) {
+    invalidatePickerCache();
     try {
       localStorage.removeItem(`loop_file_${id}`);
     } catch (e) {
@@ -8594,8 +8613,14 @@
     statusHint.style.pointerEvents = "auto";
     statusHint.style.opacity = "0.5";
     const hintSuffix = tapHint != null ? ` (tapped at ${tapHint})` : apiHint != null ? ` (GetSongBPM ${apiHint})` : "";
-    statusHint.innerHTML = `${durationStr} \xB7 detected <span class="detected-bpm-clickable" title="Click to re-detect with a BPM hint">${bpm}</span> BPM${hintSuffix}`;
-    statusHint.querySelector(".detected-bpm-clickable").addEventListener("click", enterDetectedBPMHintEdit);
+    statusHint.textContent = "";
+    statusHint.append(`${durationStr} \xB7 detected `);
+    const span = document.createElement("span");
+    span.className = "detected-bpm-clickable";
+    span.title = "Click to re-detect with a BPM hint";
+    span.textContent = String(bpm);
+    span.addEventListener("click", enterDetectedBPMHintEdit);
+    statusHint.append(span, ` BPM${hintSuffix}`);
   }
   function enterDetectedBPMHintEdit() {
     detectedBpmInput.value = String(state.detectedBPM);
@@ -10079,7 +10104,7 @@
     } else if ((e.key === "z" || e.key === "Z") && !state.playerMode) {
       e.preventDefault();
       setZoom(!state.zoomActive);
-    } else if ((e.key === "x" || e.key === "X") && !state.playerMode) {
+    } else if ((e.key === "x" || e.key === "X") && !state.playerMode && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       setZoom(false);
     } else if (e.key === " " || e.key === "Enter") {
@@ -10097,13 +10122,13 @@
       stopSource();
       setPausedPos(0);
       play();
-    } else if (e.key === "t" || e.key === "T") {
+    } else if ((e.key === "t" || e.key === "T") && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       handleTapTempo();
-    } else if (e.key === "m" || e.key === "M") {
+    } else if ((e.key === "m" || e.key === "M") && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       toggleMetronome();
-    } else if ((e.key === "f" || e.key === "F") && !isSidebarMode() && !pickerOpen) {
+    } else if ((e.key === "f" || e.key === "F") && !isSidebarMode() && !pickerOpen && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       openFilePicker();
     } else if (e.key === "]" && !e.metaKey && !e.ctrlKey) {
@@ -10383,8 +10408,8 @@
     void play();
   }
   async function renderFilePicker() {
-    const allFiles = await loadAllFilesMeta();
-    const allFolders = await loadAllFolders();
+    const allFiles = await loadAllFilesMetaCached();
+    const allFolders = await loadAllFoldersCached();
     const filesInPath = allFiles.filter((f) => (f.folder ?? "") === state.currentPath);
     const files = sortPickerFiles(filesInPath);
     const subfolders = directChildFolders(allFolders, state.currentPath);
@@ -10497,6 +10522,8 @@
           if (remaining.length > 0) {
             const saved = await loadAudioById(remaining[0].id);
             if (saved) processArrayBuffer(saved.buffer, saved.name, remaining[0].id);
+          } else {
+            history.replaceState({ fileId: null, path: state.currentPath }, "", buildUrl(null));
           }
         }
         await renderFilePicker();
@@ -10792,6 +10819,7 @@
   var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
   var GETSONGBPM_ENABLED = ["cricklet.github.io", "localhost"].includes(location.hostname);
   async function updateFileMeta(id, updates) {
+    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_META, "readwrite");
