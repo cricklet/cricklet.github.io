@@ -63,20 +63,6 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-// In-memory cache; invalidated by the mutation helpers below.
-let filesMetaCache: FileMeta[] | null = null;
-let foldersCache: string[] | null = null;
-function invalidatePickerCache() { filesMetaCache = null; foldersCache = null; }
-
-async function loadAllFilesMetaCached(): Promise<FileMeta[]> {
-  if (!filesMetaCache) filesMetaCache = await loadAllFilesMeta();
-  return filesMetaCache;
-}
-async function loadAllFoldersCached(): Promise<string[]> {
-  if (!foldersCache) foldersCache = await loadAllFolders();
-  return foldersCache;
-}
-
 async function loadAllFolders(): Promise<string[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -87,7 +73,6 @@ async function loadAllFolders(): Promise<string[]> {
 }
 
 async function saveFolder(path: string): Promise<void> {
-  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_FOLDERS, 'readwrite');
@@ -98,7 +83,6 @@ async function saveFolder(path: string): Promise<void> {
 }
 
 async function deleteFolderRecord(path: string): Promise<void> {
-  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_FOLDERS, 'readwrite');
@@ -109,7 +93,6 @@ async function deleteFolderRecord(path: string): Promise<void> {
 }
 
 async function updateFileFolder(id: string, folder: string): Promise<void> {
-  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readwrite');
@@ -154,7 +137,6 @@ async function saveBeatCache(id: string, bpm: number, ticks: Float32Array): Prom
 }
 
 async function saveAudioFile(arrayBuffer: ArrayBuffer, name: string, id: string, folder: string = '', duration?: number, bpm?: number, bpmFromAPI?: boolean, bpmAPIHint?: number, bpmTapped?: boolean, bpmTapHint?: number): Promise<void> {
-  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], 'readwrite');
@@ -190,7 +172,6 @@ async function loadAllFilesMeta(): Promise<Array<FileMeta>> {
 }
 
 async function deleteAudioFile(id: string): Promise<void> {
-  invalidatePickerCache();
   try { localStorage.removeItem(`loop_file_${id}`); } catch (e) { console.error('localStorage.removeItem failed:', e); }
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -2473,8 +2454,8 @@ async function advanceToNextFile() {
 }
 
 async function renderFilePicker() {
-  const allFiles = await loadAllFilesMetaCached();
-  const allFolders = await loadAllFoldersCached();
+  const allFiles = await loadAllFilesMeta();
+  const allFolders = await loadAllFolders();
   const filesInPath = allFiles.filter(f => (f.folder ?? '') === state.currentPath);
   const files = sortPickerFiles(filesInPath);
   const subfolders = directChildFolders(allFolders, state.currentPath);
@@ -2932,7 +2913,6 @@ const GETSONGBPM_KEY = '86904f2347dfb31bf0ba23414847c7df';
 const GETSONGBPM_ENABLED = ['cricklet.github.io', 'localhost'].includes(location.hostname);
 
 async function updateFileMeta(id: string, updates: { bpm?: number; duration?: number; bpmFromAPI?: boolean; bpmAPIHint?: number; bpmTapped?: boolean; bpmTapHint?: number }): Promise<void> {
-  invalidatePickerCache();
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE_META, 'readwrite');

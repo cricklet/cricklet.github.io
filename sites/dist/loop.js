@@ -8207,20 +8207,6 @@
       req.onerror = () => reject(req.error);
     });
   }
-  var filesMetaCache = null;
-  var foldersCache = null;
-  function invalidatePickerCache() {
-    filesMetaCache = null;
-    foldersCache = null;
-  }
-  async function loadAllFilesMetaCached() {
-    if (!filesMetaCache) filesMetaCache = await loadAllFilesMeta();
-    return filesMetaCache;
-  }
-  async function loadAllFoldersCached() {
-    if (!foldersCache) foldersCache = await loadAllFolders();
-    return foldersCache;
-  }
   async function loadAllFolders() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -8230,7 +8216,6 @@
     });
   }
   async function saveFolder(path) {
-    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_FOLDERS, "readwrite");
@@ -8240,7 +8225,6 @@
     });
   }
   async function deleteFolderRecord(path) {
-    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_FOLDERS, "readwrite");
@@ -8250,7 +8234,6 @@
     });
   }
   async function updateFileFolder(id, folder) {
-    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_META, "readwrite");
@@ -8295,7 +8278,6 @@
     }
   }
   async function saveAudioFile(arrayBuffer, name, id, folder = "", duration, bpm, bpmFromAPI, bpmAPIHint, bpmTapped, bpmTapHint) {
-    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction([DB_STORE_FILES, DB_STORE_META], "readwrite");
@@ -8327,7 +8309,6 @@
     });
   }
   async function deleteAudioFile(id) {
-    invalidatePickerCache();
     try {
       localStorage.removeItem(`loop_file_${id}`);
     } catch (e) {
@@ -10408,8 +10389,8 @@
     void play();
   }
   async function renderFilePicker() {
-    const allFiles = await loadAllFilesMetaCached();
-    const allFolders = await loadAllFoldersCached();
+    const allFiles = await loadAllFilesMeta();
+    const allFolders = await loadAllFolders();
     const filesInPath = allFiles.filter((f) => (f.folder ?? "") === state.currentPath);
     const files = sortPickerFiles(filesInPath);
     const subfolders = directChildFolders(allFolders, state.currentPath);
@@ -10819,7 +10800,6 @@
   var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
   var GETSONGBPM_ENABLED = ["cricklet.github.io", "localhost"].includes(location.hostname);
   async function updateFileMeta(id, updates) {
-    invalidatePickerCache();
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE_META, "readwrite");
