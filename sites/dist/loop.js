@@ -10512,18 +10512,39 @@
       if (!state.isPlaying) setPausedPos(loopStartSecs());
     }
   });
-  function setTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    const btn = document.getElementById("theme-toggle");
-    if (btn) btn.textContent = theme === "light" ? "\u25D0" : "\u25D1";
+  function readThemePref() {
     try {
-      localStorage.setItem(STORAGE_THEME, theme);
+      const v = localStorage.getItem(STORAGE_THEME);
+      return v === "light" || v === "dark" ? v : "auto";
+    } catch (_) {
+      return "auto";
+    }
+  }
+  function resolvedTheme() {
+    const p = readThemePref();
+    return p === "auto" ? window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light" : p;
+  }
+  function applyTheme() {
+    const pref = readThemePref();
+    document.documentElement.setAttribute("data-theme", resolvedTheme());
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      btn.textContent = pref === "auto" ? "\u25D3" : pref === "light" ? "\u25D0" : "\u25D1";
+      btn.title = `Theme: ${pref}`;
+    }
+  }
+  function setTheme(pref) {
+    try {
+      if (pref === "auto") localStorage.removeItem(STORAGE_THEME);
+      else localStorage.setItem(STORAGE_THEME, pref);
     } catch (e) {
       console.error("localStorage failed:", e);
     }
+    applyTheme();
   }
   function toggleTheme() {
-    setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
+    const cur = readThemePref();
+    setTheme(cur === "auto" ? "light" : cur === "light" ? "dark" : "auto");
   }
   window.toggleTheme = toggleTheme;
   function trimSilence(buffer2, threshold = 0.05) {
@@ -11131,7 +11152,8 @@
           ss.start(0, Math.min(livePos, stem.buffer.duration));
           stem.source = ss;
         }
-        renderLoopCards();
+        if (!state.mainMuted) setMainMuted(true);
+        else renderLoopCards();
       } catch (e) {
         console.error("decode new stem failed:", e);
       }
@@ -11213,7 +11235,8 @@
     } else if (state.currentFileId) {
       await loadStemsForCurrent();
       if (state.audioCtx) await ensureAllNodes();
-      renderLoopCards();
+      if (state.stems.length > 0 && !state.mainMuted) setMainMuted(true);
+      else renderLoopCards();
     }
   });
   var fileInput = document.getElementById("file-input");
@@ -11453,15 +11476,9 @@
     setTimeout(() => modal.setAttribute("hidden", ""), 2500);
   }
   (function init() {
-    const saved = localStorage.getItem(STORAGE_THEME);
-    setTheme(saved ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-      try {
-        if (localStorage.getItem(STORAGE_THEME) != null) return;
-      } catch (e2) {
-        console.error("localStorage failed:", e2);
-      }
-      setTheme(e.matches ? "dark" : "light");
+    applyTheme();
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (readThemePref() === "auto") applyTheme();
     });
     try {
       const v = parseFloat(localStorage.getItem(STORAGE_VOLUME) ?? "1");
@@ -11549,8 +11566,8 @@
         updateFolderPathDisplay();
         renderFilePicker().catch((e) => console.error("renderFilePicker failed:", e));
         if (target) {
-          const saved2 = await loadAudioById(target);
-          if (saved2) processArrayBuffer(saved2.buffer, saved2.name, target, false);
+          const saved = await loadAudioById(target);
+          if (saved) processArrayBuffer(saved.buffer, saved.name, target, false);
         }
       } catch (e) {
         console.error("init failed:", e);

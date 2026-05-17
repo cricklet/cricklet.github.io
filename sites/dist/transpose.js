@@ -135,26 +135,44 @@ ${transposedLines.join("\n")}`);
     const output = transposeChart(input);
     document.getElementById("output-text").value = output;
   }
-  function setTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    const toggle = document.getElementById("theme-toggle");
-    toggle.textContent = theme === "light" ? "\u25D0" : "\u25D1";
-    localStorage.setItem("transpose-theme", theme);
+  var STORAGE_THEME = "transpose-theme";
+  function readThemePref() {
+    try {
+      const v = localStorage.getItem(STORAGE_THEME);
+      return v === "light" || v === "dark" ? v : "auto";
+    } catch (_) {
+      return "auto";
+    }
+  }
+  function resolvedTheme() {
+    const p = readThemePref();
+    return p === "auto" ? window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light" : p;
+  }
+  function applyTheme() {
+    const pref = readThemePref();
+    document.documentElement.setAttribute("data-theme", resolvedTheme());
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      btn.textContent = pref === "auto" ? "\u25D3" : pref === "light" ? "\u25D0" : "\u25D1";
+      btn.title = `Theme: ${pref}`;
+    }
+  }
+  function setTheme(pref) {
+    try {
+      if (pref === "auto") localStorage.removeItem(STORAGE_THEME);
+      else localStorage.setItem(STORAGE_THEME, pref);
+    } catch (_) {
+    }
+    applyTheme();
   }
   function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute("data-theme");
-    const newTheme = currentTheme === "light" ? "dark" : "light";
-    setTheme(newTheme);
+    const cur = readThemePref();
+    setTheme(cur === "auto" ? "light" : cur === "light" ? "dark" : "auto");
   }
   window.toggleTheme = toggleTheme;
-  var savedTheme = localStorage.getItem("transpose-theme");
-  var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  var initialTheme = savedTheme || (prefersDark ? "dark" : "light");
-  setTheme(initialTheme);
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-    if (!localStorage.getItem("transpose-theme")) {
-      setTheme(e.matches ? "dark" : "light");
-    }
+  applyTheme();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (readThemePref() === "auto") applyTheme();
   });
   document.getElementById("input-text").addEventListener("input", updateOutput);
   window.addEventListener("load", function() {

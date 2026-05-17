@@ -597,30 +597,56 @@ function toggleSinewave() {
 }
 (window as any).toggleSinewave = toggleSinewave;
 
-function setTheme(theme: string) {
-  document.documentElement.setAttribute('data-theme', theme);
+const STORAGE_THEME = 'tuner_theme';
+type ThemePref = 'auto' | 'light' | 'dark';
+
+function readThemePref(): ThemePref {
+  try {
+    const v = localStorage.getItem(STORAGE_THEME);
+    return v === 'light' || v === 'dark' ? v : 'auto';
+  } catch (_) { return 'auto'; }
+}
+function resolvedTheme(): 'light' | 'dark' {
+  const p = readThemePref();
+  return p === 'auto'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : p;
+}
+function applyTheme() {
+  const pref = readThemePref();
+  document.documentElement.setAttribute('data-theme', resolvedTheme());
   const btn = document.getElementById('theme-toggle');
-  if (btn) btn.textContent = theme === 'light' ? '◐' : '◑';
-  try { localStorage.setItem('tuner_theme', theme); } catch (_) {}
+  if (btn) {
+    btn.textContent = pref === 'auto' ? '◓' : pref === 'light' ? '◐' : '◑';
+    btn.title = `Theme: ${pref}`;
+  }
   drawMeter(lastCents);
   staffRenderedKey = 'dirty';
   const _dm = currentDisplayMidi();
   const _dc = _dm !== null && lastCents !== null ? displayCents(lastCents, _dm) : null;
   renderStaff(_dm, _dc);
 }
+function setTheme(pref: ThemePref) {
+  try {
+    if (pref === 'auto') localStorage.removeItem(STORAGE_THEME);
+    else localStorage.setItem(STORAGE_THEME, pref);
+  } catch (_) {}
+  applyTheme();
+}
 
 function toggleTheme() {
-  setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  const cur = readThemePref();
+  setTheme(cur === 'auto' ? 'light' : cur === 'light' ? 'dark' : 'auto');
 }
 (window as any).toggleTheme = toggleTheme;
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
 (function init() {
-  try {
-    const saved = localStorage.getItem('tuner_theme');
-    setTheme(saved ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-  } catch (_) { setTheme('dark'); }
+  applyTheme();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (readThemePref() === 'auto') applyTheme();
+  });
 
   try {
     if (localStorage.getItem('tuner_trumpet') === '1') {

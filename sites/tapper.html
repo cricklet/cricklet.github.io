@@ -223,32 +223,42 @@
       }
     });
 
-    // Theme
-    function setTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      document.getElementById('theme-toggle').textContent = theme === 'light' ? '◐' : '◑';
-    }
-
-    function toggleTheme() {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'light' ? 'dark' : 'light';
-      setTheme(next);
-      try { localStorage.setItem(STORAGE_THEME, next); } catch (_) {}
-    }
-
-    function loadInitialTheme() {
+    // Theme: 'auto' (default), 'light', or 'dark'. Auto resolves to system pref.
+    function readThemePref() {
       try {
-        const saved = localStorage.getItem(STORAGE_THEME);
-        if (saved === 'light' || saved === 'dark') { setTheme(saved); return; }
-      } catch (_) {}
-      setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        const v = localStorage.getItem(STORAGE_THEME);
+        return v === 'light' || v === 'dark' ? v : 'auto';
+      } catch (_) { return 'auto'; }
     }
-
-    loadInitialTheme();
-
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      try { if (localStorage.getItem(STORAGE_THEME) != null) return; } catch (_) {}
-      setTheme(e.matches ? 'dark' : 'light');
+    function resolvedTheme() {
+      const p = readThemePref();
+      return p === 'auto'
+        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : p;
+    }
+    function applyTheme() {
+      const pref = readThemePref();
+      document.documentElement.setAttribute('data-theme', resolvedTheme());
+      const btn = document.getElementById('theme-toggle');
+      if (btn) {
+        btn.textContent = pref === 'auto' ? '◓' : pref === 'light' ? '◐' : '◑';
+        btn.title = `Theme: ${pref}`;
+      }
+    }
+    function setTheme(pref) {
+      try {
+        if (pref === 'auto') localStorage.removeItem(STORAGE_THEME);
+        else localStorage.setItem(STORAGE_THEME, pref);
+      } catch (_) {}
+      applyTheme();
+    }
+    function toggleTheme() {
+      const cur = readThemePref();
+      setTheme(cur === 'auto' ? 'light' : cur === 'light' ? 'dark' : 'auto');
+    }
+    applyTheme();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (readThemePref() === 'auto') applyTheme();
     });
 
     // Focus classes

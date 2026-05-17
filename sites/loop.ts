@@ -2631,15 +2631,40 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// Theme
-function setTheme(theme: string) {
-  document.documentElement.setAttribute('data-theme', theme);
+// Theme: 'auto' (default), 'light', or 'dark'. Auto follows system pref.
+type ThemePref = 'auto' | 'light' | 'dark';
+
+function readThemePref(): ThemePref {
+  try {
+    const v = localStorage.getItem(STORAGE_THEME);
+    return v === 'light' || v === 'dark' ? v : 'auto';
+  } catch (_) { return 'auto'; }
+}
+function resolvedTheme(): 'light' | 'dark' {
+  const p = readThemePref();
+  return p === 'auto'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : p;
+}
+function applyTheme() {
+  const pref = readThemePref();
+  document.documentElement.setAttribute('data-theme', resolvedTheme());
   const btn = document.getElementById('theme-toggle');
-  if (btn) btn.textContent = theme === 'light' ? '◐' : '◑';
-  try { localStorage.setItem(STORAGE_THEME, theme); } catch (e) { console.error('localStorage failed:', e); }
+  if (btn) {
+    btn.textContent = pref === 'auto' ? '◓' : pref === 'light' ? '◐' : '◑';
+    btn.title = `Theme: ${pref}`;
+  }
+}
+function setTheme(pref: ThemePref) {
+  try {
+    if (pref === 'auto') localStorage.removeItem(STORAGE_THEME);
+    else localStorage.setItem(STORAGE_THEME, pref);
+  } catch (e) { console.error('localStorage failed:', e); }
+  applyTheme();
 }
 function toggleTheme() {
-  setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  const cur = readThemePref();
+  setTheme(cur === 'auto' ? 'light' : cur === 'light' ? 'dark' : 'auto');
 }
 (window as any).toggleTheme = toggleTheme;
 
@@ -3292,7 +3317,11 @@ async function tryProcessAsStem(file: File): Promise<boolean> {
         ss.start(0, Math.min(livePos, stem.buffer.duration));
         stem.source = ss;
       }
-      renderLoopCards();
+      // Mvsep-style stem exports are typically a few ms off from the source
+      // mp3; default to muting the original whenever stems are added so they
+      // don't audibly clash.
+      if (!state.mainMuted) setMainMuted(true);
+      else renderLoopCards();
     } catch (e) {
       console.error('decode new stem failed:', e);
     }
@@ -3392,7 +3421,10 @@ document.addEventListener('drop', async e => {
   } else if (state.currentFileId) {
     await loadStemsForCurrent();
     if (state.audioCtx) await ensureAllNodes();
-    renderLoopCards();
+    // Adding stems to an already-loaded parent: auto-mute main (stems usually
+    // don't align perfectly with the source). setMainMuted persists + redraws.
+    if (state.stems.length > 0 && !state.mainMuted) setMainMuted(true);
+    else renderLoopCards();
   }
 });
 
@@ -3674,12 +3706,9 @@ async function runNormalize() {
 
 // Init
 (function init() {
-  const saved = localStorage.getItem(STORAGE_THEME);
-  setTheme(saved ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-    try { if (localStorage.getItem(STORAGE_THEME) != null) return; } catch (e) { console.error('localStorage failed:', e); }
-    setTheme(e.matches ? 'dark' : 'light');
+  applyTheme();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (readThemePref() === 'auto') applyTheme();
   });
 
   try {

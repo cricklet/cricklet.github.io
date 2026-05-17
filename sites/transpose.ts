@@ -252,34 +252,47 @@ function updateOutput() {
   (document.getElementById('output-text') as HTMLTextAreaElement).value = output;
 }
 
-// Theme functionality
-function setTheme(theme: string) {
-  document.documentElement.setAttribute('data-theme', theme);
-  const toggle = document.getElementById('theme-toggle') as HTMLButtonElement;
-  toggle.textContent = theme === 'light' ? '◐' : '◑';
-  localStorage.setItem('transpose-theme', theme);
-}
+// Theme: 'auto' (default), 'light', or 'dark'. Auto follows system pref.
+const STORAGE_THEME = 'transpose-theme';
+type ThemePref = 'auto' | 'light' | 'dark';
 
+function readThemePref(): ThemePref {
+  try {
+    const v = localStorage.getItem(STORAGE_THEME);
+    return v === 'light' || v === 'dark' ? v : 'auto';
+  } catch (_) { return 'auto'; }
+}
+function resolvedTheme(): 'light' | 'dark' {
+  const p = readThemePref();
+  return p === 'auto'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : p;
+}
+function applyTheme() {
+  const pref = readThemePref();
+  document.documentElement.setAttribute('data-theme', resolvedTheme());
+  const btn = document.getElementById('theme-toggle') as HTMLButtonElement | null;
+  if (btn) {
+    btn.textContent = pref === 'auto' ? '◓' : pref === 'light' ? '◐' : '◑';
+    btn.title = `Theme: ${pref}`;
+  }
+}
+function setTheme(pref: ThemePref) {
+  try {
+    if (pref === 'auto') localStorage.removeItem(STORAGE_THEME);
+    else localStorage.setItem(STORAGE_THEME, pref);
+  } catch (_) {}
+  applyTheme();
+}
 function toggleTheme() {
-  const currentTheme = document.documentElement.getAttribute('data-theme');
-  const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-  setTheme(newTheme);
+  const cur = readThemePref();
+  setTheme(cur === 'auto' ? 'light' : cur === 'light' ? 'dark' : 'auto');
 }
-
-// Expose toggleTheme globally for onclick handler
 (window as any).toggleTheme = toggleTheme;
 
-// Initialize theme
-const savedTheme = localStorage.getItem('transpose-theme');
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
-setTheme(initialTheme);
-
-// Listen for system theme changes
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-  if (!localStorage.getItem('transpose-theme')) {
-    setTheme(e.matches ? 'dark' : 'light');
-  }
+applyTheme();
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (readThemePref() === 'auto') applyTheme();
 });
 
 // Update output on input
