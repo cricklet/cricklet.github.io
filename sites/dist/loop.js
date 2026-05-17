@@ -11054,7 +11054,7 @@
     state.pausedBufferPos = loopStartSecs();
     setStatus("Loading stems\u2026");
     await loadStemsForCurrent();
-    state.mainMuted = settings.mainMuted ?? state.stems.length > 0;
+    state.mainMuted = state.stems.length > 0 ? settings.mainMuted ?? true : false;
     state.mainVolume = Number.isFinite(settings.mainVolume) ? clamp(settings.mainVolume, 0, 1) : 1;
     persistCurrentFileSettings();
     setStatus("Loading\u2026");

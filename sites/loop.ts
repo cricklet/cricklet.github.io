@@ -3219,8 +3219,10 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   setStatus('Loading stems…');
   await loadStemsForCurrent();
   // Default to muting the main when stems are present (stems usually carry
-  // the audible content); user toggles still win via the saved setting.
-  state.mainMuted = settings.mainMuted ?? (state.stems.length > 0);
+  // the audible content); user toggles still win via the saved setting. If
+  // there are no stems, ignore any stale saved mainMuted=true — otherwise the
+  // file would play silent with nothing else to make sound.
+  state.mainMuted = state.stems.length > 0 ? (settings.mainMuted ?? true) : false;
   state.mainVolume = Number.isFinite(settings.mainVolume) ? clamp(settings.mainVolume!, 0, 1) : 1;
   // Persist AFTER stems are loaded so we don't clobber saved stemMutes with [].
   persistCurrentFileSettings();
