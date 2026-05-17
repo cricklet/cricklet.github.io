@@ -10478,6 +10478,14 @@
         stopSource();
         startSource(pos);
       } else setPausedPos(pos);
+    } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !state.playerMode) {
+      if (!state.originalBuffer || state.loops.length <= 1) return;
+      const idx = state.loops.findIndex((l) => l.id === state.activeLoopId);
+      if (idx === -1) return;
+      const next = e.key === "ArrowUp" ? state.loops[idx - 1] : state.loops[idx + 1];
+      if (!next) return;
+      e.preventDefault();
+      switchToLoop(next.id);
     } else if ((e.key === "." || e.key === ",") && !state.playerMode) {
       if (!state.originalBuffer) return;
       e.preventDefault();
