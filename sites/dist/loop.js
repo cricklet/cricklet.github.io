@@ -10857,7 +10857,7 @@
         const saved = await loadAudioById(f.id);
         if (saved) {
           await processArrayBuffer(saved.buffer, saved.name, f.id);
-          await play();
+          if (state.playerMode) await play();
         }
       });
       tbody.appendChild(tr);
