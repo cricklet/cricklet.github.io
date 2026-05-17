@@ -8656,11 +8656,11 @@
     statusHint.style.pointerEvents = "none";
     statusHint.style.opacity = "";
   }
-  function setDetectedStatus(durationStr, bpm, apiHint, tapHint) {
-    lastDetectedArgs = [durationStr, bpm, apiHint, tapHint];
+  function setDetectedStatus(durationStr, bpm, tapHint) {
+    lastDetectedArgs = [durationStr, bpm, tapHint];
     statusHint.style.pointerEvents = "auto";
     statusHint.style.opacity = "0.5";
-    const hintSuffix = tapHint != null ? ` (tapped at ${tapHint})` : apiHint != null ? ` (GetSongBPM ${apiHint})` : "";
+    const hintSuffix = tapHint != null ? ` (tapped at ${tapHint})` : "";
     statusHint.textContent = "";
     statusHint.append(`${durationStr} \xB7 detected `);
     const span = document.createElement("span");
@@ -8789,7 +8789,7 @@
       detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
       const mins = Math.floor(buf.duration / 60);
       const secs = Math.round(buf.duration % 60).toString().padStart(2, "0");
-      setDetectedStatus(`${mins}:${secs}`, bpm, void 0, tappedBPM);
+      setDetectedStatus(`${mins}:${secs}`, bpm, tappedBPM);
       await updateFileMeta(state.currentFileId, { bpm, bpmTapped: true, bpmTapHint: tappedBPM });
       renderFilePicker().catch((e) => console.error("renderFilePicker failed:", e));
     } catch (e) {
@@ -11008,35 +11008,16 @@
     computeWaveform(decoded);
     const cached = await loadBeatCache(id);
     let bpm, ticks;
-    let apiHint;
     let tapHint;
     if (cached) {
       ({ bpm, ticks } = cached);
       setStatus("Loading\u2026");
       const meta = await loadFileMeta(id);
       if (meta?.bpmTapped && meta.bpmTapHint) tapHint = meta.bpmTapHint;
-      else if (meta?.bpmAPIHint) apiHint = meta.bpmAPIHint;
     } else {
-      let hintBPM;
-      const apiKey = GETSONGBPM_KEY;
-      if (apiKey && GETSONGBPM_ENABLED) {
-        const parsed = parseFilenameForLookup(name);
-        if (parsed?.title) {
-          const desc = parsed.artist ? `${parsed.title} by ${parsed.artist}` : parsed.title;
-          setStatus(`Looking up ${desc}\u2026`);
-        } else {
-          setStatus("Looking up BPM\u2026");
-        }
-        await new Promise((r) => setTimeout(r, 0));
-        const looked = await lookupBPMFromGetSongBPM(name, apiKey);
-        if (looked) {
-          hintBPM = looked;
-          apiHint = looked;
-        }
-      }
       setStatus("Detecting BPM\u2026");
       await new Promise((r) => setTimeout(r, 0));
-      ({ bpm, ticks } = await detectRhythm(decoded, hintBPM));
+      ({ bpm, ticks } = await detectRhythm(decoded));
       await saveBeatCache(id, bpm, ticks);
     }
     state.detectedBPM = bpm;
@@ -11082,13 +11063,13 @@
     for (const stem of state.stems) applyStemGain(stem);
     const mins = Math.floor(decoded.duration / 60);
     const secs = Math.round(decoded.duration % 60).toString().padStart(2, "0");
-    setDetectedStatus(`${mins}:${secs}`, bpm, apiHint, tapHint);
+    setDetectedStatus(`${mins}:${secs}`, bpm, tapHint);
     renderLoopCards();
     updateFilePickerBtn();
     const url = buildUrl(id);
     if (pushHistory && location.search !== url) history.pushState({ fileId: id, path: state.currentPath }, "", url);
     else history.replaceState({ fileId: id, path: state.currentPath }, "", url);
-    saveAudioFile(arrayBuffer, name, id, folderForFile, decoded.duration, bpm, !!apiHint, apiHint).then(() => renderFilePicker()).catch((e) => console.error("saveAudioFile/renderFilePicker failed:", e));
+    saveAudioFile(arrayBuffer, name, id, folderForFile, decoded.duration, bpm).then(() => renderFilePicker()).catch((e) => console.error("saveAudioFile/renderFilePicker failed:", e));
   }
   async function tryProcessAsStem(file) {
     const parsed = parseStemName(file.name);
@@ -11241,8 +11222,6 @@
     if (saved) processArrayBuffer(saved.buffer, saved.name, id, false);
   });
   document.getElementById("add-loop-btn").addEventListener("click", addLoop);
-  var GETSONGBPM_KEY = "86904f2347dfb31bf0ba23414847c7df";
-  var GETSONGBPM_ENABLED = ["cricklet.github.io", "localhost"].includes(location.hostname);
   async function updateFileMeta(id, updates) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -11275,90 +11254,19 @@
       req.onerror = () => reject(req.error);
     });
   }
-  function trimTrailingBrackets(s) {
-    let result = s.trim();
-    for (; ; ) {
-      const m = result.match(/^(.*\S)\s*(?:\([^()]*\)|\[[^\[\]]*\])\s*$/);
-      if (!m) break;
-      result = m[1].trim();
-    }
-    return result;
-  }
-  function parseFilenameForLookup(filename) {
-    let name = filename.replace(/\.[^.]+$/, "");
-    name = name.replace(/｜/g, " - ").replace(/[⧸／]/g, "/").replace(/[＂＂]/g, '"');
-    name = trimTrailingBrackets(name);
-    const parts = name.split(/\s+-\s+/).map((s) => s.trim()).filter(Boolean);
-    const strip = (s) => {
-      let prev = "";
-      while (prev !== s) {
-        prev = s;
-        s = s.replace(/\s*[\[(][^\[\]()]*[\])]\s*/g, " ").trim();
-      }
-      return s.replace(/\s{2,}/g, " ").trim();
-    };
-    const stripTitle = (s) => {
-      const before = s.replace(/[\[(].*/s, "").trim();
-      return before || strip(s);
-    };
-    const cleaned = parts.map(strip).filter(Boolean);
-    const titles = parts.map(stripTitle).filter(Boolean);
-    if (cleaned.length === 0) return null;
-    if (cleaned.length === 1) return { artist: "", title: titles[0] ?? cleaned[0] };
-    if (cleaned.length === 2) return { artist: cleaned[0], title: titles[1] ?? cleaned[1] };
-    const [p0, p1] = cleaned;
-    const t2 = titles[2] ?? cleaned[2];
-    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (norm(p0) === norm(p1) || norm(p1).startsWith(norm(p0))) {
-      return { artist: p1, title: t2 };
-    }
-    if (p1.toLowerCase() === "topic") {
-      return { artist: p0, title: t2 };
-    }
-    return { artist: p1, title: t2 };
-  }
-  async function lookupBPMFromGetSongBPM(filename, apiKey) {
-    const parsed = parseFilenameForLookup(filename);
-    if (!parsed || !parsed.title) return null;
-    const enc = (s) => encodeURIComponent(s).replace(/%20/g, "+");
-    const base = `https://api.getsong.co/search/?api_key=${encodeURIComponent(apiKey)}`;
-    const tempoFrom = (data) => {
-      let tempo = parseInt(data.search?.[0]?.tempo, 10);
-      if (!Number.isFinite(tempo) || tempo <= 0) return null;
-      while (tempo <= 70) tempo *= 2;
-      while (tempo >= 140) tempo /= 2;
-      return Math.round(tempo);
-    };
-    try {
-      if (parsed.artist) {
-        const lookup = `song:${enc(parsed.title)}+artist:${enc(parsed.artist)}`;
-        const res2 = await fetch(`${base}&type=both&lookup=${lookup}`);
-        if (res2.ok) {
-          const data = await res2.json();
-          const t = tempoFrom(data);
-          if (t) return t;
-        }
-      }
-      const res = await fetch(`${base}&type=song&lookup=${enc(parsed.title)}`);
-      if (!res.ok) return null;
-      return tempoFrom(await res.json());
-    } catch (e) {
-      console.error("lookupBPMFromGetSongBPM failed:", e);
-      return null;
-    }
-  }
   async function runBatchDecode() {
     const modal = document.getElementById("batch-decode-modal");
     const progressEl = document.getElementById("batch-decode-progress");
     const filenameEl = document.getElementById("batch-decode-filename");
     const sourceEl = document.getElementById("batch-decode-source");
     modal.removeAttribute("hidden");
-    const apiKey = GETSONGBPM_KEY;
     const countsEl = document.getElementById("batch-decode-counts");
     countsEl.textContent = "";
     const allFiles = await loadAllFilesMeta();
-    const undecoded = allFiles.filter((f) => f.parentId == null && (f.bpm == null || f.duration == null));
-    const total = undecoded.length;
+    const toDecode = allFiles.filter(
+      (f) => f.parentId == null && (f.bpm == null || f.duration == null || f.bpmFromAPI)
+    );
+    const total = toDecode.length;
     if (total === 0) {
       progressEl.textContent = "All files already decoded";
       filenameEl.textContent = "";
@@ -11366,41 +11274,28 @@
       setTimeout(() => modal.setAttribute("hidden", ""), 1500);
       return;
     }
-    let apiHits = 0;
     for (let i = 0; i < total; i++) {
-      const f = undecoded[i];
+      const f = toDecode[i];
       progressEl.textContent = `Decoding ${i + 1} / ${total}\u2026`;
       filenameEl.textContent = f.name;
-      sourceEl.textContent = "";
+      sourceEl.textContent = f.bpmFromAPI ? "re-detecting (was API)\u2026" : "analyzing audio\u2026";
       await new Promise((r) => setTimeout(r, 0));
-      let hintBPM;
-      if (apiKey && GETSONGBPM_ENABLED) {
-        const bpmFromAPI = await lookupBPMFromGetSongBPM(f.name, apiKey);
-        if (bpmFromAPI) {
-          hintBPM = bpmFromAPI;
-          apiHits++;
-          sourceEl.textContent = `GetSongBPM: ${bpmFromAPI} BPM \u2192 analyzing\u2026`;
-          await new Promise((r) => setTimeout(r, 80));
-        }
-      }
-      if (!hintBPM) sourceEl.textContent = "analyzing audio\u2026";
       try {
         const saved = await loadAudioById(f.id);
         if (!saved) continue;
         const ctx = getAudioCtx();
         const raw = await ctx.decodeAudioData(saved.buffer.slice(0));
         const decoded = normalizeAudio(trimSilence(raw));
-        const { bpm, ticks } = await detectRhythm(decoded, hintBPM);
+        const { bpm, ticks } = await detectRhythm(decoded);
         await saveBeatCache(f.id, bpm, ticks);
-        await saveAudioFile(saved.buffer, f.name, f.id, f.folder ?? "", decoded.duration, bpm, !!hintBPM, hintBPM);
+        await saveAudioFile(saved.buffer, f.name, f.id, f.folder ?? "", decoded.duration, bpm, false);
         countsEl.textContent = `${i + 1} / ${total} done`;
       } catch (e) {
         console.error(`batch decode failed for ${f.name}:`, e);
         sourceEl.textContent = `Error: ${e.message ?? e}`;
       }
     }
-    const apiNote = apiHits ? ` (${apiHits} API hints)` : "";
-    progressEl.textContent = `Done \u2014 ${total} file${total === 1 ? "" : "s"}${apiNote}`;
+    progressEl.textContent = `Done \u2014 ${total} file${total === 1 ? "" : "s"}`;
     filenameEl.textContent = "";
     sourceEl.textContent = "";
     await renderFilePicker();
