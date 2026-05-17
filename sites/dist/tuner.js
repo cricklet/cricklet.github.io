@@ -1302,31 +1302,20 @@
     rerenderCurrent();
   }
   window.toggleSinewave = toggleSinewave;
-  function setTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    const btn = document.getElementById("theme-toggle");
-    if (btn) btn.textContent = theme === "light" ? "\u25D0" : "\u25D1";
-    try {
-      localStorage.setItem("tuner_theme", theme);
-    } catch (_) {
-    }
+  function applySystemTheme() {
+    document.documentElement.setAttribute(
+      "data-theme",
+      window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+    );
     drawMeter(lastCents);
     staffRenderedKey = "dirty";
     const _dm = currentDisplayMidi();
     const _dc = _dm !== null && lastCents !== null ? displayCents(lastCents, _dm) : null;
     renderStaff(_dm, _dc);
   }
-  function toggleTheme() {
-    setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
-  }
-  window.toggleTheme = toggleTheme;
   (function init() {
-    try {
-      const saved = localStorage.getItem("tuner_theme");
-      setTheme(saved ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-    } catch (_) {
-      setTheme("dark");
-    }
+    applySystemTheme();
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applySystemTheme);
     try {
       if (localStorage.getItem("tuner_trumpet") === "1") {
         trumpetMode = true;

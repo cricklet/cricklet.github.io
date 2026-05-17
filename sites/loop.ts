@@ -24,7 +24,6 @@ function getEssentia(): Promise<any> {
 
 const BPM_MIN = 40;
 const BPM_MAX = 300;
-const STORAGE_THEME = 'loop_theme';
 const STORAGE_VOLUME = 'loop_volume';
 const STORAGE_METRONOME = 'loop_metronome';
 const STORAGE_SHOW_TIMES = 'loop_show_times';
@@ -581,7 +580,6 @@ function layoutTimeHints() {
   const endEl = active.endTime;
   const pausedEl = active.pausedPlayheadTime;
   const liveEl = active.playheadTime;
-  const hoverEl = active.hoverTime;
 
   startEl.style.left = `${startFrac * 100}%`;
   endEl.style.left = `${endFrac * 100}%`;
@@ -593,7 +591,6 @@ function layoutTimeHints() {
   endEl.classList.remove('inside');
   pausedEl.classList.remove('hide');
   liveEl.classList.remove('hide');
-  hoverEl.classList.remove('hide');
 
   if (!state.showTimes) return; // nothing visible to lay out
 
@@ -608,7 +605,8 @@ function layoutTimeHints() {
   if ((1 - endFrac) * cardW < endW + margin) endEl.classList.add('inside');
 
   // Re-measure with .inside applied, then hide lower-priority hints they collide with.
-  // Priority: A/B > paused > live > hover.
+  // Priority: A/B > paused > live. Hover lives in its own row at the top, so it
+  // never overlaps the bottom row and doesn't participate in collision checks.
   const pad = 3;
   const placed: DOMRect[] = [
     startEl.getBoundingClientRect(),
@@ -622,7 +620,6 @@ function layoutTimeHints() {
   };
   tryPlace(pausedEl);
   tryPlace(liveEl);
-  if (hoverEl.style.display !== 'none') tryPlace(hoverEl);
 }
 
 function bufferSecsToViewFrac(secs: number): number {
@@ -795,9 +792,26 @@ async function commitTapTempo(tappedBPM: number) {
   setStatus(`Re-detecting at tapped ${tappedBPM} BPM…`);
   try {
     const buf = state.originalBuffer;
+    const oldBPM = state.detectedBPM;
     const { bpm, ticks } = await detectRhythm(buf, tappedBPM);
     state.detectedBPM = bpm;
     state.beatTicks = ticks;
+    // Scale existing loops by newBPM/oldBPM so they still cover the same
+    // audio time slots, just expressed in the new beat grid.
+    if (oldBPM > 0 && bpm > 0 && oldBPM !== bpm) {
+      const ratio = bpm / oldBPM;
+      for (const loop of state.loops) {
+        loop.startBeats = loop.startBeats * ratio;
+        loop.endBeats = loop.endBeats * ratio;
+      }
+      const activeLoop = state.loops.find(l => l.id === state.activeLoopId);
+      if (activeLoop) setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
+    }
+    // Snap the playback tempo to the newly detected BPM so the loop plays at
+    // exactly the speed the user tapped.
+    setTargetBPM(bpm, false);
+    persistCurrentFileSettings();
+
     saveBeatCache(state.currentFileId, bpm, ticks).catch(e => console.error('saveBeatCache failed:', e));
     const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
     detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
@@ -2127,14 +2141,12 @@ function setupHoverTimeHint(card: HTMLElement, hoverEl: HTMLElement) {
     hoverEl.style.display = 'block';
     hoverEl.style.left = `${frac * 100}%`;
     hoverEl.textContent = formatTime(secs);
-    layoutTimeHints();
   };
   card.addEventListener('pointermove', e => {
     if (e.pointerType === 'mouse') update(e.clientX);
   });
   card.addEventListener('pointerleave', () => {
     hoverEl.style.display = 'none';
-    layoutTimeHints();
   });
 }
 
@@ -2559,6 +2571,13 @@ document.addEventListener('keydown', e => {
   else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); stopSource(); setPausedPos(0); play(); }
   else if ((e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); handleTapTempo(); }
   else if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); toggleMetronome(); }
+  // Snap the active loop's end to the nearest beat at the current playhead position.
+  else if ((e.key === 'e' || e.key === 'E') && !e.metaKey && !e.ctrlKey && state.originalBuffer && !state.playerMode) {
+    e.preventDefault();
+    pushUndo();
+    const beats = Math.round(currentBufferPos() * state.detectedBPM / 60);
+    setLoopPoints(state.loopStartBeats, beats);
+  }
   else if ((e.key === 'f' || e.key === 'F') && !isSidebarMode() && !pickerOpen && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openFilePicker(); }
   else if (e.key === ']' && !e.metaKey && !e.ctrlKey) { pushUndo(); setTargetBPM(state.targetBPM + 5); }
   else if (e.key === '[' && !e.metaKey && !e.ctrlKey) { pushUndo(); setTargetBPM(state.targetBPM - 5); }
@@ -2631,17 +2650,10 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// Theme
-function setTheme(theme: string) {
-  document.documentElement.setAttribute('data-theme', theme);
-  const btn = document.getElementById('theme-toggle');
-  if (btn) btn.textContent = theme === 'light' ? '◐' : '◑';
-  try { localStorage.setItem(STORAGE_THEME, theme); } catch (e) { console.error('localStorage failed:', e); }
+function applySystemTheme() {
+  document.documentElement.setAttribute('data-theme',
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 }
-function toggleTheme() {
-  setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
-}
-(window as any).toggleTheme = toggleTheme;
 
 function trimSilence(buffer: AudioBuffer, threshold = 0.05): AudioBuffer {
   const numChannels = buffer.numberOfChannels;
@@ -3292,7 +3304,11 @@ async function tryProcessAsStem(file: File): Promise<boolean> {
         ss.start(0, Math.min(livePos, stem.buffer.duration));
         stem.source = ss;
       }
-      renderLoopCards();
+      // Mvsep-style stem exports are typically a few ms off from the source
+      // mp3; default to muting the original whenever stems are added so they
+      // don't audibly clash.
+      if (!state.mainMuted) setMainMuted(true);
+      else renderLoopCards();
     } catch (e) {
       console.error('decode new stem failed:', e);
     }
@@ -3392,7 +3408,10 @@ document.addEventListener('drop', async e => {
   } else if (state.currentFileId) {
     await loadStemsForCurrent();
     if (state.audioCtx) await ensureAllNodes();
-    renderLoopCards();
+    // Adding stems to an already-loaded parent: auto-mute main (stems usually
+    // don't align perfectly with the source). setMainMuted persists + redraws.
+    if (state.stems.length > 0 && !state.mainMuted) setMainMuted(true);
+    else renderLoopCards();
   }
 });
 
@@ -3674,13 +3693,8 @@ async function runNormalize() {
 
 // Init
 (function init() {
-  const saved = localStorage.getItem(STORAGE_THEME);
-  setTheme(saved ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-    try { if (localStorage.getItem(STORAGE_THEME) != null) return; } catch (e) { console.error('localStorage failed:', e); }
-    setTheme(e.matches ? 'dark' : 'light');
-  });
+  applySystemTheme();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
 
   try {
     const v = parseFloat(localStorage.getItem(STORAGE_VOLUME) ?? '1');

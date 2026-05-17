@@ -425,7 +425,6 @@
   </div>
 
   <!-- <span class="hint">Space — start / stop · T — tap tempo</span> -->
-  <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
   <button type="button" id="bg-tint-toggle" onclick="toggleBgTint()" title="Tint background on the off beat"><span id="bg-tint-icon">🖼️</span></button>
   <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode"><span id="visual-eye">💡</span></button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
@@ -438,7 +437,6 @@
     const BPM_MAX = 200;
     const STORAGE_BPM = 'metronome_bpm';
     const STORAGE_VOLUME = 'metronome_volume';
-    const STORAGE_THEME = 'metronome_theme';
     const STORAGE_STOPWATCH = 'metronome_stopwatch_start';
     const STORAGE_JAZZ = 'metronome_jazz';
     const STORAGE_EIGHTHS = 'metronome_eighths';
@@ -860,21 +858,9 @@
       }
     });
 
-    function setTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      const toggle = document.getElementById('theme-toggle');
-      toggle.textContent = theme === 'light' ? '◐' : '◑';
-    }
-
-    function toggleTheme() {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'light' ? 'dark' : 'light';
-      setTheme(next);
-      try {
-        localStorage.setItem(STORAGE_THEME, next);
-      } catch (_) {
-        /* ignore */
-      }
+    function applySystemTheme() {
+      document.documentElement.setAttribute('data-theme',
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     }
 
     function toggleJazz() {
@@ -918,21 +904,7 @@
     }
 
 
-    function loadInitialTheme() {
-      try {
-        const saved = localStorage.getItem(STORAGE_THEME);
-        if (saved === 'light' || saved === 'dark') {
-          setTheme(saved);
-          return;
-        }
-      } catch (_) {
-        /* ignore */
-      }
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setTheme(prefersDark ? 'dark' : 'light');
-    }
-
-    loadInitialTheme();
+    applySystemTheme();
 
     try {
       if (localStorage.getItem(STORAGE_JAZZ) === '1') {
@@ -957,14 +929,7 @@
       }
     } catch (_) {}
 
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      try {
-        if (localStorage.getItem(STORAGE_THEME) != null) return;
-      } catch (_) {
-        /* ignore */
-      }
-      setTheme(e.matches ? 'dark' : 'light');
-    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
 
     const storedBpm = loadStoredBpm();
     const storedVolume = loadStoredVolume();

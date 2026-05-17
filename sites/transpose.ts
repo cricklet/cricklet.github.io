@@ -252,35 +252,12 @@ function updateOutput() {
   (document.getElementById('output-text') as HTMLTextAreaElement).value = output;
 }
 
-// Theme functionality
-function setTheme(theme: string) {
-  document.documentElement.setAttribute('data-theme', theme);
-  const toggle = document.getElementById('theme-toggle') as HTMLButtonElement;
-  toggle.textContent = theme === 'light' ? '◐' : '◑';
-  localStorage.setItem('transpose-theme', theme);
+function applySystemTheme() {
+  document.documentElement.setAttribute('data-theme',
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 }
-
-function toggleTheme() {
-  const currentTheme = document.documentElement.getAttribute('data-theme');
-  const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-  setTheme(newTheme);
-}
-
-// Expose toggleTheme globally for onclick handler
-(window as any).toggleTheme = toggleTheme;
-
-// Initialize theme
-const savedTheme = localStorage.getItem('transpose-theme');
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
-setTheme(initialTheme);
-
-// Listen for system theme changes
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-  if (!localStorage.getItem('transpose-theme')) {
-    setTheme(e.matches ? 'dark' : 'light');
-  }
-});
+applySystemTheme();
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
 
 // Update output on input
 document.getElementById('input-text')!.addEventListener('input', updateOutput);

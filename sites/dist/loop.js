@@ -8171,7 +8171,6 @@
   }
   var BPM_MIN = 40;
   var BPM_MAX = 300;
-  var STORAGE_THEME = "loop_theme";
   var STORAGE_VOLUME = "loop_volume";
   var STORAGE_METRONOME = "loop_metronome";
   var STORAGE_SHOW_TIMES = "loop_show_times";
@@ -8590,7 +8589,6 @@
     const endEl = active.endTime;
     const pausedEl = active.pausedPlayheadTime;
     const liveEl = active.playheadTime;
-    const hoverEl = active.hoverTime;
     startEl.style.left = `${startFrac * 100}%`;
     endEl.style.left = `${endFrac * 100}%`;
     startEl.textContent = formatTime(loopStartSecs());
@@ -8599,7 +8597,6 @@
     endEl.classList.remove("inside");
     pausedEl.classList.remove("hide");
     liveEl.classList.remove("hide");
-    hoverEl.classList.remove("hide");
     if (!state.showTimes) return;
     const cardW = active.card.clientWidth;
     if (cardW <= 0) return;
@@ -8621,7 +8618,6 @@
     };
     tryPlace(pausedEl);
     tryPlace(liveEl);
-    if (hoverEl.style.display !== "none") tryPlace(hoverEl);
   }
   function bufferSecsToViewFrac(secs) {
     const total = totalBeats();
@@ -8773,9 +8769,21 @@
     setStatus(`Re-detecting at tapped ${tappedBPM} BPM\u2026`);
     try {
       const buf = state.originalBuffer;
+      const oldBPM = state.detectedBPM;
       const { bpm, ticks } = await detectRhythm(buf, tappedBPM);
       state.detectedBPM = bpm;
       state.beatTicks = ticks;
+      if (oldBPM > 0 && bpm > 0 && oldBPM !== bpm) {
+        const ratio = bpm / oldBPM;
+        for (const loop of state.loops) {
+          loop.startBeats = loop.startBeats * ratio;
+          loop.endBeats = loop.endBeats * ratio;
+        }
+        const activeLoop = state.loops.find((l) => l.id === state.activeLoopId);
+        if (activeLoop) setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
+      }
+      setTargetBPM(bpm, false);
+      persistCurrentFileSettings();
       saveBeatCache(state.currentFileId, bpm, ticks).catch((e) => console.error("saveBeatCache failed:", e));
       const tickFrac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
       detectedTick.style.left = `${clamp(tickFrac, 0, 1) * 100}%`;
@@ -10016,14 +10024,12 @@
       hoverEl.style.display = "block";
       hoverEl.style.left = `${frac * 100}%`;
       hoverEl.textContent = formatTime(secs);
-      layoutTimeHints();
     };
     card.addEventListener("pointermove", (e) => {
       if (e.pointerType === "mouse") update(e.clientX);
     });
     card.addEventListener("pointerleave", () => {
       hoverEl.style.display = "none";
-      layoutTimeHints();
     });
   }
   function setZoom(zoom) {
@@ -10435,6 +10441,11 @@
     } else if ((e.key === "m" || e.key === "M") && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       toggleMetronome();
+    } else if ((e.key === "e" || e.key === "E") && !e.metaKey && !e.ctrlKey && state.originalBuffer && !state.playerMode) {
+      e.preventDefault();
+      pushUndo();
+      const beats = Math.round(currentBufferPos() * state.detectedBPM / 60);
+      setLoopPoints(state.loopStartBeats, beats);
     } else if ((e.key === "f" || e.key === "F") && !isSidebarMode() && !pickerOpen && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       openFilePicker();
@@ -10512,20 +10523,12 @@
       if (!state.isPlaying) setPausedPos(loopStartSecs());
     }
   });
-  function setTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    const btn = document.getElementById("theme-toggle");
-    if (btn) btn.textContent = theme === "light" ? "\u25D0" : "\u25D1";
-    try {
-      localStorage.setItem(STORAGE_THEME, theme);
-    } catch (e) {
-      console.error("localStorage failed:", e);
-    }
+  function applySystemTheme() {
+    document.documentElement.setAttribute(
+      "data-theme",
+      window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+    );
   }
-  function toggleTheme() {
-    setTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
-  }
-  window.toggleTheme = toggleTheme;
   function trimSilence(buffer2, threshold = 0.05) {
     const numChannels = buffer2.numberOfChannels;
     const length = buffer2.length;
@@ -11131,7 +11134,8 @@
           ss.start(0, Math.min(livePos, stem.buffer.duration));
           stem.source = ss;
         }
-        renderLoopCards();
+        if (!state.mainMuted) setMainMuted(true);
+        else renderLoopCards();
       } catch (e) {
         console.error("decode new stem failed:", e);
       }
@@ -11213,7 +11217,8 @@
     } else if (state.currentFileId) {
       await loadStemsForCurrent();
       if (state.audioCtx) await ensureAllNodes();
-      renderLoopCards();
+      if (state.stems.length > 0 && !state.mainMuted) setMainMuted(true);
+      else renderLoopCards();
     }
   });
   var fileInput = document.getElementById("file-input");
@@ -11453,16 +11458,8 @@
     setTimeout(() => modal.setAttribute("hidden", ""), 2500);
   }
   (function init() {
-    const saved = localStorage.getItem(STORAGE_THEME);
-    setTheme(saved ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-      try {
-        if (localStorage.getItem(STORAGE_THEME) != null) return;
-      } catch (e2) {
-        console.error("localStorage failed:", e2);
-      }
-      setTheme(e.matches ? "dark" : "light");
-    });
+    applySystemTheme();
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applySystemTheme);
     try {
       const v = parseFloat(localStorage.getItem(STORAGE_VOLUME) ?? "1");
       if (Number.isFinite(v)) state.volume = clamp(v, 0, 1);
@@ -11549,8 +11546,8 @@
         updateFolderPathDisplay();
         renderFilePicker().catch((e) => console.error("renderFilePicker failed:", e));
         if (target) {
-          const saved2 = await loadAudioById(target);
-          if (saved2) processArrayBuffer(saved2.buffer, saved2.name, target, false);
+          const saved = await loadAudioById(target);
+          if (saved) processArrayBuffer(saved.buffer, saved.name, target, false);
         }
       } catch (e) {
         console.error("init failed:", e);

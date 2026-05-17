@@ -26,42 +26,28 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      min-height: 100vh;
       margin: 0;
-      padding: 10px;
       background: var(--bg-color);
       color: var(--text-color);
-      display: flex;
-      flex-direction: column;
       transition: all 0.2s ease;
-      box-sizing: border-box;
     }
 
     .container {
       display: flex;
-      flex: 1;
-      width: 100%;
-      max-width: 100%;
-      margin: 0;
       gap: 10px;
-      height: calc(100vh - 20px);
+      height: 100vh;
+      height: 100dvh;
       padding: 10px;
       box-sizing: border-box;
     }
 
-    .left-panel {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
+    .left-panel,
     .right-panel {
-      flex: 1;
+      flex: 1 1 0;
+      min-width: 0;
+      min-height: 0;
       display: flex;
       flex-direction: column;
-      min-width: 0;
-      overflow-y: auto;
     }
 
     #input-text {
@@ -95,45 +81,9 @@
       white-space: pre-wrap;
     }
 
-    #theme-toggle {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--text-color);
-      color: var(--bg-color);
-      opacity: 0;
-      cursor: pointer;
-      border: none;
-      font-size: 1.5rem;
-      transition: all 0.1s ease;
-      z-index: 100;
-    }
-
-    body:hover #theme-toggle {
-      opacity: 1;
-    }
-
-    #theme-toggle:hover {
-      transform: scale(1.1);
-    }
-
     @media (max-width: 768px) {
       .container {
         flex-direction: column;
-        height: auto;
-        min-height: calc(100vh - 20px);
-      }
-
-      .left-panel,
-      .right-panel {
-        min-height: 400px;
-        width: 100%;
       }
     }
   </style>
@@ -148,8 +98,6 @@
       <textarea id="output-text" readonly></textarea>
     </div>
   </div>
-  <button id="theme-toggle" onclick="toggleTheme()">☀️</button>
-
   <script src="dist/transpose.js"></script>
 </body>
 

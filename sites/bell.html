@@ -70,7 +70,8 @@
     }
 
     #reset-button,
-    #ff-button {
+    #ff-button,
+    #theme-toggle {
       position: absolute;
       bottom: 20px;
       width: 44px;
@@ -102,13 +103,19 @@
       font-size: 1rem;
     }
 
+    #theme-toggle {
+      left: 20px;
+    }
+
     body:hover #reset-button,
-    body:hover #ff-button {
+    body:hover #ff-button,
+    body:hover #theme-toggle {
       opacity: 1;
     }
 
     #reset-button:hover,
-    #ff-button:hover {
+    #ff-button:hover,
+    #theme-toggle:hover {
       transform: scale(1.1);
     }
 
@@ -296,12 +303,12 @@
     }
     updateIntervalText();
 
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setTheme(prefersDark ? 'dark' : 'light');
-
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      setTheme(e.matches ? 'dark' : 'light');
-    });
+    function applySystemTheme() {
+      document.documentElement.setAttribute('data-theme',
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    }
+    applySystemTheme();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
 
     initializePIP();
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -333,10 +340,6 @@
         if (editMode) exitEditMode(false);
       }
     });
-
-    function setTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-    }
 
     function saveTimerState() {
       if (totalStartTime !== null) {

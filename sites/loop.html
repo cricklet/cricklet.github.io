@@ -388,10 +388,18 @@
     body.show-times .loop-time-hint { display: block; }
 
     .loop-playhead-time,
-    .loop-paused-time,
-    .loop-hover-time {
+    .loop-paused-time {
       left: 0;
       transform: translate(4px, 0);
+      text-shadow:
+        0 0 6px var(--bg-color),
+        0 0 3px var(--bg-color);
+    }
+
+    .loop-hover-time {
+      top: 2px;
+      bottom: auto;
+      transform: translate(-50%, 0);
       text-shadow:
         0 0 6px var(--bg-color),
         0 0 3px var(--bg-color);
@@ -1138,8 +1146,6 @@
         <button type="button" id="backup-btn" title="Download backup bundle for this track" disabled>💾</button>
       </div>
     </div>
-
-    <button type="button" id="theme-toggle" onclick="toggleTheme()" title="Theme">◑</button>
 
     <div id="loops-container"></div>
     <div id="add-loop-row">

@@ -2,6 +2,7 @@
 <html>
 
 <head>
+  <meta charset="utf-8">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sometype+Mono&display=swap">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono&display=swap">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sono&display=swap">
@@ -182,7 +183,6 @@
     <button onclick="skipPhase()" class="skip">⏭</button>
   </div>
 
-  <button id="theme-toggle" onclick="toggleTheme()">☀️</button>
   <canvas id="pip-canvas" style="display: none;"></canvas>
 
   <script>
@@ -207,14 +207,8 @@
     let ctx = null;
     switchPhase(isWorkPhase);
     
-    // Use system theme preference
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setTheme(prefersDark ? 'dark' : 'light');
-    
-    // Listen for system theme changes
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      setTheme(e.matches ? 'dark' : 'light');
-    });
+    applySystemTheme();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
     
     // Initialize PIP support
     initializePIP();
@@ -225,16 +219,9 @@
     // Auto-start the timer
     setTimer(true);
 
-    function setTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      const toggle = document.getElementById('theme-toggle');
-      toggle.textContent = theme === 'light' ? '◐' : '◑';
-    }
-
-    function toggleTheme() {
-      const currentTheme = document.documentElement.getAttribute('data-theme');
-      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-      setTheme(newTheme);
+    function applySystemTheme() {
+      document.documentElement.setAttribute('data-theme',
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     }
 
     function toggleTimer() {
