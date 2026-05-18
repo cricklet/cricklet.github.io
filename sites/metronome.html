@@ -78,9 +78,17 @@
       transition: opacity 0.2s;
     }
 
-    body:hover #right-panel {
-      opacity: 1;
+    body:hover #right-panel { opacity: 1; }
+
+    /* Count-volume slider lives between bpm and main volume in #right-panel.
+       Only visible when count mode is on. */
+    #count-volume-section {
+      flex: 0 0 clamp(40px, 6vw, 72px);
+      height: 100%;
+      border-right: 1px solid var(--section-divider);
+      display: none;
     }
+    body.count-mode #count-volume-section { display: block; }
 
     #bpm-section {
       flex: 0 0 clamp(40px, 6vw, 72px);
@@ -144,6 +152,7 @@
     }
 
     #bpm-section .readout,
+    #count-volume-section .readout,
     #volume-section .readout {
       font-size: clamp(0.85rem, 2.5vw, 1.5rem);
       color: rgba(128, 128, 128, 0.7);
@@ -438,6 +447,10 @@
       <div id="bpm-fill" class="fill" aria-hidden="true"></div>
       <div id="bpm-strip-readout" class="readout">120 BPM</div>
     </div>
+    <div id="count-volume-section" class="control-section" aria-label="Count volume: drag vertically">
+      <div id="count-volume-fill" class="fill" aria-hidden="true"></div>
+      <div id="count-volume-readout" class="readout">75%</div>
+    </div>
     <div id="volume-section" class="control-section" aria-label="Volume: drag vertically">
       <div id="volume-fill" class="fill" aria-hidden="true"></div>
       <div id="volume-readout" class="readout">100%</div>
@@ -466,6 +479,7 @@
     const STORAGE_BG_TINT = 'metronome_bg_tint';
     const STORAGE_COUNT = 'metronome_count';
     const STORAGE_COUNT_MAX = 'metronome_count_max';
+    const STORAGE_COUNT_VOLUME = 'metronome_count_volume';
     const COUNT_MIN = 1;
     const COUNT_MAX_LIMIT = 32;
 
@@ -476,9 +490,13 @@
     const bpmReadout = document.getElementById('bpm-readout');
     const bpmStripReadout = document.getElementById('bpm-strip-readout');
     const volumeReadout = document.getElementById('volume-readout');
+    const countVolumeSection = document.getElementById('count-volume-section');
+    const countVolumeFill = document.getElementById('count-volume-fill');
+    const countVolumeReadout = document.getElementById('count-volume-readout');
 
     let bpm = 120;
     let volumePct = 100;
+    let countVolumePct = 75;
     let running = false;
 
     let nextClickTime = 0;
@@ -658,6 +676,22 @@
       document.getElementById('click-soft-audio').volume = volumePct / 100;
     }
 
+    function setCountVolumePct(next) {
+      countVolumePct = clamp(next, 0, 100);
+      countVolumeReadout.textContent = `${Math.round(countVolumePct)}%`;
+      countVolumeFill.style.height = `${countVolumePct}%`;
+    }
+
+    function countVolumeFromClientY(clientY) {
+      const r = countVolumeSection.getBoundingClientRect();
+      const t = r.height <= 0 ? 1 : (r.bottom - clientY) / r.height;
+      return clamp(t, 0, 1) * 100;
+    }
+
+    function persistCountVolume() {
+      try { localStorage.setItem(STORAGE_COUNT_VOLUME, String(countVolumePct)); } catch (_) {}
+    }
+
     /** Like bell.mp3: load via <audio src>, not fetch (works with file:// open). */
     function waitClickReady() {
       const el = document.getElementById('click-audio');
@@ -772,6 +806,8 @@
       if (target === 'bpm') {
         setBpm(bpmFromClientY(e.clientY), true);
         startMetronome();
+      } else if (target === 'count-volume') {
+        setCountVolumePct(countVolumeFromClientY(e.clientY));
       } else {
         setVolumePct(volumeFromClientY(e.clientY));
       }
@@ -782,6 +818,8 @@
       if (dragTarget === 'bpm') {
         setBpm(bpmFromClientY(e.clientY), true);
         startMetronome();
+      } else if (dragTarget === 'count-volume') {
+        setCountVolumePct(countVolumeFromClientY(e.clientY));
       } else {
         setVolumePct(volumeFromClientY(e.clientY));
       }
@@ -794,6 +832,8 @@
         persistBpm();
       } else if (finished === 'volume') {
         persistVolume();
+      } else if (finished === 'count-volume') {
+        persistCountVolume();
       }
       if (e && e.currentTarget && typeof e.currentTarget.releasePointerCapture === 'function') {
         try {
@@ -819,6 +859,14 @@
     volumeSection.addEventListener('pointermove', e => onPointerMove(e));
     volumeSection.addEventListener('pointerup', onPointerUp);
     volumeSection.addEventListener('pointercancel', onPointerUp);
+
+    countVolumeSection.addEventListener('pointerdown', e => {
+      countVolumeSection.setPointerCapture(e.pointerId);
+      onPointerDown(e, 'count-volume');
+    });
+    countVolumeSection.addEventListener('pointermove', e => onPointerMove(e));
+    countVolumeSection.addEventListener('pointerup', onPointerUp);
+    countVolumeSection.addEventListener('pointercancel', onPointerUp);
 
     document.addEventListener('keydown', e => {
       if (isTypingTarget(e.target)) return;
@@ -951,29 +999,6 @@
       }
     }
 
-    // Trim leading samples below this absolute amplitude (~-28dB). The
-    // ffmpeg pass in gen-counts.py already trims at -40dB, but gTTS clips
-    // often have a soft consonant ramp that ffmpeg keeps. A tighter cut here
-    // makes the perceived onset of the word land right on the beat.
-    const COUNT_TRIM_THRESHOLD = 0.04;
-
-    function trimLeadingSilence(buffer) {
-      const ch = buffer.getChannelData(0);
-      let start = 0;
-      for (let i = 0; i < ch.length; i++) {
-        if (Math.abs(ch[i]) >= COUNT_TRIM_THRESHOLD) { start = i; break; }
-      }
-      if (start === 0) return buffer;
-      const newLen = buffer.length - start;
-      const out = countAudioCtx.createBuffer(buffer.numberOfChannels, newLen, buffer.sampleRate);
-      for (let c = 0; c < buffer.numberOfChannels; c++) {
-        const src = buffer.getChannelData(c);
-        const dst = out.getChannelData(c);
-        for (let i = 0; i < newLen; i++) dst[i] = src[i + start];
-      }
-      return out;
-    }
-
     async function loadCountBuffers() {
       if (countBuffersLoaded) return;
       countBuffersLoaded = true;
@@ -984,7 +1009,7 @@
         tasks.push(fetch(`counts/count-${n}.mp3`)
           .then(r => r.ok ? r.arrayBuffer() : null)
           .then(buf => buf ? countAudioCtx.decodeAudioData(buf) : null)
-          .then(audio => { if (audio) countBuffers.set(n, trimLeadingSilence(audio)); })
+          .then(audio => { if (audio) countBuffers.set(n, audio); })
           .catch(() => {}));
       }
       await Promise.all(tasks);
@@ -998,7 +1023,7 @@
         const source = countAudioCtx.createBufferSource();
         source.buffer = buffer;
         const gain = countAudioCtx.createGain();
-        gain.gain.value = volumePct / 100;
+        gain.gain.value = countVolumePct / 100;
         source.connect(gain);
         gain.connect(countAudioCtx.destination);
         source.start(playTime);
@@ -1011,7 +1036,7 @@
         if (!countMode || !running) return;
         try {
           const u = new SpeechSynthesisUtterance(String(n));
-          u.volume = volumePct / 100;
+          u.volume = countVolumePct / 100;
           u.rate = 1.4;
           speechSynthesis.speak(u);
         } catch (_) {}
@@ -1113,8 +1138,16 @@
     if (storedVolume !== null) {
       volumePct = storedVolume;
     }
+    try {
+      const raw = localStorage.getItem(STORAGE_COUNT_VOLUME);
+      if (raw != null) {
+        const n = parseFloat(raw);
+        if (Number.isFinite(n)) countVolumePct = clamp(n, 0, 100);
+      }
+    } catch (_) {}
     setBpm(bpm);
     setVolumePct(volumePct);
+    setCountVolumePct(countVolumePct);
 
     // --- Stopwatch ---
     const stopwatchHint = document.getElementById('stopwatch-hint');
