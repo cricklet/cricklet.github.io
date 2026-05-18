@@ -477,6 +477,8 @@
     let nextVisualTime = 0;
     let visualPhase = false;
     let bgTintMode = false;
+    let countMode = false;
+    let countMax = 4;
 
     function clickNowSec() {
       return performance.now() / 1000;
@@ -693,13 +695,14 @@
         } else {
           const soft = jazzMode && (beatNumber === 1 || beatNumber === 3);
           playClick(nextClickTime, soft);
+          if (countMode) speakCount(beatNumber, nextClickTime);
           if (eighthsMode) {
             nextClickTime += 60 / bpm / 2;
             nextIsOffbeat = true;
           } else {
             nextClickTime += 60 / bpm;
           }
-          beatNumber = (beatNumber % 4) + 1;
+          beatNumber = (beatNumber % (countMode ? countMax : 4)) + 1;
         }
       }
       if (visualMode > 0) {
@@ -738,6 +741,7 @@
         cancelAnimationFrame(scheduleRaf);
         scheduleRaf = null;
       }
+      try { speechSynthesis.cancel(); } catch (_) {}
     }
 
     function toggleMetronome() {
@@ -914,6 +918,62 @@
       try { localStorage.setItem(STORAGE_BG_TINT, bgTintMode ? '1' : '0'); } catch (_) {}
     }
 
+    function speakCount(n, when) {
+      const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
+      setTimeout(() => {
+        if (!countMode || !running) return;
+        try {
+          const u = new SpeechSynthesisUtterance(String(n));
+          u.volume = volumePct / 100;
+          u.rate = 1.4;
+          speechSynthesis.speak(u);
+        } catch (_) {}
+      }, delayMs);
+    }
+
+    function toggleCount() {
+      countMode = !countMode;
+      document.getElementById('count-toggle').classList.toggle('active', countMode);
+      document.body.classList.toggle('count-mode', countMode);
+      if (!countMode) {
+        try { speechSynthesis.cancel(); } catch (_) {}
+      }
+      if (beatNumber > countMax) beatNumber = 1;
+      try { localStorage.setItem(STORAGE_COUNT, countMode ? '1' : '0'); } catch (_) {}
+    }
+
+    function setCountMax(next) {
+      countMax = clamp(Math.round(next), COUNT_MIN, COUNT_MAX_LIMIT);
+      document.getElementById('count-input').value = String(countMax);
+      if (beatNumber > countMax) beatNumber = 1;
+      try { localStorage.setItem(STORAGE_COUNT_MAX, String(countMax)); } catch (_) {}
+    }
+
+    const countInput = document.getElementById('count-input');
+    countInput.addEventListener('input', () => {
+      countInput.value = countInput.value.replace(/[^0-9]/g, '');
+    });
+    countInput.addEventListener('change', () => {
+      const val = parseInt(countInput.value, 10);
+      if (Number.isFinite(val) && val >= COUNT_MIN && val <= COUNT_MAX_LIMIT) {
+        setCountMax(val);
+      } else {
+        countInput.value = String(countMax);
+      }
+    });
+    countInput.addEventListener('blur', () => {
+      const val = parseInt(countInput.value, 10);
+      if (!Number.isFinite(val) || val < COUNT_MIN || val > COUNT_MAX_LIMIT) {
+        countInput.value = String(countMax);
+      } else if (val !== countMax) {
+        setCountMax(val);
+      }
+    });
+    countInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { countInput.blur(); }
+      e.stopPropagation();
+    });
+
 
     applySystemTheme();
 
@@ -937,6 +997,16 @@
         bgTintMode = true;
         document.getElementById('bg-tint-toggle').classList.add('active');
         document.body.classList.add('bg-tint-mode');
+      }
+      const savedCountMax = parseInt(localStorage.getItem(STORAGE_COUNT_MAX) || '4', 10);
+      if (Number.isFinite(savedCountMax) && savedCountMax >= COUNT_MIN && savedCountMax <= COUNT_MAX_LIMIT) {
+        countMax = savedCountMax;
+      }
+      document.getElementById('count-input').value = String(countMax);
+      if (localStorage.getItem(STORAGE_COUNT) === '1') {
+        countMode = true;
+        document.getElementById('count-toggle').classList.add('active');
+        document.body.classList.add('count-mode');
       }
     } catch (_) {}
 
