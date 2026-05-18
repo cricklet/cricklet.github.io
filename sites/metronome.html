@@ -188,50 +188,9 @@
       opacity: 0.35;
     }
 
-    #visual-toggle {
-      position: fixed;
-      bottom: 8px;
-      left: 8px;
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(128, 128, 128, 0.25);
-      color: rgba(128, 128, 128, 0.75);
-      opacity: 0;
-      cursor: pointer;
-      font-size: 1.25rem;
-      padding: 0;
-      border: 2px solid transparent;
-      z-index: 10;
-    }
-
-    body:hover #visual-toggle {
-      opacity: 1;
-    }
-
-    #visual-toggle:hover {
-      transform: scale(1.08);
-    }
-
-    #visual-toggle:focus {
-      outline: none;
-    }
-
-    #visual-toggle.active {
-      background: var(--bg-color);
-      color: var(--text-color);
-    }
-
-    body:hover #visual-toggle.active {
-      opacity: 1;
-    }
-
+    #visual-toggle,
     #bg-tint-toggle {
       position: fixed;
-      bottom: 60px;
       left: 8px;
       width: 44px;
       height: 44px;
@@ -246,29 +205,24 @@
       font-size: 1.25rem;
       padding: 0;
       border: 1.5px solid transparent;
+      transition: opacity 0.2s;
       z-index: 10;
     }
 
-    body:hover #bg-tint-toggle {
-      opacity: 1;
-    }
+    #visual-toggle  { bottom: 8px; }
+    #bg-tint-toggle { bottom: 60px; }
 
-    #bg-tint-toggle:hover {
-      transform: scale(1.08);
-    }
-
-    #bg-tint-toggle:focus {
-      outline: none;
-    }
-
+    body:hover #visual-toggle,
+    body:hover #bg-tint-toggle { opacity: 1; }
+    #visual-toggle:hover,
+    #bg-tint-toggle:hover { transform: scale(1.08); }
+    #visual-toggle:focus,
+    #bg-tint-toggle:focus { outline: none; }
+    #visual-toggle.active,
     #bg-tint-toggle.active {
       background: var(--bg-color);
       color: var(--text-color);
-      border-color: var(--border-color);
-    }
-
-    body:hover #bg-tint-toggle.active {
-      opacity: 1;
+      border-color: var(--text-color);
     }
 
     body.visual-mode #bpm-readout {
@@ -302,10 +256,10 @@
       color: rgba(128, 128, 128, 0.75);
       opacity: 0;
       cursor: pointer;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
       font-size: 1.25rem;
       padding: 0;
       border: 1.5px solid transparent;
+      transition: opacity 0.2s;
       z-index: 10;
     }
 
@@ -999,6 +953,27 @@
       }
     }
 
+    // Manual per-digit shift in milliseconds — start the spoken clip this
+    // many ms BEFORE the beat so the perceived attack of the word lands on
+    // the click. Positive = earlier (audio leads the beat); negative =
+    // later (audio plays after the beat). Tune by ear. The scheduler's
+    // lookahead is ~80 ms, so shifts above that get clamped to "start now."
+    const COUNT_DEFAULT_OFFSET_MS = 20;
+    const COUNT_OFFSETS_MS = {
+      1: 20,
+      2: -20,
+      3: 30,
+      4: 0,
+      5: 10,
+      6: 20,
+      7: 20,
+      8: 10,
+      9: 20,
+      10: 20,
+      11: 30,
+      12: 30,
+    };
+
     async function loadCountBuffers() {
       if (countBuffersLoaded) return;
       countBuffersLoaded = true;
@@ -1019,7 +994,12 @@
       const buffer = countAudioCtx && countBuffers.get(n);
       if (buffer) {
         const delaySec = Math.max(0, when - clickNowSec());
-        const playTime = countAudioCtx.currentTime + delaySec;
+        // Manual per-digit shift: start audio this many ms before the beat.
+        const shiftSec = (COUNT_OFFSETS_MS[n] ?? COUNT_DEFAULT_OFFSET_MS) / 1000;
+        const playTime = Math.max(
+          countAudioCtx.currentTime,
+          countAudioCtx.currentTime + delaySec - shiftSec,
+        );
         const source = countAudioCtx.createBufferSource();
         source.buffer = buffer;
         const gain = countAudioCtx.createGain();

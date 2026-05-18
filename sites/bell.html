@@ -81,36 +81,27 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: var(--text-color);
-      color: var(--bg-color);
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
       opacity: 0;
       cursor: pointer;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
       font-size: 1.2rem;
+      line-height: 1;
       padding: 0;
-      border: none;
-      transition: all 0.1s ease;
+      border: 1.5px solid transparent;
+      transition: opacity 0.2s, transform 0.1s;
       flex-shrink: 0;
     }
 
-    #reset-button {
-      right: 20px;
-    }
-
-    #ff-button {
-      right: 74px;
-      font-size: 1rem;
-    }
+    #reset-button { right: 20px; }
+    #ff-button    { right: 74px; }
 
     body:hover #reset-button,
-    body:hover #ff-button {
-      opacity: 1;
-    }
-
+    body:hover #ff-button { opacity: 1; }
     #reset-button:hover,
-    #ff-button:hover {
-      transform: scale(1.1);
-    }
+    #ff-button:hover { transform: scale(1.08); }
+    #reset-button:focus,
+    #ff-button:focus { outline: none; }
 
     [data-tooltip] {
       position: relative;
@@ -236,8 +227,16 @@
     <input type="text" id="interval-input" placeholder="mm:ss">
     <div id="total-timer">00:00</div>
   </div>
-  <button id="ff-button" data-tooltip="skip (s)" onclick="skipToNextInterval()">⏩</button>
-  <button id="reset-button" data-tooltip="reset (r)" onclick="resetTimer()">↻</button>
+  <button id="ff-button" data-tooltip="skip (s)" onclick="skipToNextInterval()" aria-label="Skip to next interval">
+    <svg viewBox="0 0 24 16" width="0.775em" height="0.775em" fill="currentColor" aria-hidden="true">
+      <path d="M0 1.5 L9 8 L0 14.5 Z M11 1.5 L20 8 L11 14.5 Z M21 1 H23 V15 H21 Z"/>
+    </svg>
+  </button>
+  <button id="reset-button" data-tooltip="reset (r)" onclick="resetTimer()" aria-label="Reset">
+    <svg viewBox="0 0 24 24" width="0.9em" height="0.9em" fill="currentColor" aria-hidden="true">
+      <path d="M17.65 6.35A7.96 7.96 0 0 0 12 4c-4.42 0-8 3.58-8 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+    </svg>
+  </button>
   <div id="interval-text"></div>
   <div id="volume-section" aria-label="Volume: drag vertically">
     <div id="volume-fill" aria-hidden="true"></div>
