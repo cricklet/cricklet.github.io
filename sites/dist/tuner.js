@@ -892,6 +892,10 @@
   var trumpetBtn = document.getElementById("trumpet-btn");
   var sinewaveBtn = document.getElementById("sinewave-btn");
   var accidentalsBtn = document.getElementById("accidentals-btn");
+  var playbackBtn = document.getElementById("playback-btn");
+  var playbackVolume = document.getElementById("playback-volume");
+  var playbackVolumeFill = document.getElementById("playback-volume-fill");
+  var playbackVolumeReadout = document.getElementById("playback-volume-readout");
   var tunerLeft = document.getElementById("tuner-left");
   var dbGraphCanvas = document.getElementById("db-graph-canvas");
   function clamp(v, lo, hi) {
@@ -1233,8 +1237,12 @@
       updateDisplay(midiToNoteInfo(dm, dc), freq);
       drawMeter(dc);
       renderStaff(dm, dc);
+      const writtenMidi = midi + 2;
+      if (writtenMidi >= 55 && writtenMidi <= 84) updatePlayback(midi);
+      else updatePlayback(null);
     } else {
       noSignalFrames++;
+      if (noSignalFrames > 2) updatePlayback(null);
       if (noSignalFrames > NO_SIGNAL_THRESHOLD) {
         lastConcertMidi = null;
         lastCents = null;
@@ -1251,7 +1259,14 @@
     started = true;
     statusHint.textContent = "Requesting microphone\u2026";
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          autoGainControl: false,
+          noiseSuppression: false
+        },
+        video: false
+      });
       audioCtx = new AudioContext();
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
@@ -1302,6 +1317,146 @@
     rerenderCurrent();
   }
   window.toggleSinewave = toggleSinewave;
+  var playbackMode = false;
+  var playbackMasterGain = null;
+  var playbackVoice = null;
+  var PLAYBACK_MAX_GAIN = 1.5;
+  var playbackVolumePct = 50;
+  function midiToFreq(midi) {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+  function ensurePlaybackVoice() {
+    if (!audioCtx || playbackVoice) return;
+    if (!playbackMasterGain) {
+      playbackMasterGain = audioCtx.createGain();
+      playbackMasterGain.gain.value = playbackVolumePct / 100 * PLAYBACK_MAX_GAIN;
+      playbackMasterGain.connect(audioCtx.destination);
+    }
+    const noteGain = audioCtx.createGain();
+    noteGain.gain.value = 0;
+    noteGain.connect(playbackMasterGain);
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2200;
+    lp.Q.value = 0.6;
+    lp.connect(noteGain);
+    const osc = audioCtx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = 440;
+    const osc2 = audioCtx.createOscillator();
+    osc2.type = "sawtooth";
+    osc2.frequency.value = 440 * 1.002;
+    const osc2Gain = audioCtx.createGain();
+    osc2Gain.gain.value = 0.25;
+    osc2.connect(osc2Gain);
+    osc2Gain.connect(lp);
+    const formantHi = audioCtx.createBiquadFilter();
+    formantHi.type = "bandpass";
+    formantHi.frequency.value = 880;
+    formantHi.Q.value = 1.8;
+    osc.connect(formantHi);
+    formantHi.connect(lp);
+    const formantFixed = audioCtx.createBiquadFilter();
+    formantFixed.type = "bandpass";
+    formantFixed.frequency.value = 1100;
+    formantFixed.Q.value = 1.8;
+    osc.connect(formantFixed);
+    formantFixed.connect(lp);
+    const directGain = audioCtx.createGain();
+    directGain.gain.value = 0.1;
+    osc.connect(directGain);
+    directGain.connect(lp);
+    osc.start();
+    osc2.start();
+    playbackVoice = { osc, osc2, noteGain, formantHi };
+  }
+  function tearDownPlaybackVoice() {
+    if (!playbackVoice || !audioCtx) return;
+    const v = playbackVoice;
+    playbackVoice = null;
+    const t = audioCtx.currentTime;
+    v.noteGain.gain.cancelScheduledValues(t);
+    v.noteGain.gain.setValueAtTime(v.noteGain.gain.value, t);
+    v.noteGain.gain.linearRampToValueAtTime(0, t + 0.12);
+    setTimeout(() => {
+      try {
+        v.osc.stop();
+      } catch (_) {
+      }
+      try {
+        v.osc2.stop();
+      } catch (_) {
+      }
+      v.noteGain.disconnect();
+    }, 300);
+  }
+  function updatePlayback(midi) {
+    if (!playbackMode || !audioCtx) return;
+    if (midi === null) {
+      if (playbackVoice) {
+        const t2 = audioCtx.currentTime;
+        playbackVoice.noteGain.gain.cancelScheduledValues(t2);
+        playbackVoice.noteGain.gain.setTargetAtTime(0, t2, 0.04);
+      }
+      return;
+    }
+    ensurePlaybackVoice();
+    if (!playbackVoice) return;
+    const freq = midiToFreq(midi);
+    const t = audioCtx.currentTime;
+    playbackVoice.osc.frequency.setTargetAtTime(freq, t, 5e-3);
+    playbackVoice.osc2.frequency.setTargetAtTime(freq * 1.002, t, 5e-3);
+    playbackVoice.formantHi.frequency.setTargetAtTime(freq * 2, t, 0.01);
+    playbackVoice.noteGain.gain.cancelScheduledValues(t);
+    playbackVoice.noteGain.gain.setTargetAtTime(0.4, t, 0.02);
+  }
+  function togglePlayback() {
+    playbackMode = !playbackMode;
+    playbackBtn.classList.toggle("active", playbackMode);
+    document.body.classList.toggle("playback-on", playbackMode);
+    if (!playbackMode) tearDownPlaybackVoice();
+    else if (lastConcertMidi !== null) updatePlayback(lastConcertMidi);
+    try {
+      localStorage.setItem("tuner_playback", playbackMode ? "1" : "0");
+    } catch (_) {
+    }
+  }
+  window.togglePlayback = togglePlayback;
+  function applyPlaybackVolumeUi() {
+    playbackVolumeFill.style.height = `${playbackVolumePct}%`;
+    playbackVolumeReadout.textContent = `${Math.round(playbackVolumePct)}%`;
+    if (playbackMasterGain && audioCtx) {
+      const gain = playbackVolumePct / 100 * PLAYBACK_MAX_GAIN;
+      playbackMasterGain.gain.setTargetAtTime(gain, audioCtx.currentTime, 0.01);
+    }
+  }
+  function playbackVolumeFromClientY(clientY) {
+    const r = playbackVolume.getBoundingClientRect();
+    if (r.height <= 0) return playbackVolumePct;
+    return clamp((r.bottom - clientY) / r.height * 100, 0, 100);
+  }
+  var playbackVolumeDragging = false;
+  playbackVolume.addEventListener("pointerdown", (e) => {
+    playbackVolume.setPointerCapture(e.pointerId);
+    playbackVolumeDragging = true;
+    playbackVolumePct = playbackVolumeFromClientY(e.clientY);
+    applyPlaybackVolumeUi();
+  });
+  playbackVolume.addEventListener("pointermove", (e) => {
+    if (!playbackVolumeDragging) return;
+    playbackVolumePct = playbackVolumeFromClientY(e.clientY);
+    applyPlaybackVolumeUi();
+  });
+  playbackVolume.addEventListener("pointerup", () => {
+    playbackVolumeDragging = false;
+    try {
+      localStorage.setItem("tuner_playback_volume", String(playbackVolumePct));
+    } catch (_) {
+    }
+  });
+  playbackVolume.addEventListener("pointercancel", () => {
+    playbackVolumeDragging = false;
+  });
   function applySystemTheme() {
     document.documentElement.setAttribute(
       "data-theme",
@@ -1325,6 +1480,14 @@
       const savedFlats = localStorage.getItem("tuner_flats");
       if (savedFlats !== null) useFlats = savedFlats === "1";
       syncAccidentalsBtn();
+      const savedVol = parseFloat(localStorage.getItem("tuner_playback_volume") ?? "");
+      if (Number.isFinite(savedVol)) playbackVolumePct = clamp(savedVol, 0, 100);
+      if (localStorage.getItem("tuner_playback") === "1") {
+        playbackMode = true;
+        playbackBtn.classList.add("active");
+        document.body.classList.add("playback-on");
+      }
+      applyPlaybackVolumeUi();
       const saved = parseFloat(localStorage.getItem("tuner_db_threshold") ?? "");
       if (Number.isFinite(saved)) dbThreshold = clamp(saved, DB_MIN, DB_MAX);
     } catch (_) {

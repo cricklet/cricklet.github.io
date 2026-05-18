@@ -223,6 +223,49 @@
 
     #accidentals-btn { left: 48px; font-size: 0.85rem; }
 
+    #playback-btn { left: 86px; font-size: 0.95rem; }
+
+    /* Shift icon buttons right when the playback volume bar is visible */
+    body.playback-on #trumpet-btn     { left: 54px; }
+    body.playback-on #sinewave-btn    { left: 54px; }
+    body.playback-on #accidentals-btn { left: 92px; }
+    body.playback-on #playback-btn    { left: 130px; }
+
+    /* ── Playback volume bar (vertical, far-left) ── */
+    #playback-volume {
+      position: relative;
+      flex: 0 0 44px;
+      background: transparent;
+      border-right: 0.5px solid var(--section-divider);
+      cursor: pointer;
+      touch-action: none;
+      overflow: hidden;
+      display: none;
+    }
+    body.playback-on #playback-volume { display: block; }
+
+    #playback-volume-fill {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 50%;
+      background: var(--section-fill);
+      pointer-events: none;
+      transition: height 0.04s linear;
+    }
+
+    #playback-volume-readout {
+      position: absolute;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.7rem;
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
     .icon-btn.active {
       background: var(--bg-color);
       color: rgba(128, 128, 128, 0.75);
@@ -233,6 +276,10 @@
 
 <body>
   <div id="main">
+    <div id="playback-volume" aria-label="Playback volume — drag vertically">
+      <div id="playback-volume-fill"></div>
+      <div id="playback-volume-readout">50%</div>
+    </div>
     <div id="tuner-left">
       <canvas id="db-graph-canvas"></canvas>
       <div id="tuner-content">
@@ -265,6 +312,7 @@
   <button type="button" id="trumpet-btn"    class="icon-btn" onclick="toggleTrumpet()"      title="Bb trumpet (transposing)">🎺</button>
   <button type="button" id="sinewave-btn"  class="icon-btn" onclick="toggleSinewave()"     title="Theoretical trumpet tuning">∿</button>
   <button type="button" id="accidentals-btn" class="icon-btn" onclick="toggleAccidentals()" title="Toggle sharps / flats">♯</button>
+  <button type="button" id="playback-btn"    class="icon-btn" onclick="togglePlayback()"    title="Play in-tune pitch of detected note">♪</button>
 
   <script src="dist/tuner.js"></script>
 </body>
