@@ -1,52 +1,33 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-  <meta charset="utf-8">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sometype+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Apercu+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Code+Pro&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Mono&display=swap">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pomodoro</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reddit+Mono&display=swap">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass+Mono&display=swap">
 
   <style>
     :root {
       --bg-color: #1a1a1a;
       --bg-color-break: #44556a;
       --bg-color-overtime: #4b4352;
-      /* Slightly reddish dark background */
-      /* Dark navy blue for break in dark mode */
       --text-color: rgba(255, 255, 255, 0.87);
-      /* Slightly dimmed white */
-      --secondary-text: rgba(255, 255, 255, 0.6);
-      /* Even dimmer for secondary text */
-      --button-shadow: rgba(0, 0, 0, 0.2);
+      --section-fill: rgba(255, 255, 255, 0.07);
+      --section-divider: rgba(255, 255, 255, 0.1);
     }
 
     :root[data-theme="light"] {
       --bg-color: #f0f0f0;
       --bg-color-break: #e6f3ff;
       --bg-color-overtime: #f4f0ff;
-      /* Slightly reddish light background */
-      /* Light sky blue for break in light mode */
       --text-color: #000000;
-      --secondary-text: #666666;
-      --button-shadow: rgba(0, 0, 0, 0.1);
+      --section-fill: rgba(0, 0, 0, 0.045);
+      --section-divider: rgba(0, 0, 0, 0.08);
     }
 
     body {
-      position: relative;  /* For absolute positioning context */
+      position: relative;
       min-height: 100vh;
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -63,94 +44,23 @@
       background: var(--bg-color-overtime);
     }
 
-    #timer {
+    .timer-container {
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      font-size: 6rem;
-      /* font-weight: 400; */
+      text-align: center;
+    }
+
+    #timer {
+      font-size: clamp(4.5rem, 15vw, 6rem);
       color: var(--text-color);
       transition: all 0.1s ease;
       font-family: 'Reddit Mono', monospace;
     }
 
     #timer.inactive {
-      opacity: 0.8;
-    }
-
-    button {
-      opacity: 0;
-      font-size: 1.2rem;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 10px;
-      color: var(--text-color);
-      cursor: pointer;
-      transition: all 0.1s ease;
-      min-width: 100px;
-      box-shadow: 0 2px 5px var(--button-shadow);
-      height: 44px;
-    }
-
-    body:hover button {
-      opacity: 1;
-    }
-
-    button:hover {
-      transform: scale(1.1);
-    }
-
-    button.start {
-      background-color: #5ba794;
-    }
-
-    button.pause {
-      background-color: #a97070;
-    }
-
-    #phase {
-      font-size: 1.5rem;
-      color: var(--secondary-text);
-    }
-
-    #theme-toggle {
-      position: absolute;
-      bottom: 20px;
-      right: 20px;
-      width: 44px;
-      height: 44px;
-      min-width: 44px;
-      max-width: 44px;
-      border-radius: 50%;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--text-color);
-      color: var(--bg-color);
-      opacity: 0;
-      cursor: pointer;
-      box-shadow: 0 2px 5px var(--button-shadow);
-      font-size: 1.5rem;
-      padding: 0;
-      border: none;
-      transition: all 0.1s ease;
-      overflow: hidden;
-      flex-shrink: 0;
-    }
-
-    body:hover #theme-toggle {
-      opacity: 1;
-    }
-
-    #theme-toggle:hover {
-      transform: scale(1.1);
-    }
-
-    button.skip {
-      background-color: #78909C;
-      min-width: 44px;
-      padding: 10px;
+      opacity: 0.7;
     }
 
     .button-group {
@@ -162,25 +72,73 @@
       gap: 10px;
     }
 
-    :root[data-theme="light"] button.start {
-      background-color: #98D8AA;
+    .button-group button {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      max-width: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      color: rgba(128, 128, 128, 0.75);
+      opacity: 0;
+      cursor: pointer;
+      font-size: 1.25rem;
+      line-height: 1;
+      padding: 0;
+      border: 1.5px solid transparent;
+      transition: all 0.1s ease;
+      flex-shrink: 0;
     }
 
-    :root[data-theme="light"] button.pause {
-      background-color: #FF9B9B;
+    body:hover .button-group button {
+      opacity: 1;
     }
 
-    :root[data-theme="light"] button.skip {
-      background-color: #B5B5B5;
+    .button-group button:hover {
+      transform: scale(1.08);
+    }
+
+    .button-group button:focus {
+      outline: none;
+    }
+
+    [data-tooltip] {
+      position: relative;
+    }
+
+    [data-tooltip]::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 52px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--text-color);
+      color: var(--bg-color);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-family: 'Reddit Mono', monospace;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    [data-tooltip]:hover::after {
+      opacity: 1;
     }
   </style>
 </head>
 
 <body>
-  <div id="timer" class="inactive">?</div>
+  <div class="timer-container">
+    <div id="timer" class="inactive">--:--</div>
+  </div>
   <div class="button-group">
-    <button onclick="toggleTimer()" id="toggleButton" class="start">Start</button>
-    <button onclick="skipPhase()" class="skip">⏭</button>
+    <button id="toggleButton" data-tooltip="start (space)" onclick="toggleTimer()">⏵</button>
+    <button data-tooltip="skip (s)" onclick="skipPhase()">⏭</button>
   </div>
 
   <canvas id="pip-canvas" style="display: none;"></canvas>
@@ -215,7 +173,20 @@
     
     // Listen for visibility changes
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
+
+    document.addEventListener('keydown', (e) => {
+      const inInput = document.activeElement && document.activeElement.tagName === 'INPUT';
+      if (inInput) return;
+      if (e.key === ' ') {
+        e.preventDefault();
+        toggleTimer();
+      } else if (e.key === 's' || e.key === 'S') {
+        if (e.metaKey || e.ctrlKey) return;
+        e.preventDefault();
+        skipPhase();
+      }
+    });
+
     // Auto-start the timer
     setTimer(true);
 
@@ -234,13 +205,13 @@
 
       if (newRunning) {
         interval = setInterval(updateTimer, 1000);
-        button.textContent = 'Pause';
-        button.className = 'pause';
+        button.textContent = '⏸';
+        button.setAttribute('data-tooltip', 'pause (space)');
         timer.classList.remove('inactive');
       } else {
         clearInterval(interval);
-        button.textContent = 'Start';
-        button.className = 'start';
+        button.textContent = '⏵';
+        button.setAttribute('data-tooltip', 'start (space)');
         timer.classList.add('inactive');
       }
       isRunning = newRunning;
@@ -287,16 +258,8 @@
     function skipPhase() {
       clearInterval(interval);
       isRunning = false;
-      const button = document.getElementById('toggleButton');
-      const timer = document.getElementById('timer');
-
-      button.textContent = 'Start';
-      button.className = 'start';
-      timer.classList.add('inactive');
       switchPhase(!isWorkPhase);
       setTimer(true);
-
-      updateDisplay();
     }
 
     function initializePIP() {
