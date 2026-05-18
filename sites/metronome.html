@@ -280,7 +280,8 @@
     body.bg-tint-mode[data-visual="4"].beat-dim { background-color: color-mix(in srgb, var(--bg-color) 82%, #f57a7a); }
 
     #jazz-toggle,
-    #eighths-toggle {
+    #eighths-toggle,
+    #count-toggle {
       position: fixed;
       width: 44px;
       height: 44px;
@@ -309,27 +310,62 @@
       top: 8px;
     }
 
+    #count-toggle {
+      left: 8px;
+      top: 112px;
+      font-size: 1rem;
+    }
+
     body:hover #jazz-toggle,
-    body:hover #eighths-toggle {
+    body:hover #eighths-toggle,
+    body:hover #count-toggle {
       opacity: 1;
     }
 
     #jazz-toggle:hover,
-    #eighths-toggle:hover {
+    #eighths-toggle:hover,
+    #count-toggle:hover {
       transform: scale(1.08);
     }
 
     #jazz-toggle:focus,
-    #eighths-toggle:focus {
+    #eighths-toggle:focus,
+    #count-toggle:focus {
       outline: none;
     }
 
     #jazz-toggle.active,
-    #eighths-toggle.active {
+    #eighths-toggle.active,
+    #count-toggle.active {
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
     }
+
+    #count-input {
+      position: fixed;
+      left: 60px;
+      top: 122px;
+      width: 40px;
+      height: 24px;
+      padding: 2px 4px;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.9rem;
+      text-align: center;
+      background: rgba(128, 128, 128, 0.18);
+      color: var(--text-color);
+      border: 1px solid var(--section-divider);
+      border-radius: 4px;
+      outline: none;
+      display: none;
+      z-index: 10;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    body.count-mode #count-input { display: block; }
+    body:hover.count-mode #count-input,
+    body.count-mode #count-input:focus { opacity: 1; }
 
     body[data-visual="1"] #visual-toggle { border-color: #808080; }
     body[data-visual="2"] #visual-toggle { border-color: #b8b8b8; }
@@ -340,7 +376,8 @@
     #bg-tint-icon { filter: grayscale(1); }
 
     body:hover #jazz-toggle.active,
-    body:hover #eighths-toggle.active {
+    body:hover #eighths-toggle.active,
+    body:hover #count-toggle.active {
       opacity: 0.3;
     }
 
@@ -397,6 +434,8 @@
   <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode"><span id="visual-eye">💡</span></button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
   <button type="button" id="eighths-toggle" onclick="toggleEighths()" title="Eighths offbeat">♪</button>
+  <button type="button" id="count-toggle" onclick="toggleCount()" title="Count beats out loud">🔢</button>
+  <input type="text" id="count-input" inputmode="numeric" maxlength="2" value="4" aria-label="Beats per measure">
   <audio id="click-audio" src="click.mp3" preload="auto"></audio>
   <audio id="click-soft-audio" src="click-soft.mp3" preload="auto"></audio>
 

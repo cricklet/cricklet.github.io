@@ -571,7 +571,10 @@ async function start() {
     });
     audioCtx = new AudioContext();
     analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
+    // 1024 ≈ 23 ms of audio at 44.1 kHz — halves the buffer-induced playback
+    // latency vs. 2048. Still ~4 periods of the lowest trumpet note (concert
+    // F3 ≈ 175 Hz), which is enough for pitchy to lock on reliably.
+    analyser.fftSize = 1024;
     audioCtx.createMediaStreamSource(stream).connect(analyser);
     detector = PitchDetector.forFloat32Array(analyser.fftSize);
     if (stopwatchStartTime === null) {
@@ -725,11 +728,11 @@ function updatePlayback(midi: number | null) {
   if (!playbackVoice) return;
   const freq = midiToFreq(midi);
   const t = audioCtx.currentTime;
-  playbackVoice.osc.frequency.setTargetAtTime(freq, t, 0.005);
-  playbackVoice.osc2.frequency.setTargetAtTime(freq * 1.002, t, 0.005);
-  playbackVoice.formantHi.frequency.setTargetAtTime(freq * 2, t, 0.01);
+  playbackVoice.osc.frequency.setTargetAtTime(freq, t, 0.002);
+  playbackVoice.osc2.frequency.setTargetAtTime(freq * 1.002, t, 0.002);
+  playbackVoice.formantHi.frequency.setTargetAtTime(freq * 2, t, 0.005);
   playbackVoice.noteGain.gain.cancelScheduledValues(t);
-  playbackVoice.noteGain.gain.setTargetAtTime(0.4, t, 0.02);
+  playbackVoice.noteGain.gain.setTargetAtTime(0.4, t, 0.005);
 }
 
 function togglePlayback() {

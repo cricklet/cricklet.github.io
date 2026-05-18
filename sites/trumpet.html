@@ -391,14 +391,14 @@
 
       const noteGain = audioCtx.createGain();
       noteGain.gain.setValueAtTime(0, audioCtx.currentTime);
-      noteGain.gain.linearRampToValueAtTime(0.22, audioCtx.currentTime + 0.008);
+      noteGain.gain.linearRampToValueAtTime(0.22, audioCtx.currentTime + 0.003);
       noteGain.connect(masterGain);
 
-      // Low-pass to roll off harshness above ~3.5 kHz
+      // Low-pass to roll off harshness above ~2.2 kHz
       const lp = audioCtx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = 3500;
-      lp.Q.value = 0.7;
+      lp.frequency.value = 2200;
+      lp.Q.value = 0.6;
       lp.connect(noteGain);
 
       // Sawtooth — rich harmonic source
@@ -412,7 +412,7 @@
       osc2.frequency.setValueAtTime(freq * 1.002, audioCtx.currentTime);
 
       const osc2Gain = audioCtx.createGain();
-      osc2Gain.gain.value = 0.4;
+      osc2Gain.gain.value = 0.25;
       osc2.connect(osc2Gain);
       osc2Gain.connect(lp);
 
@@ -429,7 +429,7 @@
 
       // Direct signal
       const directGain = audioCtx.createGain();
-      directGain.gain.value = 0.2;
+      directGain.gain.value = 0.1;
       osc.connect(directGain);
       directGain.connect(lp);
 

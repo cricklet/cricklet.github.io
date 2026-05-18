@@ -1269,7 +1269,7 @@
       });
       audioCtx = new AudioContext();
       analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
+      analyser.fftSize = 1024;
       audioCtx.createMediaStreamSource(stream).connect(analyser);
       detector = PitchDetector.forFloat32Array(analyser.fftSize);
       if (stopwatchStartTime === null) {
@@ -1404,11 +1404,11 @@
     if (!playbackVoice) return;
     const freq = midiToFreq(midi);
     const t = audioCtx.currentTime;
-    playbackVoice.osc.frequency.setTargetAtTime(freq, t, 5e-3);
-    playbackVoice.osc2.frequency.setTargetAtTime(freq * 1.002, t, 5e-3);
-    playbackVoice.formantHi.frequency.setTargetAtTime(freq * 2, t, 0.01);
+    playbackVoice.osc.frequency.setTargetAtTime(freq, t, 2e-3);
+    playbackVoice.osc2.frequency.setTargetAtTime(freq * 1.002, t, 2e-3);
+    playbackVoice.formantHi.frequency.setTargetAtTime(freq * 2, t, 5e-3);
     playbackVoice.noteGain.gain.cancelScheduledValues(t);
-    playbackVoice.noteGain.gain.setTargetAtTime(0.4, t, 0.02);
+    playbackVoice.noteGain.gain.setTargetAtTime(0.4, t, 5e-3);
   }
   function togglePlayback() {
     playbackMode = !playbackMode;
