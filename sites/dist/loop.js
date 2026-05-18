@@ -10919,6 +10919,70 @@
     }
     return btoa(binary);
   }
+  function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+  async function restoreBackup(jsonBuffer) {
+    const text = new TextDecoder().decode(jsonBuffer);
+    let bundle;
+    try {
+      bundle = JSON.parse(text);
+    } catch (e) {
+      throw new Error(`backup is not valid JSON: ${e.message}`);
+    }
+    if (bundle?.format !== "loop-player-backup") {
+      throw new Error("not a loop-player backup file");
+    }
+    setStatus("Restoring backup\u2026");
+    const id = bundle.id ?? encodeURIComponent(bundle.name);
+    const mainBuf = base64ToArrayBuffer(bundle.audio.base64);
+    const meta = bundle.meta ?? {};
+    await saveAudioFile(
+      mainBuf,
+      bundle.name,
+      id,
+      meta.folder ?? "",
+      meta.duration,
+      meta.bpm,
+      meta.bpmFromAPI,
+      meta.bpmAPIHint,
+      meta.bpmTapped,
+      meta.bpmTapHint
+    );
+    if (bundle.beats) {
+      await saveBeatCache(id, bundle.beats.bpm, Float32Array.from(bundle.beats.ticks));
+    }
+    if (bundle.settings) {
+      try {
+        localStorage.setItem(`loop_file_${id}`, JSON.stringify(bundle.settings));
+      } catch (e) {
+        console.warn("restore settings failed:", e);
+      }
+    }
+    for (const stem of bundle.stems ?? []) {
+      const sBuf = base64ToArrayBuffer(stem.audio.base64);
+      const sMeta = stem.meta ?? {};
+      await saveAudioFile(
+        sBuf,
+        stem.name,
+        stem.id,
+        sMeta.folder ?? meta.folder ?? "",
+        sMeta.duration,
+        sMeta.bpm,
+        sMeta.bpmFromAPI,
+        sMeta.bpmAPIHint,
+        sMeta.bpmTapped,
+        sMeta.bpmTapHint,
+        id
+      );
+    }
+    await renderFilePicker();
+    await processArrayBuffer(mainBuf, bundle.name, id);
+    setStatus(`Restored backup: ${bundle.name}${bundle.stems?.length ? ` (+${bundle.stems.length} stem${bundle.stems.length === 1 ? "" : "s"})` : ""}`);
+  }
   function sanitizeFilename(s) {
     return s.replace(/[\/\\?%*:|"<>]/g, "_").replace(/\s+/g, " ").trim();
   }
@@ -10929,6 +10993,7 @@
       return;
     }
     setStatus("Building backup\u2026");
+    persistCurrentFileSettings();
     const audio = await loadAudioById(id);
     if (!audio) {
       setStatus("Backup failed: audio not found");
@@ -11136,6 +11201,10 @@
     return true;
   }
   async function processFile(file) {
+    if (file.name.endsWith(".loopbackup.json") || file.type === "application/json") {
+      await restoreBackup(await file.arrayBuffer());
+      return;
+    }
     if (await tryProcessAsStem(file)) return;
     const id = encodeURIComponent(file.name);
     await processArrayBuffer(await file.arrayBuffer(), file.name, id);
@@ -11161,9 +11230,20 @@
       await processFile(files[0]);
       return;
     }
+    const backupFiles = Array.from(files).filter((f) => f.name.endsWith(".loopbackup.json"));
+    for (let i = 0; i < backupFiles.length; i++) {
+      const file = backupFiles[i];
+      setStatus(`Restoring ${i + 1}/${backupFiles.length}: ${file.name}\u2026`);
+      try {
+        await restoreBackup(await file.arrayBuffer());
+      } catch (e2) {
+        console.error("restoreBackup failed:", file.name, e2);
+        setStatus(`Restore failed for ${file.name}: ${e2.message ?? e2}`);
+      }
+    }
     const mp3Files = Array.from(files).filter((f) => f.type === "audio/mpeg" || f.name.endsWith(".mp3"));
     if (mp3Files.length === 0) {
-      setStatus("No MP3 files found");
+      if (backupFiles.length === 0) setStatus("No MP3 or backup files found");
       return;
     }
     const existingIds = new Set((await loadAllFilesMeta()).map((f) => f.id));

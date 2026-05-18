@@ -3074,6 +3074,56 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function restoreBackup(jsonBuffer: ArrayBuffer): Promise<void> {
+  const text = new TextDecoder().decode(jsonBuffer);
+  let bundle: any;
+  try { bundle = JSON.parse(text); }
+  catch (e) { throw new Error(`backup is not valid JSON: ${(e as Error).message}`); }
+  if (bundle?.format !== 'loop-player-backup') {
+    throw new Error('not a loop-player backup file');
+  }
+
+  setStatus('Restoring backup…');
+
+  // Main audio first so stems can reference its id as parentId.
+  const id: string = bundle.id ?? encodeURIComponent(bundle.name);
+  const mainBuf = base64ToArrayBuffer(bundle.audio.base64);
+  const meta = bundle.meta ?? {};
+  await saveAudioFile(
+    mainBuf, bundle.name, id, meta.folder ?? '',
+    meta.duration, meta.bpm, meta.bpmFromAPI, meta.bpmAPIHint, meta.bpmTapped, meta.bpmTapHint,
+  );
+
+  if (bundle.beats) {
+    await saveBeatCache(id, bundle.beats.bpm, Float32Array.from(bundle.beats.ticks));
+  }
+  if (bundle.settings) {
+    try { localStorage.setItem(`loop_file_${id}`, JSON.stringify(bundle.settings)); }
+    catch (e) { console.warn('restore settings failed:', e); }
+  }
+
+  for (const stem of bundle.stems ?? []) {
+    const sBuf = base64ToArrayBuffer(stem.audio.base64);
+    const sMeta = stem.meta ?? {};
+    await saveAudioFile(
+      sBuf, stem.name, stem.id, sMeta.folder ?? meta.folder ?? '',
+      sMeta.duration, sMeta.bpm, sMeta.bpmFromAPI, sMeta.bpmAPIHint, sMeta.bpmTapped, sMeta.bpmTapHint,
+      id,
+    );
+  }
+
+  await renderFilePicker();
+  await processArrayBuffer(mainBuf, bundle.name, id);
+  setStatus(`Restored backup: ${bundle.name}${bundle.stems?.length ? ` (+${bundle.stems.length} stem${bundle.stems.length === 1 ? '' : 's'})` : ''}`);
+}
+
 function sanitizeFilename(s: string): string {
   return s.replace(/[\/\\?%*:|"<>]/g, '_').replace(/\s+/g, ' ').trim();
 }
@@ -3082,6 +3132,9 @@ async function downloadBackup() {
   const id = state.currentFileId;
   if (!id) { setStatus('No file loaded to back up'); return; }
   setStatus('Building backup…');
+  // Flush in-memory state to localStorage first — otherwise loops/volumes
+  // the user just edited may not be in `loadFileSettings` yet.
+  persistCurrentFileSettings();
   const audio = await loadAudioById(id);
   if (!audio) { setStatus('Backup failed: audio not found'); return; }
   const meta = await loadFileMeta(id);
@@ -3316,6 +3369,12 @@ async function tryProcessAsStem(file: File): Promise<boolean> {
 }
 
 async function processFile(file: File) {
+  // Restoring a backup JSON — handle before the stem/audio paths since
+  // decodeAudioData on a JSON blob throws EncodingError.
+  if (file.name.endsWith('.loopbackup.json') || file.type === 'application/json') {
+    await restoreBackup(await file.arrayBuffer());
+    return;
+  }
   if (await tryProcessAsStem(file)) return;
   const id = encodeURIComponent(file.name);
   await processArrayBuffer(await file.arrayBuffer(), file.name, id);
@@ -3345,11 +3404,26 @@ document.addEventListener('drop', async e => {
     return;
   }
 
+  // Restore any backup bundles first — each call already writes its main +
+  // stems to IndexedDB and opens the track, so the last one wins as the
+  // active track. Failures don't abort the rest of the drop.
+  const backupFiles = Array.from(files).filter(f => f.name.endsWith('.loopbackup.json'));
+  for (let i = 0; i < backupFiles.length; i++) {
+    const file = backupFiles[i];
+    setStatus(`Restoring ${i + 1}/${backupFiles.length}: ${file.name}…`);
+    try {
+      await restoreBackup(await file.arrayBuffer());
+    } catch (e) {
+      console.error('restoreBackup failed:', file.name, e);
+      setStatus(`Restore failed for ${file.name}: ${(e as Error).message ?? e}`);
+    }
+  }
+
   // Process multiple files: save new parents first, then save stems linked to them,
   // then open the last new parent.
   const mp3Files = Array.from(files).filter(f => f.type === 'audio/mpeg' || f.name.endsWith('.mp3'));
   if (mp3Files.length === 0) {
-    setStatus('No MP3 files found');
+    if (backupFiles.length === 0) setStatus('No MP3 or backup files found');
     return;
   }
 
