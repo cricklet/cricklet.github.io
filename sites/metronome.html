@@ -224,11 +224,15 @@
     #bg-tint-toggle:hover { transform: scale(1.08); }
     #visual-toggle:focus,
     #bg-tint-toggle:focus { outline: none; }
-    #visual-toggle.active,
-    #bg-tint-toggle.active {
+    #visual-toggle.active {
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
+    }
+    #bg-tint-toggle.active {
+      background: var(--bg-color);
+      color: var(--text-color);
+      border-color: var(--border-color);
     }
 
     body.visual-mode #bpm-readout {
@@ -241,7 +245,7 @@
     body[data-visual="4"] #bpm-readout.beat-dim { color: #f57a7a; }
 
     body.bg-tint-mode {
-      transition: background-color 0.04s ease;
+      transition: background-color 0.18s ease-out;
     }
     body.bg-tint-mode[data-visual="1"].beat-dim { background-color: color-mix(in srgb, var(--bg-color) 82%, #808080); }
     body.bg-tint-mode[data-visual="2"].beat-dim { background-color: color-mix(in srgb, var(--bg-color) 82%, #b8b8b8); }
@@ -312,6 +316,7 @@
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
+      transition: none;   /* snap to dim-active state without an opacity flash */
     }
 
     #count-input {
@@ -378,14 +383,15 @@
       z-index: 10;
     }
     body.count-mode #count-settings-btn { display: inline-flex; }
-    body:hover.count-mode #count-settings-btn,
-    body.popover-open #count-settings-btn { opacity: 1; }
+    body:hover.count-mode:not(.popover-open) #count-settings-btn { opacity: 1; }
     #count-settings-btn:hover { transform: scale(1.08); }
     #count-settings-btn:focus { outline: none; }
     body.popover-open #count-settings-btn {
       background: var(--bg-color);
       color: var(--text-color);
       border-color: var(--text-color);
+      opacity: 0.3;
+      transition: none;
     }
 
     /* Scrim that dims the rest of the app and absorbs background clicks. */
