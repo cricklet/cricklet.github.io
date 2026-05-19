@@ -8475,7 +8475,6 @@
     if (loop) {
       loop.startBeats = state.loopStartBeats;
       loop.endBeats = state.loopEndBeats;
-      loop.targetBPM = state.targetBPM;
     }
   }
   function persistCurrentFileSettings() {
@@ -8487,6 +8486,7 @@
       localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
         loops: state.loops,
         activeLoopId: state.activeLoopId,
+        targetBPM: state.targetBPM,
         transposeSemitones: state.transposeSemitones,
         mainMuted: state.mainMuted,
         mainVolume: state.mainVolume,
@@ -9599,12 +9599,11 @@
   function applySnapshot(snap) {
     state.loops = snap.loops.map((l) => ({ ...l }));
     state.activeLoopId = snap.activeLoopId;
+    setTargetBPM(snap.targetBPM, false);
     const active2 = state.loops.find((l) => l.id === state.activeLoopId);
     if (active2) {
-      setTargetBPM(active2.targetBPM, false);
       setLoopPoints(active2.startBeats, active2.endBeats, false);
     } else {
-      setTargetBPM(snap.targetBPM, false);
       setLoopPoints(snap.loopStartBeats, snap.loopEndBeats, false);
     }
     setVolume(snap.volume, false);
@@ -10049,7 +10048,6 @@
     state.activeLoopId = loop.id;
     state.zoomActive = false;
     clearDragView();
-    setTargetBPM(loop.targetBPM, false);
     setLoopPoints(loop.startBeats, loop.endBeats, false);
     persistCurrentFileSettings();
     renderLoopCards();
@@ -11118,7 +11116,8 @@
       state.activeLoopId = loopId;
     }
     const activeLoop = state.loops.find((l) => l.id === state.activeLoopId);
-    setTargetBPM(activeLoop.targetBPM, false);
+    const fileBpm = settings.targetBPM != null && Number.isFinite(settings.targetBPM) ? settings.targetBPM : activeLoop.targetBPM ?? bpm;
+    setTargetBPM(fileBpm, false);
     setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
     setTransposeSemitones(
       settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones) ? settings.transposeSemitones : 0,

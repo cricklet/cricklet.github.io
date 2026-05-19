@@ -375,7 +375,7 @@ function syncStateToActiveLoop() {
   if (loop) {
     loop.startBeats = state.loopStartBeats;
     loop.endBeats = state.loopEndBeats;
-    loop.targetBPM = state.targetBPM;
+    // targetBPM is per-file (FileSettings.targetBPM), not per-loop.
   }
 }
 
@@ -388,6 +388,7 @@ function persistCurrentFileSettings() {
     localStorage.setItem(`loop_file_${state.currentFileId}`, JSON.stringify({
       loops: state.loops,
       activeLoopId: state.activeLoopId,
+      targetBPM: state.targetBPM,
       transposeSemitones: state.transposeSemitones,
       mainMuted: state.mainMuted,
       mainVolume: state.mainVolume,
@@ -1664,12 +1665,12 @@ function pushUndo() {
 function applySnapshot(snap: Snapshot) {
   state.loops = snap.loops.map(l => ({ ...l }));
   state.activeLoopId = snap.activeLoopId;
+  // BPM is per-file, taken from the snapshot's top-level targetBPM.
+  setTargetBPM(snap.targetBPM, false);
   const active = state.loops.find(l => l.id === state.activeLoopId);
   if (active) {
-    setTargetBPM(active.targetBPM, false);
     setLoopPoints(active.startBeats, active.endBeats, false);
   } else {
-    setTargetBPM(snap.targetBPM, false);
     setLoopPoints(snap.loopStartBeats, snap.loopEndBeats, false);
   }
   setVolume(snap.volume, false);
@@ -2168,13 +2169,13 @@ function restartPlayback(pos: number) {
   else setPausedPos(pos);
 }
 
-// Make `loop` the active loop: resets transient view/undo state, applies BPM
-// and loop bounds, persists, and re-renders. Caller handles playback restart.
+// Make `loop` the active loop: resets transient view/undo state, applies
+// loop bounds (BPM is per-file now, so unchanged), persists, and re-renders.
+// Caller handles playback restart.
 function activateLoop(loop: LoopData) {
   state.activeLoopId = loop.id;
   state.zoomActive = false;
   clearDragView();
-  setTargetBPM(loop.targetBPM, false);
   setLoopPoints(loop.startBeats, loop.endBeats, false);
   persistCurrentFileSettings();
   renderLoopCards();
@@ -3268,7 +3269,12 @@ async function processArrayBuffer(arrayBuffer: ArrayBuffer, name: string, id = e
   }
 
   const activeLoop = state.loops.find(l => l.id === state.activeLoopId)!;
-  setTargetBPM(activeLoop.targetBPM, false);
+  // BPM is per-file now. Fall back to the saved active-loop value (legacy
+  // per-loop targetBPM), then to the detected BPM.
+  const fileBpm = (settings.targetBPM != null && Number.isFinite(settings.targetBPM))
+    ? settings.targetBPM
+    : (activeLoop.targetBPM ?? bpm);
+  setTargetBPM(fileBpm, false);
   setLoopPoints(activeLoop.startBeats, activeLoop.endBeats, false);
   setTransposeSemitones(
     settings.transposeSemitones != null && Number.isFinite(settings.transposeSemitones)

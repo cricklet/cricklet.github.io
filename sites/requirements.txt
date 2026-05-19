@@ -1,0 +1,8 @@
+# Dependencies for gen-counts.py
+# Install into the local venv with:
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+
+edge-tts          # Microsoft neural TTS (free, no API key)
+numpy             # peak-position detection in count clips
+imageio-ffmpeg    # bundled ffmpeg fallback if `brew install ffmpeg` isn't on PATH
