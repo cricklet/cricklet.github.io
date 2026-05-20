@@ -794,7 +794,7 @@
   var currentStream = null;
   var currentSource = null;
   var selectedDeviceId = "";
-  var REPLAY_SECONDS = 20;
+  var REPLAY_SECONDS = 100;
   var replayProcessor = null;
   var replayBuffer = null;
   var replayWrite = 0;
@@ -808,6 +808,7 @@
   var NO_SIGNAL_THRESHOLD = 12;
   var stopwatchStartTime = null;
   var stopwatchOffsetMs = 0;
+  var STOPWATCH_MAX_MS = 12 * 60 * 60 * 1e3;
   var staffRenderedKey = "dirty";
   function lerpRgb(a, b, t) {
     const r = Math.round(a[0] + (b[0] - a[0]) * t);
@@ -1150,8 +1151,14 @@
       const savedOffset = localStorage.getItem("tuner_stopwatch_offsetMs");
       if (savedStart !== null && savedOffset !== null) {
         const now = Date.now();
-        stopwatchOffsetMs = parseFloat(savedOffset) + (now - parseInt(savedStart));
+        const restored = parseFloat(savedOffset) + (now - parseInt(savedStart));
         stopwatchStartTime = now;
+        if (restored > STOPWATCH_MAX_MS) {
+          stopwatchOffsetMs = 0;
+          saveStopwatchState();
+        } else {
+          stopwatchOffsetMs = restored;
+        }
       }
     } catch (_) {
     }
@@ -1330,22 +1337,23 @@
     }
     return buffer;
   }
-  function downloadReplay() {
+  function downloadReplay(seconds = REPLAY_SECONDS) {
     if (!replayBuffer || replayFilled === 0) {
       statusHint.textContent = "Nothing recorded yet";
       return;
     }
     const n = replayBuffer.length;
-    const len = replayFilled;
-    const startIdx = (replayWrite - len + n) % n;
-    const pcm = new Float32Array(len);
-    for (let i = 0; i < len; i++) pcm[i] = replayBuffer[(startIdx + i) % n];
+    const want = Math.min(Math.round(seconds * replaySampleRate), replayFilled);
+    const startIdx = (replayWrite - want + n) % n;
+    const pcm = new Float32Array(want);
+    for (let i = 0; i < want; i++) pcm[i] = replayBuffer[(startIdx + i) % n];
     const blob = new Blob([encodeWav(pcm, replaySampleRate)], { type: "audio/wav" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const secs = Math.round(want / replaySampleRate);
     a.href = url;
-    a.download = `tuner-replay-${stamp}.wav`;
+    a.download = `tuner-replay-last-${secs}s-${stamp}.wav`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1e3);
   }
@@ -1578,7 +1586,14 @@
     drawDbGraph();
     document.addEventListener("click", () => start(), { once: true });
     document.addEventListener("keydown", (e) => {
-      if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey && !e.altKey) resetStopwatch();
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "r" || e.key === "R") {
+        resetStopwatch();
+        return;
+      }
+      if (e.key >= "0" && e.key <= "9") {
+        downloadReplay(e.key === "0" ? 100 : parseInt(e.key, 10) * 10);
+      }
     });
     new ResizeObserver(() => {
       staffRenderedKey = "dirty";

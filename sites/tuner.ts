@@ -40,7 +40,7 @@ let selectedDeviceId = '';   // '' → browser default; persisted
 
 // Rolling replay buffer — a ring of raw mono PCM holding the most recent
 // REPLAY_SECONDS of mic audio, fed by a ScriptProcessor tap on the live source.
-const REPLAY_SECONDS = 20;
+const REPLAY_SECONDS = 100;
 let replayProcessor: ScriptProcessorNode | null = null;
 let replayBuffer: Float32Array | null = null;
 let replayWrite = 0;     // next write index into the ring
@@ -58,6 +58,7 @@ const NO_SIGNAL_THRESHOLD = 12;
 // Stopwatch — uses Date.now() wall-clock so elapsed time survives page reloads
 let stopwatchStartTime: number | null = null;   // Date.now() timestamp
 let stopwatchOffsetMs = 0;                       // accumulated ms before current run
+const STOPWATCH_MAX_MS = 12 * 60 * 60 * 1000;    // restart at 0 if a reload would show more than this
 
 // Staff render throttle — key encodes midi + tuning color bucket
 let staffRenderedKey = 'dirty';
@@ -453,8 +454,14 @@ function loadStopwatchState() {
     const savedOffset = localStorage.getItem('tuner_stopwatch_offsetMs');
     if (savedStart !== null && savedOffset !== null) {
       const now = Date.now();
-      stopwatchOffsetMs  = parseFloat(savedOffset) + (now - parseInt(savedStart));
+      const restored = parseFloat(savedOffset) + (now - parseInt(savedStart));
       stopwatchStartTime = now;
+      if (restored > STOPWATCH_MAX_MS) {
+        stopwatchOffsetMs = 0;
+        saveStopwatchState();
+      } else {
+        stopwatchOffsetMs = restored;
+      }
     }
   } catch (_) {}
 }
@@ -656,23 +663,24 @@ function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
   return buffer;
 }
 
-function downloadReplay() {
+function downloadReplay(seconds: number = REPLAY_SECONDS) {
   if (!replayBuffer || replayFilled === 0) {
     statusHint.textContent = 'Nothing recorded yet';
     return;
   }
   const n = replayBuffer.length;
-  const len = replayFilled;
-  const startIdx = (replayWrite - len + n) % n;
-  const pcm = new Float32Array(len);
-  for (let i = 0; i < len; i++) pcm[i] = replayBuffer[(startIdx + i) % n];
+  const want = Math.min(Math.round(seconds * replaySampleRate), replayFilled);
+  const startIdx = (replayWrite - want + n) % n;
+  const pcm = new Float32Array(want);
+  for (let i = 0; i < want; i++) pcm[i] = replayBuffer[(startIdx + i) % n];
 
   const blob = new Blob([encodeWav(pcm, replaySampleRate)], { type: 'audio/wav' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const secs = Math.round(want / replaySampleRate);
   a.href = url;
-  a.download = `tuner-replay-${stamp}.wav`;
+  a.download = `tuner-replay-last-${secs}s-${stamp}.wav`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -927,7 +935,12 @@ function applySystemTheme() {
   drawDbGraph();
   document.addEventListener('click', () => start(), { once: true });
   document.addEventListener('keydown', e => {
-    if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey && !e.altKey) resetStopwatch();
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'r' || e.key === 'R') { resetStopwatch(); return; }
+    // Digit keys download the last N×10 seconds of audio (0 → 100 s).
+    if (e.key >= '0' && e.key <= '9') {
+      downloadReplay(e.key === '0' ? 100 : parseInt(e.key, 10) * 10);
+    }
   });
 
   new ResizeObserver(() => {

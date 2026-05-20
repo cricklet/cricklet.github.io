@@ -150,7 +150,7 @@
 
     #status-hint {
       position: absolute;
-      top: 8px;
+      bottom: 8px;
       left: 50%;
       transform: translateX(-50%);
       font-family: 'Reddit Mono', monospace;
@@ -358,7 +358,7 @@
   <button type="button" id="trumpet-btn"    class="icon-btn" onclick="toggleTrumpet()"      title="Bb trumpet (transposing)">🎺</button>
   <button type="button" id="accidentals-btn" class="icon-btn" onclick="toggleAccidentals()" title="Toggle sharps / flats">♯</button>
   <button type="button" id="playback-btn"    class="icon-btn" onclick="togglePlayback()"    title="Play in-tune pitch of detected note">♪</button>
-  <button type="button" id="replay-btn"      class="icon-btn" onclick="downloadReplay()"    title="Download the last 20 seconds of audio">⬇</button>
+  <button type="button" id="replay-btn"      class="icon-btn" onclick="downloadReplay()"    title="Download buffered audio (press 1–9 for last 10–90 s, 0 for 100 s)">⬇</button>
 
   <select id="device-select" title="Audio input source" aria-label="Audio input source"></select>
 

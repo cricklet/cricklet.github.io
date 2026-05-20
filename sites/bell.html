@@ -356,6 +356,8 @@
       const now = Date.now();
 
       totalStartTime = savedTotal !== null ? parseInt(savedTotal) : now;
+      // Restart the bottom stopwatch at 0 if a reload would show more than 12 hours.
+      if (now - totalStartTime > 12 * 60 * 60 * 1000) totalStartTime = now;
       bellEpoch = savedEpoch !== null ? parseInt(savedEpoch) : now;
       saveTimerState();
 

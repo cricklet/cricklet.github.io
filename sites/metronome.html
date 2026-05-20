@@ -2598,6 +2598,9 @@
     if (stopwatchStart === null) {
       stopwatchStart = Date.now();
       saveStopwatchStart(stopwatchStart);
+    } else if (Date.now() - stopwatchStart > 12 * 60 * 60 * 1000) {
+      // A reload that would show more than 12 hours restarts the stopwatch at 0.
+      resetStopwatch();
     }
     updateStopwatch();
     setInterval(updateStopwatch, 1000);

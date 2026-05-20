@@ -382,6 +382,23 @@
     }
 
     function loadStopwatchState() {
+      // If a reload would restore a total elapsed beyond 12 hours, start fresh at 0.
+      const TWELVE_HOURS = 12 * 60 * 60;
+      const savedTotalAccumForCap = parseFloat(localStorage.getItem('stopwatch_totalAccumulatedSeconds') ?? '');
+      if (Number.isFinite(savedTotalAccumForCap)) {
+        let wouldShowTotal = savedTotalAccumForCap;
+        if (localStorage.getItem('stopwatch_paused') !== '1') {
+          const savedTotalStart = parseInt(localStorage.getItem('stopwatch_totalStartTime') ?? '');
+          if (Number.isFinite(savedTotalStart)) {
+            wouldShowTotal = savedTotalAccumForCap + (Date.now() - savedTotalStart) / 1000;
+          }
+        }
+        if (wouldShowTotal > TWELVE_HOURS) {
+          resetStopwatch();
+          return;
+        }
+      }
+
       if (localStorage.getItem('stopwatch_paused') === '1') {
         const savedCurrentAccum = localStorage.getItem('stopwatch_currentAccumulatedSeconds');
         const savedTotalAccum = localStorage.getItem('stopwatch_totalAccumulatedSeconds');
