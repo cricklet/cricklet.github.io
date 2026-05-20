@@ -331,6 +331,71 @@
       transition: none;   /* snap to dim-active state without an opacity flash */
     }
 
+    /* Swing depth slider — sits just right of the jazz toggle, shown only when
+       jazz mode is on (swing has no effect otherwise). */
+    #swing-slider {
+      position: fixed;
+      left: 164px;
+      top: 8px;
+      width: 96px;
+      height: 44px;
+      margin: 0;
+      padding: 0;
+      display: none;
+      opacity: 0;
+      cursor: pointer;
+      background: transparent;
+      z-index: 10;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    #swing-readout {
+      position: fixed;
+      left: 266px;
+      top: 8px;
+      height: 44px;
+      display: none;
+      align-items: center;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.8rem;
+      color: rgba(128, 128, 128, 0.85);
+      opacity: 0;
+      z-index: 10;
+      pointer-events: none;
+    }
+    body.jazz-mode #swing-slider { display: block; }
+    body.jazz-mode #swing-readout { display: inline-flex; }
+    body:hover.jazz-mode #swing-slider,
+    body.jazz-mode.popover-open #swing-slider,
+    body:hover.jazz-mode #swing-readout,
+    body.jazz-mode.popover-open #swing-readout { opacity: 1; }
+    #swing-slider:focus { outline: none; }
+    #swing-slider::-webkit-slider-runnable-track {
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(128, 128, 128, 0.35);
+    }
+    #swing-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      margin-top: -5px;
+      border-radius: 50%;
+      background: rgba(128, 128, 128, 0.9);
+    }
+    #swing-slider::-moz-range-track {
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(128, 128, 128, 0.35);
+    }
+    #swing-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(128, 128, 128, 0.9);
+    }
+
     #count-input {
       position: fixed;
       left: 58px;
@@ -761,6 +826,8 @@
   <button type="button" id="bg-tint-toggle" onclick="toggleBgTint()" title="Tint background on the off beat"><span id="bg-tint-icon">🖼️</span></button>
   <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode"><span id="visual-eye">💡</span></button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
+  <input type="range" id="swing-slider" min="0" max="100" step="1" value="100" aria-label="Swing amount" title="Swing amount">
+  <span id="swing-readout" aria-hidden="true">100%</span>
   <button type="button" id="eighths-toggle" onclick="toggleEighths()" title="Eighths offbeat">♪</button>
   <button type="button" id="sixteenths-toggle" onclick="toggleSixteenths()" title="Sixteenths (e &amp; a)">♬</button>
   <button type="button" id="count-toggle" onclick="toggleCount()" title="Count beats out loud">🔢</button>
@@ -837,6 +904,7 @@
     const STORAGE_VOLUME = 'metronome_volume';
     const STORAGE_STOPWATCH = 'metronome_stopwatch_start';
     const STORAGE_JAZZ = 'metronome_jazz';
+    const STORAGE_SWING = 'metronome_swing';
     const STORAGE_EIGHTHS = 'metronome_eighths';
     const STORAGE_SIXTEENTHS = 'metronome_sixteenths';
     const STORAGE_VISUAL = 'metronome_visual';
@@ -868,6 +936,7 @@
 
     let beatNumber = 1;
     let jazzMode = false;
+    let swingPct = 100;   // 0 = straight 8ths, 100 = triplet (2:1) swing
     let eighthsMode = false;
     let sixteenthsMode = false;
     let subIndex = 0;   // 0 = main beat; 1..N-1 = subdivision slots within the beat
@@ -1104,6 +1173,25 @@
       return 1;   // eighths offbeat keeps full volume
     }
 
+    // Where the off-beat 8th sits as a fraction of the beat. 0% swing = 0.5
+    // (straight); 100% = 2/3 (triplet 2:1 feel). Only swings in jazz mode.
+    function swingFrac() {
+      return jazzMode ? 0.5 + (swingPct / 100) * (1 / 6) : 0.5;
+    }
+
+    // Seconds from the subdivision at `idx` to the next one. In jazz mode the
+    // off-beat 8th is swung to swingFrac() of the beat. Sixteenths split each
+    // swung eighth evenly: long eighth (slots 0,1), short eighth (slots 2,3).
+    function subdivStep(idx, subdivCount) {
+      const beat = 60 / bpm;
+      if (jazzMode) {
+        const f = swingFrac();
+        if (subdivCount === 2) return beat * (idx === 0 ? f : 1 - f);
+        if (subdivCount === 4) return beat * (idx < 2 ? f / 2 : (1 - f) / 2);
+      }
+      return beat / subdivCount;
+    }
+
     function playClick(when, soft, volScale = 1) {
       const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
       window.setTimeout(() => {
@@ -1142,7 +1230,7 @@
         } else {
           playClick(nextClickTime, true, subdivClickVol(subIndex, subdivCount));
         }
-        nextClickTime += (60 / bpm) / subdivCount;
+        nextClickTime += subdivStep(subIndex, subdivCount);
         subIndex += 1;
         if (subIndex >= subdivCount) {
           subIndex = 0;
@@ -1152,8 +1240,13 @@
       if (visualMode > 0) {
         while (nextVisualTime < now + lookahead) {
           flashVisualBeat(nextVisualTime, visualPhase);
+          // phase=false is the downbeat (strong color); phase=true is the
+          // in-between 8th (accent color). The off-beat flash follows the same
+          // swing as the audio (swingFrac() is 0.5 = straight when not jazz).
+          const onBeat = !visualPhase;
           visualPhase = !visualPhase;
-          nextVisualTime += 60 / bpm / 2;
+          const f = swingFrac();
+          nextVisualTime += (60 / bpm) * (onBeat ? f : 1 - f);
         }
       }
       scheduleRaf = requestAnimationFrame(scheduleLoop);
@@ -1353,7 +1446,18 @@
     function toggleJazz() {
       jazzMode = !jazzMode;
       document.getElementById('jazz-toggle').classList.toggle('active', jazzMode);
+      document.body.classList.toggle('jazz-mode', jazzMode);
       try { localStorage.setItem(STORAGE_JAZZ, jazzMode ? '1' : '0'); } catch (_) {}
+    }
+
+    function setSwingPct(pct, persist) {
+      swingPct = clamp(Math.round(pct), 0, 100);
+      const slider = document.getElementById('swing-slider');
+      if (slider && Number(slider.value) !== swingPct) slider.value = String(swingPct);
+      document.getElementById('swing-readout').textContent = swingPct + '%';
+      if (persist) {
+        try { localStorage.setItem(STORAGE_SWING, String(swingPct)); } catch (_) {}
+      }
     }
 
     function toggleEighths() {
@@ -1884,11 +1988,14 @@
       // scheduleBuffer. Downbeat carries the beat number; e/and/a are
       // voice-shared. If the downbeat buffer is missing entirely (not
       // muted, just absent), fall back to speech for that slot.
-      const sixteenth = 60 / bpm / 4;
+      // Swung positions: the "&" lands on the swung off-beat 8th, and "e"/"a"
+      // split the long/short swung eighths evenly (matching the click track).
+      const beat = 60 / bpm;
+      const f = swingFrac();
       if (!scheduleBuffer(downbeatName(n), when)) speechFallback(n, when);
-      scheduleBuffer('sub-e',   when + sixteenth);
-      scheduleBuffer('sub-and', when + sixteenth * 2);
-      scheduleBuffer('sub-a',   when + sixteenth * 3);
+      scheduleBuffer('sub-e',   when + beat * (f / 2));
+      scheduleBuffer('sub-and', when + beat * f);
+      scheduleBuffer('sub-a',   when + beat * (f + (1 - f) / 2));
     }
 
     function speechFallback(n, when) {
@@ -2436,6 +2543,10 @@
     });
 
 
+    const swingSlider = document.getElementById('swing-slider');
+    swingSlider.addEventListener('input', () => setSwingPct(Number(swingSlider.value), true));
+    swingSlider.addEventListener('keydown', e => e.stopPropagation());
+
     applySystemTheme();
     initSubClickPool();
 
@@ -2443,7 +2554,10 @@
       if (localStorage.getItem(STORAGE_JAZZ) === '1') {
         jazzMode = true;
         document.getElementById('jazz-toggle').classList.add('active');
+        document.body.classList.add('jazz-mode');
       }
+      const savedSwing = parseInt(localStorage.getItem(STORAGE_SWING) || '100', 10);
+      setSwingPct(Number.isFinite(savedSwing) ? savedSwing : 100, false);
       if (localStorage.getItem(STORAGE_EIGHTHS) === '1') {
         eighthsMode = true;
         document.getElementById('eighths-toggle').classList.add('active');
