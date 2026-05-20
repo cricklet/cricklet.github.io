@@ -391,13 +391,21 @@ function renderStaff(midi: number | null, cents: number | null) {
   const H = container.clientHeight || 220;
   const { Renderer, Stave, StaveNote, Formatter, Accidental } = Vex.Flow;
 
-  const STAVE_W = clamp(W - 16, 80, W);
-  const staveX  = (W - STAVE_W) / 2;
-  const staveY  = (H - 40) / 2;
+  // Draw at a reduced scale so the notation is smaller within the same panel.
+  // Layout is computed in the unscaled "virtual" coordinate space (VW × VH) so
+  // the staff stays centered after the context scale is applied.
+  const STAFF_SCALE = 0.8;
+  const VW = W / STAFF_SCALE;
+  const VH = H / STAFF_SCALE;
+
+  const STAVE_W = clamp(VW - 16, 80, VW);
+  const staveX  = (VW - STAVE_W) / 2;
+  const staveY  = (VH - 40) / 2;
 
   const renderer = new Renderer(container, Renderer.Backends.SVG);
   renderer.resize(W, H);
   const vctx = renderer.getContext();
+  vctx.scale(STAFF_SCALE, STAFF_SCALE);
 
   const themeColor = getComputedStyle(document.documentElement)
     .getPropertyValue('--text-color').trim() || 'rgba(255,255,255,0.87)';
