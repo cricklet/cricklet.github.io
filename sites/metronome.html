@@ -274,25 +274,25 @@
       z-index: 10;
     }
 
-    #jazz-toggle {
+    #sixteenths-toggle {
       left: 8px;
-      top: 60px;
+      top: 8px;
+      font-size: 1.1rem;
     }
 
     #eighths-toggle {
-      left: 8px;
+      left: 60px;
       top: 8px;
     }
 
-    #sixteenths-toggle {
-      left: 8px;
-      top: 164px;
-      font-size: 1.1rem;
+    #jazz-toggle {
+      left: 112px;
+      top: 8px;
     }
 
     #count-toggle {
       left: 8px;
-      top: 112px;
+      top: 60px;
       font-size: 1rem;
     }
 
@@ -334,7 +334,7 @@
     #count-input {
       position: fixed;
       left: 58px;
-      top: 120px;
+      top: 68px;
       width: 30px;
       height: 28px;
       padding: 0;
@@ -376,8 +376,8 @@
        smaller; shown only when count mode is on. */
     #count-settings-btn {
       position: fixed;
-      left: 96px;
-      top: 119px;
+      left: 172px;
+      top: 67px;
       width: 30px;
       height: 30px;
       border-radius: 50%;
@@ -405,6 +405,42 @@
       opacity: 0.3;
       transition: none;
     }
+
+    /* Quick subdivision mute buttons — only shown in count mode, sitting in the
+       same row just past the gear. A struck-through dimmed state = muted. */
+    .sub-mute-btn {
+      position: fixed;
+      top: 67px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(128, 128, 128, 0.25);
+      color: rgba(128, 128, 128, 0.75);
+      cursor: pointer;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.8rem;
+      padding: 0;
+      border: 1.5px solid transparent;
+      transition: opacity 0.2s, background 0.15s, color 0.15s;
+      opacity: 0;
+      z-index: 10;
+    }
+    #mute-and-btn  { left: 96px; }
+    #mute-eeah-btn { left: 134px; font-size: 0.7rem; }
+    body.count-mode .sub-mute-btn { display: inline-flex; }
+    body:hover.count-mode:not(.popover-open) .sub-mute-btn { opacity: 1; }
+    .sub-mute-btn:hover { transform: scale(1.08); }
+    .sub-mute-btn:focus { outline: none; }
+    body.count-mode .sub-mute-btn.muted {
+      background: var(--bg-color);
+      color: var(--text-color);
+      border-color: var(--text-color);
+      transition: none;
+    }
+    body:hover.count-mode:not(.popover-open) .sub-mute-btn.muted { opacity: 0.3; }
 
     /* Scrim that dims the rest of the app and absorbs background clicks. */
     #count-scrim {
@@ -730,6 +766,8 @@
   <button type="button" id="count-toggle" onclick="toggleCount()" title="Count beats out loud">🔢</button>
   <input type="text" id="count-input" inputmode="numeric" maxlength="2" value="4" aria-label="Beats per measure">
   <button type="button" id="count-settings-btn" onclick="toggleCountPopover()" aria-label="Count settings" title="Count settings">⚙</button>
+  <button type="button" id="mute-and-btn" class="sub-mute-btn" onclick="toggleMuteAnd()" aria-label="Mute the &amp; count" title="Mute / unmute the &quot;&amp;&quot; count">&amp;</button>
+  <button type="button" id="mute-eeah-btn" class="sub-mute-btn" onclick="toggleMuteEeAh()" aria-label="Mute the e and a counts" title="Mute / unmute the &quot;e&quot; and &quot;a&quot; counts">e a</button>
 
   <div id="count-scrim" hidden aria-hidden="true"></div>
   <div id="count-popover" hidden role="dialog" aria-label="Count settings">
@@ -1502,6 +1540,33 @@
       try { localStorage.setItem(STORAGE_COUNT_MUTES, JSON.stringify([...countMutes])); } catch (_) {}
     }
 
+    // Keep every mute affordance in agreement: the popover offset cells and the
+    // two quick-toggle buttons all read from the single countMutes set.
+    function syncMuteVisuals() {
+      document.querySelectorAll('.offset-cell[data-mute-key]').forEach(cell => {
+        cell.classList.toggle('muted', countMutes.has(cell.dataset.muteKey));
+      });
+      const andBtn = document.getElementById('mute-and-btn');
+      const eeAhBtn = document.getElementById('mute-eeah-btn');
+      if (andBtn) andBtn.classList.toggle('muted', countMutes.has('and'));
+      if (eeAhBtn) eeAhBtn.classList.toggle('muted', countMutes.has('e') && countMutes.has('a'));
+    }
+
+    function toggleMuteAnd() {
+      if (countMutes.has('and')) countMutes.delete('and');
+      else countMutes.add('and');
+      saveMutes();
+      syncMuteVisuals();
+    }
+
+    function toggleMuteEeAh() {
+      const bothMuted = countMutes.has('e') && countMutes.has('a');
+      if (bothMuted) { countMutes.delete('e'); countMutes.delete('a'); }
+      else { countMutes.add('e'); countMutes.add('a'); }
+      saveMutes();
+      syncMuteVisuals();
+    }
+
     // Offsets are keyed by VOICE only (not voice+source). The buffer name
     // (count-1, seq-1, sub-e) already disambiguates the source, so the
     // same per-voice map holds digit, seq, and sub overrides side by side.
@@ -1951,6 +2016,7 @@
       const cell = document.createElement('div');
       cell.className = 'offset-cell';
       const muteKey = muteKeyForBuffer(bufferName);
+      cell.dataset.muteKey = muteKey;
       const lbl = document.createElement('button');
       lbl.type = 'button';
       lbl.className = 'offset-label';
@@ -1964,7 +2030,7 @@
         if (countMutes.has(muteKey)) countMutes.delete(muteKey);
         else countMutes.add(muteKey);
         saveMutes();
-        refreshMuteVisual();
+        syncMuteVisuals();
       });
       const input = document.createElement('input');
       input.type = 'text';
@@ -2031,6 +2097,7 @@
       for (const name of SUB_NAMES) {
         countSubOffsetsGrid.appendChild(makeOffsetCell(name, SUB_LABELS[name]));
       }
+      syncMuteVisuals();
     }
 
     function toggleCountPopover() {
@@ -2279,6 +2346,7 @@
       countSourceSelect.value = countSource;
       applySubVolumesUi();
       applyPitchUi();
+      syncMuteVisuals();
       void loadCountBuffers();   // re-renders grid + histograms
     }
 
@@ -2461,6 +2529,8 @@
         void loadCountBuffers();
       }
     } catch (_) {}
+
+    syncMuteVisuals();
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
 
