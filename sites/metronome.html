@@ -254,6 +254,7 @@
 
     #jazz-toggle,
     #eighths-toggle,
+    #sixteenths-toggle,
     #count-toggle {
       position: fixed;
       width: 44px;
@@ -283,6 +284,12 @@
       top: 8px;
     }
 
+    #sixteenths-toggle {
+      left: 8px;
+      top: 164px;
+      font-size: 1.1rem;
+    }
+
     #count-toggle {
       left: 8px;
       top: 112px;
@@ -291,27 +298,32 @@
 
     body:hover #jazz-toggle,
     body:hover #eighths-toggle,
+    body:hover #sixteenths-toggle,
     body:hover #count-toggle,
     body.popover-open #jazz-toggle,
     body.popover-open #eighths-toggle,
+    body.popover-open #sixteenths-toggle,
     body.popover-open #count-toggle {
       opacity: 1;
     }
 
     #jazz-toggle:hover,
     #eighths-toggle:hover,
+    #sixteenths-toggle:hover,
     #count-toggle:hover {
       transform: scale(1.08);
     }
 
     #jazz-toggle:focus,
     #eighths-toggle:focus,
+    #sixteenths-toggle:focus,
     #count-toggle:focus {
       outline: none;
     }
 
     #jazz-toggle.active,
     #eighths-toggle.active,
+    #sixteenths-toggle.active,
     #count-toggle.active {
       background: var(--bg-color);
       color: var(--text-color);
@@ -652,6 +664,7 @@
 
     body:hover #jazz-toggle.active,
     body:hover #eighths-toggle.active,
+    body:hover #sixteenths-toggle.active,
     body:hover #count-toggle.active {
       opacity: 0.3;
     }
@@ -713,6 +726,7 @@
   <button type="button" id="visual-toggle" onclick="toggleVisual()" title="Visual beat mode"><span id="visual-eye">💡</span></button>
   <button type="button" id="jazz-toggle" onclick="toggleJazz()" title="Jazz mode: accent 2 & 4">♩</button>
   <button type="button" id="eighths-toggle" onclick="toggleEighths()" title="Eighths offbeat">♪</button>
+  <button type="button" id="sixteenths-toggle" onclick="toggleSixteenths()" title="Sixteenths (e &amp; a)">♬</button>
   <button type="button" id="count-toggle" onclick="toggleCount()" title="Count beats out loud">🔢</button>
   <input type="text" id="count-input" inputmode="numeric" maxlength="2" value="4" aria-label="Beats per measure">
   <button type="button" id="count-settings-btn" onclick="toggleCountPopover()" aria-label="Count settings" title="Count settings">⚙</button>
@@ -786,6 +800,7 @@
     const STORAGE_STOPWATCH = 'metronome_stopwatch_start';
     const STORAGE_JAZZ = 'metronome_jazz';
     const STORAGE_EIGHTHS = 'metronome_eighths';
+    const STORAGE_SIXTEENTHS = 'metronome_sixteenths';
     const STORAGE_VISUAL = 'metronome_visual';
     const STORAGE_BG_TINT = 'metronome_bg_tint';
     const STORAGE_COUNT = 'metronome_count';
@@ -816,7 +831,8 @@
     let beatNumber = 1;
     let jazzMode = false;
     let eighthsMode = false;
-    let nextIsOffbeat = false;
+    let sixteenthsMode = false;
+    let subIndex = 0;   // 0 = main beat; 1..N-1 = subdivision slots within the beat
     let visualMode = 0;
     let nextVisualTime = 0;
     let visualPhase = false;
@@ -1026,10 +1042,42 @@
       });
     }
 
-    function playClick(when, soft) {
-      const el = document.getElementById(soft ? 'click-soft-audio' : 'click-audio');
+    // Pool of warm soft-click clones so overlapping subdivision clicks can each
+    // play at an independent volume (a single shared <audio> can only carry one
+    // volume at a time, and restarting it cuts the previous click short).
+    const subClickPool = [];
+    const SUB_POOL_SIZE = 4;
+    let subPoolIdx = 0;
+
+    function initSubClickPool() {
+      const base = document.getElementById('click-soft-audio');
+      for (let i = 0; i < SUB_POOL_SIZE; i++) {
+        const node = base.cloneNode();
+        node.preload = 'auto';
+        node.load();
+        subClickPool.push(node);
+      }
+    }
+
+    // Per-subdivision click loudness. In sixteenths the "&" (the eighth offbeat,
+    // slot 2) lands at 50%; the inner "e" and "a" sit slightly under it.
+    function subdivClickVol(idx, subdivCount) {
+      if (subdivCount === 4) return idx === 2 ? 0.5 : 0.4;
+      return 1;   // eighths offbeat keeps full volume
+    }
+
+    function playClick(when, soft, volScale = 1) {
       const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
       window.setTimeout(() => {
+        if (volScale !== 1 && subClickPool.length) {
+          const node = subClickPool[subPoolIdx];
+          subPoolIdx = (subPoolIdx + 1) % subClickPool.length;
+          node.volume = clamp((volumePct / 100) * volScale, 0, 1);
+          node.currentTime = 0;
+          void node.play().catch(() => {});
+          return;
+        }
+        const el = document.getElementById(soft ? 'click-soft-audio' : 'click-audio');
         el.currentTime = 0;
         void el.play().catch(() => {});
       }, delayMs);
@@ -1048,20 +1096,18 @@
       const lookahead = 0.08;
       const now = clickNowSec();
       while (nextClickTime < now + lookahead) {
-        if (nextIsOffbeat) {
-          playClick(nextClickTime, true);
-          nextClickTime += 60 / bpm / 2;
-          nextIsOffbeat = false;
-        } else {
+        const subdivCount = sixteenthsMode ? 4 : (eighthsMode ? 2 : 1);
+        if (subIndex === 0) {
           const soft = jazzMode && (beatNumber === 1 || beatNumber === 3);
           playClick(nextClickTime, soft);
           if (countMode) playCountAt(beatNumber, nextClickTime);
-          if (eighthsMode) {
-            nextClickTime += 60 / bpm / 2;
-            nextIsOffbeat = true;
-          } else {
-            nextClickTime += 60 / bpm;
-          }
+        } else {
+          playClick(nextClickTime, true, subdivClickVol(subIndex, subdivCount));
+        }
+        nextClickTime += (60 / bpm) / subdivCount;
+        subIndex += 1;
+        if (subIndex >= subdivCount) {
+          subIndex = 0;
           beatNumber = (beatNumber % (countMode ? countMax : 4)) + 1;
         }
       }
@@ -1081,7 +1127,7 @@
         running = true;
         document.body.classList.add('running');
         beatNumber = 1;
-        nextIsOffbeat = false;
+        subIndex = 0;
         nextClickTime = clickNowSec() + 0.05;
         nextVisualTime = nextClickTime;
         visualPhase = false;
@@ -1274,9 +1320,26 @@
 
     function toggleEighths() {
       eighthsMode = !eighthsMode;
-      nextIsOffbeat = false;
+      subIndex = 0;
+      if (eighthsMode && sixteenthsMode) {
+        sixteenthsMode = false;
+        document.getElementById('sixteenths-toggle').classList.remove('active');
+        try { localStorage.setItem(STORAGE_SIXTEENTHS, '0'); } catch (_) {}
+      }
       document.getElementById('eighths-toggle').classList.toggle('active', eighthsMode);
       try { localStorage.setItem(STORAGE_EIGHTHS, eighthsMode ? '1' : '0'); } catch (_) {}
+    }
+
+    function toggleSixteenths() {
+      sixteenthsMode = !sixteenthsMode;
+      subIndex = 0;
+      if (sixteenthsMode && eighthsMode) {
+        eighthsMode = false;
+        document.getElementById('eighths-toggle').classList.remove('active');
+        try { localStorage.setItem(STORAGE_EIGHTHS, '0'); } catch (_) {}
+      }
+      document.getElementById('sixteenths-toggle').classList.toggle('active', sixteenthsMode);
+      try { localStorage.setItem(STORAGE_SIXTEENTHS, sixteenthsMode ? '1' : '0'); } catch (_) {}
     }
 
     function toggleVisual() {
@@ -2306,6 +2369,7 @@
 
 
     applySystemTheme();
+    initSubClickPool();
 
     try {
       if (localStorage.getItem(STORAGE_JAZZ) === '1') {
@@ -2315,6 +2379,10 @@
       if (localStorage.getItem(STORAGE_EIGHTHS) === '1') {
         eighthsMode = true;
         document.getElementById('eighths-toggle').classList.add('active');
+      }
+      if (localStorage.getItem(STORAGE_SIXTEENTHS) === '1' && !eighthsMode) {
+        sixteenthsMode = true;
+        document.getElementById('sixteenths-toggle').classList.add('active');
       }
       const savedVisual = parseInt(localStorage.getItem(STORAGE_VISUAL) || '0', 10);
       if (savedVisual >= 1 && savedVisual <= 4) {

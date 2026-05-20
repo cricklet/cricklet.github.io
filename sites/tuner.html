@@ -215,22 +215,17 @@
 
     #trumpet-btn { left: 10px; font-size: 0.7rem; }
 
-    #sinewave-btn {
-      left: 10px;
-      top: 48px;
-      font-size: 0.85rem;
-      display: none;
-    }
-
     #accidentals-btn { left: 48px; font-size: 0.85rem; }
 
     #playback-btn { left: 86px; font-size: 0.95rem; }
 
+    #replay-btn { left: 124px; font-size: 0.9rem; }
+
     /* Shift icon buttons right when the playback volume bar is visible */
     body.playback-on #trumpet-btn     { left: 54px; }
-    body.playback-on #sinewave-btn    { left: 54px; }
     body.playback-on #accidentals-btn { left: 92px; }
     body.playback-on #playback-btn    { left: 130px; }
+    body.playback-on #replay-btn      { left: 168px; }
 
     /* ── Playback volume bar (vertical, far-left) ── */
     #playback-volume {
@@ -361,9 +356,9 @@
   </div>
 
   <button type="button" id="trumpet-btn"    class="icon-btn" onclick="toggleTrumpet()"      title="Bb trumpet (transposing)">🎺</button>
-  <button type="button" id="sinewave-btn"  class="icon-btn" onclick="toggleSinewave()"     title="Theoretical trumpet tuning">∿</button>
   <button type="button" id="accidentals-btn" class="icon-btn" onclick="toggleAccidentals()" title="Toggle sharps / flats">♯</button>
   <button type="button" id="playback-btn"    class="icon-btn" onclick="togglePlayback()"    title="Play in-tune pitch of detected note">♪</button>
+  <button type="button" id="replay-btn"      class="icon-btn" onclick="downloadReplay()"    title="Download the last 20 seconds of audio">⬇</button>
 
   <select id="device-select" title="Audio input source" aria-label="Audio input source"></select>
 

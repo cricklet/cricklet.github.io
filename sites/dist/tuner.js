@@ -784,63 +784,6 @@
   ];
   var useFlats = false;
   var trumpetMode = false;
-  var sinewaveMode = false;
-  var TRUMPET_OFFSETS = {
-    // ── below the staff ──────────────────────────────────────
-    // F#3/Gb3 (54): 1-2-3, normally ~+35¢ — slide corrected → 0
-    // G3      (55): 1-3,   normally ~+27¢ — slide corrected → 0
-    56: 12,
-    // Ab3  — 2-3
-    57: 5,
-    // A3   — 1-2
-    58: 5,
-    // Bb3  — 1st valve
-    // B3 (59): 2nd valve, ~0¢
-    // C4 (60): open, ~0¢
-    // ── in the staff ─────────────────────────────────────────
-    // C#4/Db4 (61): 1-2-3, normally ~+35¢ — slide corrected → 0
-    // D4      (62): 1-3,   normally ~+27¢ — slide corrected → 0
-    63: 12,
-    // Eb4  — 2-3
-    64: 5,
-    // E4   — 1-2
-    65: 5,
-    // F4   — 1st valve
-    // F#4 (66): 2nd valve, ~0¢
-    67: 2,
-    // G4   — open (3rd partial of Bb series)
-    68: 10,
-    // Ab4  — 2-3
-    69: 5,
-    // A4   — 1-2
-    70: 5,
-    // Bb4  — 1st valve
-    // B4 (71): 2nd valve, ~0¢
-    // C5 (72): open, ~0¢
-    // ── top of staff and above ────────────────────────────────
-    73: 5,
-    // C#5  — 1-2
-    74: 7,
-    // D5   — 1st valve (+5 to +10¢)
-    75: 10,
-    // Eb5  — 2-3
-    76: -14,
-    // E5   — open (5th partial of Bb series) ← the famous flat note
-    77: 5,
-    // F5   — 1st valve
-    // F#5 (78): 2nd valve, ~0¢
-    79: 2,
-    // G5   — open (6th partial of Bb series)
-    80: 10,
-    // Ab5  — 2-3
-    81: 5,
-    // A5   — 1-2
-    82: 5,
-    // Bb5  — 1st valve (open 7th partial ≈−31¢ is unusable, never used)
-    // B5 (83): 2nd valve, ~0¢
-    84: 2
-    // C6   — open
-  };
   var DB_MIN = -60;
   var DB_MAX = -10;
   var dbThreshold = -40;
@@ -851,6 +794,12 @@
   var currentStream = null;
   var currentSource = null;
   var selectedDeviceId = "";
+  var REPLAY_SECONDS = 20;
+  var replayProcessor = null;
+  var replayBuffer = null;
+  var replayWrite = 0;
+  var replayFilled = 0;
+  var replaySampleRate = 44100;
   var lastConcertMidi = null;
   var lastCents = null;
   var centsHistory = [];
@@ -893,7 +842,6 @@
   var centsDisplay = document.getElementById("cents-display");
   var statusHint = document.getElementById("status-hint");
   var trumpetBtn = document.getElementById("trumpet-btn");
-  var sinewaveBtn = document.getElementById("sinewave-btn");
   var accidentalsBtn = document.getElementById("accidentals-btn");
   var playbackBtn = document.getElementById("playback-btn");
   var playbackVolume = document.getElementById("playback-volume");
@@ -1171,9 +1119,6 @@
     centsDisplay.textContent = `${sign}${info.cents} cents`;
     centsDisplay.style.color = tuningColor(info.cents);
   }
-  function displayCents(rawCents, displayMidi) {
-    return rawCents - (sinewaveMode ? TRUMPET_OFFSETS[displayMidi] ?? 0 : 0);
-  }
   function rerenderCurrent() {
     staffRenderedKey = "dirty";
     const dm = currentDisplayMidi();
@@ -1182,10 +1127,9 @@
       drawMeter(null);
       renderStaff(null, null);
     } else {
-      const dc = displayCents(lastCents, dm);
-      updateDisplay(midiToNoteInfo(dm, dc), lastFreq ?? void 0);
-      drawMeter(dc);
-      renderStaff(dm, dc);
+      updateDisplay(midiToNoteInfo(dm, lastCents), lastFreq ?? void 0);
+      drawMeter(lastCents);
+      renderStaff(dm, lastCents);
     }
   }
   function saveStopwatchState() {
@@ -1241,10 +1185,9 @@
       lastCents = gaussianCents(midi, cents);
       lastFreq = freq;
       const dm = midi + (trumpetMode ? 2 : 0);
-      const dc = displayCents(lastCents, dm);
-      updateDisplay(midiToNoteInfo(dm, dc), freq);
-      drawMeter(dc);
-      renderStaff(dm, dc);
+      updateDisplay(midiToNoteInfo(dm, lastCents), freq);
+      drawMeter(lastCents);
+      renderStaff(dm, lastCents);
       const writtenMidi = midi + 2;
       if (writtenMidi >= 55 && writtenMidi <= 84) updatePlayback(midi);
       else updatePlayback(null);
@@ -1314,6 +1257,7 @@
     currentStream = stream;
     currentSource = audioCtx.createMediaStreamSource(stream);
     currentSource.connect(analyser);
+    if (replayProcessor) currentSource.connect(replayProcessor);
   }
   async function switchDevice(deviceId) {
     selectedDeviceId = deviceId;
@@ -1336,6 +1280,76 @@
     }
   }
   deviceSelect.addEventListener("change", () => switchDevice(deviceSelect.value));
+  function setupReplayRecorder() {
+    if (!audioCtx || replayProcessor) return;
+    replaySampleRate = audioCtx.sampleRate;
+    replayBuffer = new Float32Array(Math.ceil(REPLAY_SECONDS * replaySampleRate));
+    replayWrite = 0;
+    replayFilled = 0;
+    const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (e) => {
+      const ch = e.inputBuffer.getChannelData(0);
+      const buf = replayBuffer;
+      const n = buf.length;
+      for (let i = 0; i < ch.length; i++) {
+        buf[replayWrite] = ch[i];
+        replayWrite = (replayWrite + 1) % n;
+      }
+      replayFilled = Math.min(replayFilled + ch.length, n);
+    };
+    const sink = audioCtx.createGain();
+    sink.gain.value = 0;
+    processor.connect(sink);
+    sink.connect(audioCtx.destination);
+    replayProcessor = processor;
+  }
+  function encodeWav(samples, sampleRate) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = (off2, s) => {
+      for (let i = 0; i < s.length; i++) view.setUint8(off2 + i, s.charCodeAt(i));
+    };
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, "data");
+    view.setUint32(40, samples.length * 2, true);
+    let off = 44;
+    for (let i = 0; i < samples.length; i++) {
+      const s = clamp(samples[i], -1, 1);
+      view.setInt16(off, s < 0 ? s * 32768 : s * 32767, true);
+      off += 2;
+    }
+    return buffer;
+  }
+  function downloadReplay() {
+    if (!replayBuffer || replayFilled === 0) {
+      statusHint.textContent = "Nothing recorded yet";
+      return;
+    }
+    const n = replayBuffer.length;
+    const len = replayFilled;
+    const startIdx = (replayWrite - len + n) % n;
+    const pcm = new Float32Array(len);
+    for (let i = 0; i < len; i++) pcm[i] = replayBuffer[(startIdx + i) % n];
+    const blob = new Blob([encodeWav(pcm, replaySampleRate)], { type: "audio/wav" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    a.href = url;
+    a.download = `tuner-replay-${stamp}.wav`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1e3);
+  }
+  window.downloadReplay = downloadReplay;
   async function start() {
     if (started) return;
     started = true;
@@ -1345,6 +1359,7 @@
       audioCtx = new AudioContext();
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 1024;
+      setupReplayRecorder();
       attachStream(stream);
       detector = PitchDetector.forFloat32Array(analyser.fftSize);
       await refreshDeviceList();
@@ -1374,11 +1389,6 @@
   function toggleTrumpet() {
     trumpetMode = !trumpetMode;
     trumpetBtn.classList.toggle("active", trumpetMode);
-    sinewaveBtn.style.display = trumpetMode ? "inline-flex" : "none";
-    if (!trumpetMode) {
-      sinewaveMode = false;
-      sinewaveBtn.classList.remove("active");
-    }
     try {
       localStorage.setItem("tuner_trumpet", trumpetMode ? "1" : "0");
     } catch (_) {
@@ -1386,13 +1396,6 @@
     rerenderCurrent();
   }
   window.toggleTrumpet = toggleTrumpet;
-  function toggleSinewave() {
-    if (!trumpetMode) return;
-    sinewaveMode = !sinewaveMode;
-    sinewaveBtn.classList.toggle("active", sinewaveMode);
-    rerenderCurrent();
-  }
-  window.toggleSinewave = toggleSinewave;
   var playbackMode = false;
   var playbackMasterGain = null;
   var playbackVoice = null;
@@ -1540,9 +1543,7 @@
     );
     drawMeter(lastCents);
     staffRenderedKey = "dirty";
-    const _dm = currentDisplayMidi();
-    const _dc = _dm !== null && lastCents !== null ? displayCents(lastCents, _dm) : null;
-    renderStaff(_dm, _dc);
+    renderStaff(currentDisplayMidi(), lastCents);
   }
   (function init() {
     applySystemTheme();
@@ -1551,7 +1552,6 @@
       if (localStorage.getItem("tuner_trumpet") === "1") {
         trumpetMode = true;
         trumpetBtn.classList.add("active");
-        sinewaveBtn.style.display = "inline-flex";
       }
       const savedFlats = localStorage.getItem("tuner_flats");
       if (savedFlats !== null) useFlats = savedFlats === "1";
@@ -1582,9 +1582,7 @@
     });
     new ResizeObserver(() => {
       staffRenderedKey = "dirty";
-      const dm = currentDisplayMidi();
-      const dc = dm !== null && lastCents !== null ? displayCents(lastCents, dm) : null;
-      renderStaff(dm, dc);
+      renderStaff(currentDisplayMidi(), lastCents);
     }).observe(document.getElementById("staff-panel"));
   })();
 })();

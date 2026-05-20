@@ -23,49 +23,6 @@ type NoteInfo = { letter: string; accidental: string; octave: number; cents: num
 // Settings
 let useFlats     = false;   // auto-synced to trumpetMode
 let trumpetMode  = false;
-let sinewaveMode = false;   // theoretical trumpet tuning; only active when trumpetMode is on
-
-// Theoretical Bb trumpet intonation offsets (cents from ET), keyed by written MIDI.
-// Sources: harmonic series physics + valve-combination mechanical sharpness.
-// Low Gb3/G3/Db4/D4 (1-3 and 1-2-3 combos) assumed slide-corrected by player → 0¢ (no entry).
-const TRUMPET_OFFSETS: Record<number, number> = {
-  // ── below the staff ──────────────────────────────────────
-  // F#3/Gb3 (54): 1-2-3, normally ~+35¢ — slide corrected → 0
-  // G3      (55): 1-3,   normally ~+27¢ — slide corrected → 0
-  56: +12,  // Ab3  — 2-3
-  57:  +5,  // A3   — 1-2
-  58:  +5,  // Bb3  — 1st valve
-  // B3 (59): 2nd valve, ~0¢
-  // C4 (60): open, ~0¢
-
-  // ── in the staff ─────────────────────────────────────────
-  // C#4/Db4 (61): 1-2-3, normally ~+35¢ — slide corrected → 0
-  // D4      (62): 1-3,   normally ~+27¢ — slide corrected → 0
-  63: +12,  // Eb4  — 2-3
-  64:  +5,  // E4   — 1-2
-  65:  +5,  // F4   — 1st valve
-  // F#4 (66): 2nd valve, ~0¢
-  67:  +2,  // G4   — open (3rd partial of Bb series)
-  68: +10,  // Ab4  — 2-3
-  69:  +5,  // A4   — 1-2
-  70:  +5,  // Bb4  — 1st valve
-  // B4 (71): 2nd valve, ~0¢
-  // C5 (72): open, ~0¢
-
-  // ── top of staff and above ────────────────────────────────
-  73:  +5,  // C#5  — 1-2
-  74:  +7,  // D5   — 1st valve (+5 to +10¢)
-  75: +10,  // Eb5  — 2-3
-  76: -14,  // E5   — open (5th partial of Bb series) ← the famous flat note
-  77:  +5,  // F5   — 1st valve
-  // F#5 (78): 2nd valve, ~0¢
-  79:  +2,  // G5   — open (6th partial of Bb series)
-  80: +10,  // Ab5  — 2-3
-  81:  +5,  // A5   — 1-2
-  82:  +5,  // Bb5  — 1st valve (open 7th partial ≈−31¢ is unusable, never used)
-  // B5 (83): 2nd valve, ~0¢
-  84:  +2,  // C6   — open
-};
 
 // dB meter
 const DB_MIN = -60;
@@ -80,6 +37,15 @@ let started = false;
 let currentStream: MediaStream | null = null;
 let currentSource: MediaStreamAudioSourceNode | null = null;
 let selectedDeviceId = '';   // '' → browser default; persisted
+
+// Rolling replay buffer — a ring of raw mono PCM holding the most recent
+// REPLAY_SECONDS of mic audio, fed by a ScriptProcessor tap on the live source.
+const REPLAY_SECONDS = 20;
+let replayProcessor: ScriptProcessorNode | null = null;
+let replayBuffer: Float32Array | null = null;
+let replayWrite = 0;     // next write index into the ring
+let replayFilled = 0;    // valid samples so far (caps at buffer length)
+let replaySampleRate = 44100;
 
 // Last detected state
 let lastConcertMidi: number | null = null;
@@ -139,7 +105,6 @@ const freqDisplay    = document.getElementById('freq-display')!;
 const centsDisplay   = document.getElementById('cents-display')!;
 const statusHint     = document.getElementById('status-hint')!;
 const trumpetBtn      = document.getElementById('trumpet-btn')!;
-const sinewaveBtn     = document.getElementById('sinewave-btn')!;
 const accidentalsBtn  = document.getElementById('accidentals-btn')!;
 const playbackBtn     = document.getElementById('playback-btn')!;
 const playbackVolume        = document.getElementById('playback-volume')!;
@@ -454,10 +419,6 @@ function updateDisplay(info: NoteInfo | null, freq?: number) {
   centsDisplay.style.color = tuningColor(info.cents);
 }
 
-function displayCents(rawCents: number, displayMidi: number): number {
-  return rawCents - (sinewaveMode ? (TRUMPET_OFFSETS[displayMidi] ?? 0) : 0);
-}
-
 function rerenderCurrent() {
   staffRenderedKey = 'dirty';
   const dm = currentDisplayMidi();
@@ -466,10 +427,9 @@ function rerenderCurrent() {
     drawMeter(null);
     renderStaff(null, null);
   } else {
-    const dc = displayCents(lastCents, dm);
-    updateDisplay(midiToNoteInfo(dm, dc), lastFreq ?? undefined);
-    drawMeter(dc);
-    renderStaff(dm, dc);
+    updateDisplay(midiToNoteInfo(dm, lastCents), lastFreq ?? undefined);
+    drawMeter(lastCents);
+    renderStaff(dm, lastCents);
   }
 }
 
@@ -537,10 +497,9 @@ function tick() {
     lastCents = gaussianCents(midi, cents);
     lastFreq = freq;
     const dm = midi + (trumpetMode ? 2 : 0);
-    const dc = displayCents(lastCents, dm);
-    updateDisplay(midiToNoteInfo(dm, dc), freq);
-    drawMeter(dc);
-    renderStaff(dm, dc);
+    updateDisplay(midiToNoteInfo(dm, lastCents), freq);
+    drawMeter(lastCents);
+    renderStaff(dm, lastCents);
     // Only sound playback within the main trumpet range: written G3–C6
     // (concert F3–Bb5). Written note = concert + 2 for a Bb trumpet.
     const writtenMidi = midi + 2;
@@ -620,6 +579,7 @@ function attachStream(stream: MediaStream) {
   currentStream = stream;
   currentSource = audioCtx.createMediaStreamSource(stream);
   currentSource.connect(analyser);
+  if (replayProcessor) currentSource.connect(replayProcessor);
 }
 
 async function switchDevice(deviceId: string) {
@@ -638,6 +598,86 @@ async function switchDevice(deviceId: string) {
 }
 deviceSelect.addEventListener('change', () => switchDevice(deviceSelect.value));
 
+// ── Replay buffer ────────────────────────────────────────────────────────────
+
+function setupReplayRecorder() {
+  if (!audioCtx || replayProcessor) return;
+  replaySampleRate = audioCtx.sampleRate;
+  replayBuffer = new Float32Array(Math.ceil(REPLAY_SECONDS * replaySampleRate));
+  replayWrite = 0;
+  replayFilled = 0;
+
+  const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  processor.onaudioprocess = e => {
+    const ch = e.inputBuffer.getChannelData(0);
+    const buf = replayBuffer!;
+    const n = buf.length;
+    for (let i = 0; i < ch.length; i++) {
+      buf[replayWrite] = ch[i];
+      replayWrite = (replayWrite + 1) % n;
+    }
+    replayFilled = Math.min(replayFilled + ch.length, n);
+  };
+  // A ScriptProcessor only fires while connected to the graph; route it through
+  // a muted gain into the destination so it runs without producing any sound.
+  const sink = audioCtx.createGain();
+  sink.gain.value = 0;
+  processor.connect(sink);
+  sink.connect(audioCtx.destination);
+  replayProcessor = processor;
+}
+
+// Encode mono Float32 PCM as a 16-bit WAV file.
+function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeStr = (off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
+  };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);       // fmt chunk size
+  view.setUint16(20, 1, true);        // PCM
+  view.setUint16(22, 1, true);        // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true);        // block align
+  view.setUint16(34, 16, true);       // bits per sample
+  writeStr(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = clamp(samples[i], -1, 1);
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return buffer;
+}
+
+function downloadReplay() {
+  if (!replayBuffer || replayFilled === 0) {
+    statusHint.textContent = 'Nothing recorded yet';
+    return;
+  }
+  const n = replayBuffer.length;
+  const len = replayFilled;
+  const startIdx = (replayWrite - len + n) % n;
+  const pcm = new Float32Array(len);
+  for (let i = 0; i < len; i++) pcm[i] = replayBuffer[(startIdx + i) % n];
+
+  const blob = new Blob([encodeWav(pcm, replaySampleRate)], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.href = url;
+  a.download = `tuner-replay-${stamp}.wav`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+(window as any).downloadReplay = downloadReplay;
+
 async function start() {
   if (started) return;
   started = true;
@@ -650,6 +690,7 @@ async function start() {
     // latency vs. 2048. Still ~4 periods of the lowest trumpet note (concert
     // F3 ≈ 175 Hz), which is enough for pitchy to lock on reliably.
     analyser.fftSize = 1024;
+    setupReplayRecorder();
     attachStream(stream);
     detector = PitchDetector.forFloat32Array(analyser.fftSize);
     await refreshDeviceList();
@@ -681,23 +722,10 @@ function toggleAccidentals() {
 function toggleTrumpet() {
   trumpetMode = !trumpetMode;
   trumpetBtn.classList.toggle('active', trumpetMode);
-  sinewaveBtn.style.display = trumpetMode ? 'inline-flex' : 'none';
-  if (!trumpetMode) {
-    sinewaveMode = false;
-    sinewaveBtn.classList.remove('active');
-  }
   try { localStorage.setItem('tuner_trumpet', trumpetMode ? '1' : '0'); } catch (_) {}
   rerenderCurrent();
 }
 (window as any).toggleTrumpet = toggleTrumpet;
-
-function toggleSinewave() {
-  if (!trumpetMode) return;
-  sinewaveMode = !sinewaveMode;
-  sinewaveBtn.classList.toggle('active', sinewaveMode);
-  rerenderCurrent();
-}
-(window as any).toggleSinewave = toggleSinewave;
 
 // ── In-tune playback ──────────────────────────────────────────────────────
 // Plays a continuous trumpet-ish tone at the exact ET frequency of the user's
@@ -859,9 +887,7 @@ function applySystemTheme() {
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   drawMeter(lastCents);
   staffRenderedKey = 'dirty';
-  const _dm = currentDisplayMidi();
-  const _dc = _dm !== null && lastCents !== null ? displayCents(lastCents, _dm) : null;
-  renderStaff(_dm, _dc);
+  renderStaff(currentDisplayMidi(), lastCents);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -874,7 +900,6 @@ function applySystemTheme() {
     if (localStorage.getItem('tuner_trumpet') === '1') {
       trumpetMode = true;
       trumpetBtn.classList.add('active');
-      sinewaveBtn.style.display = 'inline-flex';
     }
     const savedFlats = localStorage.getItem('tuner_flats');
     if (savedFlats !== null) useFlats = savedFlats === '1';
@@ -907,8 +932,6 @@ function applySystemTheme() {
 
   new ResizeObserver(() => {
     staffRenderedKey = 'dirty';
-    const dm = currentDisplayMidi();
-    const dc = dm !== null && lastCents !== null ? displayCents(lastCents, dm) : null;
-    renderStaff(dm, dc);
+    renderStaff(currentDisplayMidi(), lastCents);
   }).observe(document.getElementById('staff-panel')!);
 })();
