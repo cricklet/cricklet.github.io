@@ -65,7 +65,7 @@
       min-width: 0;
       position: relative;
       border-right: 1px solid transparent;
-      transition: border-right-color 0.2s;
+      transition: none;
     }
 
     body:hover #main-area,
@@ -78,7 +78,7 @@
       flex-direction: row;
       flex-shrink: 0;
       opacity: 0;
-      transition: opacity 0.2s;
+      transition: none;
     }
 
     body:hover #right-panel,
@@ -185,7 +185,7 @@
     }
 
     .readout {
-      transition: opacity 0.3s ease;
+      transition: none;
     }
 
     body:not(.running) #bpm-readout {
@@ -209,7 +209,7 @@
       font-size: 1.25rem;
       padding: 0;
       border: 1.5px solid transparent;
-      transition: opacity 0.2s;
+      transition: none;
       z-index: 10;
     }
 
@@ -270,7 +270,7 @@
       font-size: 1.25rem;
       padding: 0;
       border: 1.5px solid transparent;
-      transition: opacity 0.2s;
+      transition: none;
       z-index: 10;
     }
 
@@ -350,7 +350,7 @@
       display: none;
       z-index: 10;
       opacity: 0;
-      transition: opacity 0.2s, background 0.15s, color 0.15s;
+      transition: none;
       -webkit-appearance: none;
       appearance: none;
     }
@@ -390,7 +390,7 @@
       font-size: 0.95rem;
       padding: 0;
       border: 1.5px solid transparent;
-      transition: opacity 0.2s, background 0.15s, color 0.15s;
+      transition: none;
       opacity: 0;
       z-index: 10;
     }
@@ -424,7 +424,7 @@
       font-size: 0.8rem;
       padding: 0;
       border: 1.5px solid transparent;
-      transition: opacity 0.2s, background 0.15s, color 0.15s;
+      transition: none;
       opacity: 0;
       z-index: 10;
     }
@@ -530,7 +530,7 @@
       padding: 1px 4px;
       border-radius: 3px;
       font-family: inherit;
-      transition: opacity 0.12s, background 0.12s, color 0.12s;
+      transition: none;
     }
     .offset-cell .offset-label:hover { opacity: 1; background: rgba(128, 128, 128, 0.18); }
     .offset-cell .offset-label:focus { outline: none; }
@@ -585,7 +585,7 @@
       opacity: 0;
       visibility: hidden;
       font-family: 'Reddit Mono', monospace;
-      transition: opacity 0.12s;
+      transition: none;
     }
     .offset-cell.dirty .offset-reset { visibility: visible; opacity: 0.55; }
     .offset-reset:hover { opacity: 1 !important; }
@@ -606,7 +606,7 @@
       font-family: 'Reddit Mono', monospace;
       font-size: 0.74rem;
       cursor: pointer;
-      transition: background 0.12s;
+      transition: none;
     }
     .popover-actions button:hover { background: rgba(128, 128, 128, 0.32); }
     .popover-actions button:focus { outline: none; box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55); }
