@@ -77,6 +77,9 @@ let audioCtx: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
 let detector: PitchDetector<Float32Array> | null = null;
 let started = false;
+let currentStream: MediaStream | null = null;
+let currentSource: MediaStreamAudioSourceNode | null = null;
+let selectedDeviceId = '';   // '' → browser default; persisted
 
 // Last detected state
 let lastConcertMidi: number | null = null;
@@ -144,6 +147,7 @@ const playbackVolumeFill    = document.getElementById('playback-volume-fill')!;
 const playbackVolumeReadout = document.getElementById('playback-volume-readout')!;
 const tunerLeft      = document.getElementById('tuner-left')!;
 const dbGraphCanvas  = document.getElementById('db-graph-canvas') as HTMLCanvasElement;
+const deviceSelect   = document.getElementById('device-select') as HTMLSelectElement;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -550,33 +554,97 @@ function tick() {
   requestAnimationFrame(tick);
 }
 
+// All processing disabled: echoCancellation defaults to ON in Chrome and its
+// adaptive filter uses audioCtx.destination as a reference signal — when
+// playback mode is on and the user is on headphones (no real echo path), the
+// filter chases a phantom signal and bleeds artifacts into the mic stream,
+// causing the dB graph to fluctuate in lockstep with the playback. Turning it
+// off keeps the mic signal raw.
+function micConstraints(deviceId: string): MediaStreamConstraints {
+  const audio: MediaTrackConstraints = {
+    echoCancellation: false,
+    autoGainControl: false,
+    noiseSuppression: false,
+  };
+  if (deviceId) audio.deviceId = { exact: deviceId };
+  return { audio, video: false };
+}
+
+// Repopulate the input dropdown. Device labels are only exposed by the browser
+// after mic permission is granted, so this is called again post-getUserMedia.
+async function refreshDeviceList() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  let devices: MediaDeviceInfo[];
+  try { devices = await navigator.mediaDevices.enumerateDevices(); }
+  catch (_) { return; }
+  const inputs = devices.filter(d => d.kind === 'audioinput');
+
+  // If nothing explicit is chosen yet, reflect whatever device the active
+  // stream actually resolved to so the dropdown shows the truth.
+  if (!selectedDeviceId && currentStream) {
+    const id = currentStream.getAudioTracks()[0]?.getSettings().deviceId;
+    if (id) selectedDeviceId = id;
+  }
+
+  deviceSelect.innerHTML = '';
+  if (inputs.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Default microphone';
+    deviceSelect.appendChild(opt);
+    return;
+  }
+  inputs.forEach((d, i) => {
+    const opt = document.createElement('option');
+    opt.value = d.deviceId;
+    opt.textContent = d.label || `Microphone ${i + 1}`;
+    deviceSelect.appendChild(opt);
+  });
+  if (selectedDeviceId && inputs.some(d => d.deviceId === selectedDeviceId)) {
+    deviceSelect.value = selectedDeviceId;
+  }
+}
+
+function attachStream(stream: MediaStream) {
+  if (!audioCtx || !analyser) return;
+  if (currentSource) { try { currentSource.disconnect(); } catch (_) {} }
+  if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+  currentStream = stream;
+  currentSource = audioCtx.createMediaStreamSource(stream);
+  currentSource.connect(analyser);
+}
+
+async function switchDevice(deviceId: string) {
+  selectedDeviceId = deviceId;
+  try { localStorage.setItem('tuner_device', deviceId); } catch (_) {}
+  if (!started) { start(); return; }
+  if (!audioCtx) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(micConstraints(deviceId));
+    attachStream(stream);
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    await refreshDeviceList();
+  } catch (e) {
+    statusHint.textContent = `Mic error: ${(e as Error).message}`;
+  }
+}
+deviceSelect.addEventListener('change', () => switchDevice(deviceSelect.value));
+
 async function start() {
   if (started) return;
   started = true;
   statusHint.textContent = 'Requesting microphone…';
   try {
-    // All processing disabled: echoCancellation defaults to ON in Chrome and
-    // its adaptive filter uses audioCtx.destination as a reference signal —
-    // when playback mode is on and the user is on headphones (no real echo
-    // path), the filter chases a phantom signal and bleeds artifacts into the
-    // mic stream, causing the dB graph to fluctuate in lockstep with the
-    // playback. Turning it off keeps the mic signal raw.
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        autoGainControl: false,
-        noiseSuppression: false,
-      },
-      video: false,
-    });
+    const stream = await navigator.mediaDevices.getUserMedia(micConstraints(selectedDeviceId));
     audioCtx = new AudioContext();
     analyser = audioCtx.createAnalyser();
     // 1024 ≈ 23 ms of audio at 44.1 kHz — halves the buffer-induced playback
     // latency vs. 2048. Still ~4 periods of the lowest trumpet note (concert
     // F3 ≈ 175 Hz), which is enough for pitchy to lock on reliably.
     analyser.fftSize = 1024;
-    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    attachStream(stream);
     detector = PitchDetector.forFloat32Array(analyser.fftSize);
+    await refreshDeviceList();
     if (stopwatchStartTime === null) {
       stopwatchStartTime = Date.now();
       saveStopwatchState();
@@ -813,7 +881,12 @@ function applySystemTheme() {
     applyPlaybackVolumeUi();
     const saved = parseFloat(localStorage.getItem('tuner_db_threshold') ?? '');
     if (Number.isFinite(saved)) dbThreshold = clamp(saved, DB_MIN, DB_MAX);
+    const savedDevice = localStorage.getItem('tuner_device');
+    if (savedDevice) selectedDeviceId = savedDevice;
   } catch (_) {}
+
+  refreshDeviceList();
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => refreshDeviceList());
 
   loadStopwatchState();
   drawMeter(null);

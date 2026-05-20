@@ -271,6 +271,47 @@
       color: var(--text-color);
       border-color: var(--text-color);
     }
+
+    /* ── Input-device dropdown (top-right) ── */
+    #device-select {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 10;
+      max-width: min(45vw, 200px);
+      opacity: 0;
+      transition: opacity 0.2s;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: rgba(128, 128, 128, 0.25);
+      color: var(--text-color);
+      cursor: pointer;
+      text-overflow: ellipsis;
+    }
+
+    body:hover #device-select,
+    #device-select:focus { opacity: 1; }
+    #device-select:focus { outline: none; }
+
+    /* ── Responsive: shrink chrome on small screens ── */
+    @media (max-width: 560px) {
+      #staff-panel { flex-basis: clamp(88px, 20vw, 130px); padding: 0 6px; }
+      #tuner-content { padding-top: min(40px, 7vh); }
+      .icon-btn { width: 26px; height: 26px; }
+      #device-select { font-size: 0.65rem; max-width: 38vw; }
+    }
+
+    @media (max-width: 380px) {
+      /* Drop the secondary staff panel so the meter gets the full width */
+      #staff-panel { display: none; }
+    }
+
+    @media (max-height: 420px) {
+      #tuner-content { padding-top: 6px; gap: 2px; }
+    }
   </style>
 </head>
 
@@ -313,6 +354,8 @@
   <button type="button" id="sinewave-btn"  class="icon-btn" onclick="toggleSinewave()"     title="Theoretical trumpet tuning">∿</button>
   <button type="button" id="accidentals-btn" class="icon-btn" onclick="toggleAccidentals()" title="Toggle sharps / flats">♯</button>
   <button type="button" id="playback-btn"    class="icon-btn" onclick="togglePlayback()"    title="Play in-tune pitch of detected note">♪</button>
+
+  <select id="device-select" title="Audio input source" aria-label="Audio input source"></select>
 
   <script src="dist/tuner.js"></script>
 </body>

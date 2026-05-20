@@ -848,6 +848,9 @@
   var analyser = null;
   var detector = null;
   var started = false;
+  var currentStream = null;
+  var currentSource = null;
+  var selectedDeviceId = "";
   var lastConcertMidi = null;
   var lastCents = null;
   var centsHistory = [];
@@ -898,6 +901,7 @@
   var playbackVolumeReadout = document.getElementById("playback-volume-readout");
   var tunerLeft = document.getElementById("tuner-left");
   var dbGraphCanvas = document.getElementById("db-graph-canvas");
+  var deviceSelect = document.getElementById("device-select");
   function clamp(v, lo, hi) {
     return Math.min(hi, Math.max(lo, v));
   }
@@ -1254,24 +1258,92 @@
     }
     requestAnimationFrame(tick);
   }
+  function micConstraints(deviceId) {
+    const audio = {
+      echoCancellation: false,
+      autoGainControl: false,
+      noiseSuppression: false
+    };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    return { audio, video: false };
+  }
+  async function refreshDeviceList() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    let devices;
+    try {
+      devices = await navigator.mediaDevices.enumerateDevices();
+    } catch (_) {
+      return;
+    }
+    const inputs = devices.filter((d) => d.kind === "audioinput");
+    if (!selectedDeviceId && currentStream) {
+      const id = currentStream.getAudioTracks()[0]?.getSettings().deviceId;
+      if (id) selectedDeviceId = id;
+    }
+    deviceSelect.innerHTML = "";
+    if (inputs.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "Default microphone";
+      deviceSelect.appendChild(opt);
+      return;
+    }
+    inputs.forEach((d, i) => {
+      const opt = document.createElement("option");
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Microphone ${i + 1}`;
+      deviceSelect.appendChild(opt);
+    });
+    if (selectedDeviceId && inputs.some((d) => d.deviceId === selectedDeviceId)) {
+      deviceSelect.value = selectedDeviceId;
+    }
+  }
+  function attachStream(stream) {
+    if (!audioCtx || !analyser) return;
+    if (currentSource) {
+      try {
+        currentSource.disconnect();
+      } catch (_) {
+      }
+    }
+    if (currentStream) currentStream.getTracks().forEach((t) => t.stop());
+    currentStream = stream;
+    currentSource = audioCtx.createMediaStreamSource(stream);
+    currentSource.connect(analyser);
+  }
+  async function switchDevice(deviceId) {
+    selectedDeviceId = deviceId;
+    try {
+      localStorage.setItem("tuner_device", deviceId);
+    } catch (_) {
+    }
+    if (!started) {
+      start();
+      return;
+    }
+    if (!audioCtx) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(micConstraints(deviceId));
+      attachStream(stream);
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+      await refreshDeviceList();
+    } catch (e) {
+      statusHint.textContent = `Mic error: ${e.message}`;
+    }
+  }
+  deviceSelect.addEventListener("change", () => switchDevice(deviceSelect.value));
   async function start() {
     if (started) return;
     started = true;
     statusHint.textContent = "Requesting microphone\u2026";
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          autoGainControl: false,
-          noiseSuppression: false
-        },
-        video: false
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(micConstraints(selectedDeviceId));
       audioCtx = new AudioContext();
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 1024;
-      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      attachStream(stream);
       detector = PitchDetector.forFloat32Array(analyser.fftSize);
+      await refreshDeviceList();
       if (stopwatchStartTime === null) {
         stopwatchStartTime = Date.now();
         saveStopwatchState();
@@ -1490,8 +1562,12 @@
       applyPlaybackVolumeUi();
       const saved = parseFloat(localStorage.getItem("tuner_db_threshold") ?? "");
       if (Number.isFinite(saved)) dbThreshold = clamp(saved, DB_MIN, DB_MAX);
+      const savedDevice = localStorage.getItem("tuner_device");
+      if (savedDevice) selectedDeviceId = savedDevice;
     } catch (_) {
     }
+    refreshDeviceList();
+    navigator.mediaDevices?.addEventListener?.("devicechange", () => refreshDeviceList());
     loadStopwatchState();
     drawMeter(null);
     renderStaff(null, null);
