@@ -10731,6 +10731,7 @@
     await processArrayBuffer(saved.buffer, saved.name, next.id);
     void play();
   }
+  window.advanceToNextFile = advanceToNextFile;
   async function renderFilePicker() {
     const allFiles = await loadAllFilesMeta();
     const allFolders = await loadAllFolders();

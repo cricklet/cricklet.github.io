@@ -934,6 +934,7 @@
     #metronome-toggle,
     #show-times-toggle,
     #player-mode-toggle,
+    #skip-next-btn,
     #backup-btn {
       width: 28px;
       height: 28px;
@@ -950,6 +951,13 @@
       opacity: 0;
       transition: opacity 0.2s;
     }
+
+    /* Skip-to-next only applies when loop mode is off (auto-advance mode). */
+    #skip-next-btn { display: none; }
+    body.player-mode #skip-next-btn { display: inline-flex; }
+    body.player-mode:hover #skip-next-btn { opacity: 1; }
+    #skip-next-btn:hover { transform: scale(1.08); }
+    #skip-next-btn:focus { outline: none; }
 
     #player-mode-toggle {
       filter: grayscale(1);
@@ -1109,6 +1117,7 @@
     <div id="top-bar">
       <button type="button" id="file-picker-btn" aria-label="Open file list"></button>
       <div id="top-bar-right">
+        <button type="button" id="skip-next-btn" onclick="advanceToNextFile()" title="Skip to next song">⏭</button>
         <button type="button" id="player-mode-toggle" onclick="togglePlayerMode()" title="Loop mode (toggle off to play through and auto-advance)">🔁</button>
         <button type="button" id="metronome-toggle" onclick="toggleMetronome()" title="Metronome click">♩</button>
         <div id="transpose-container">

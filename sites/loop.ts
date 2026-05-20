@@ -2867,6 +2867,7 @@ async function advanceToNextFile() {
   await processArrayBuffer(saved.buffer, saved.name, next.id);
   void play();
 }
+(window as any).advanceToNextFile = advanceToNextFile;
 
 async function renderFilePicker() {
   const allFiles = await loadAllFilesMeta();
