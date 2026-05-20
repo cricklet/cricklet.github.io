@@ -10,6 +10,7 @@
 
   <style>
     :root {
+      color-scheme: dark;
       --bg-color: #1a1a1a;
       --text-color: rgba(255, 255, 255, 0.87);
       --border-color: rgba(255, 255, 255, 0.35);
@@ -18,6 +19,7 @@
     }
 
     :root[data-theme="light"] {
+      color-scheme: light;
       --bg-color: #f0f0f0;
       --text-color: #000000;
       --border-color: rgba(0, 0, 0, 0.28);
@@ -208,7 +210,6 @@
       color: rgba(128, 128, 128, 0.75);
     }
 
-    body:hover .icon-btn { opacity: 1; }
     .icon-btn:hover { transform: scale(1.08); }
     .icon-btn:focus { outline: none; }
 
@@ -280,21 +281,30 @@
       z-index: 10;
       max-width: min(45vw, 200px);
       opacity: 0;
-      transition: opacity 0.2s;
+      transition: opacity 0.2s, background-color 0.15s;
       font-family: 'Reddit Mono', monospace;
       font-size: 0.72rem;
       padding: 4px 8px;
       border-radius: 6px;
       border: 1px solid var(--border-color);
-      background: rgba(128, 128, 128, 0.25);
+      background: var(--section-fill);
       color: var(--text-color);
       cursor: pointer;
       text-overflow: ellipsis;
     }
 
-    body:hover #device-select,
-    #device-select:focus { opacity: 1; }
-    #device-select:focus { outline: none; }
+    #device-select:hover { background: var(--section-divider); }
+    #device-select:focus { opacity: 1; outline: none; }
+
+    /* Reveal-on-hover only where hovering is real; on touch devices a tap
+       would otherwise latch :hover on and leave the controls stuck visible. */
+    @media (hover: hover) {
+      body:hover .icon-btn { opacity: 1; }
+      body:hover #device-select { opacity: 1; }
+    }
+    @media (hover: none) {
+      .icon-btn, #device-select { opacity: 1; }
+    }
 
     /* ── Responsive: shrink chrome on small screens ── */
     @media (max-width: 560px) {
