@@ -462,16 +462,24 @@
     // Track held notes
     const heldNotes = new Set();
 
+    let renderScheduled = false;
     function updateDisplay() {
-      renderStaff();
-      updateKeyboardHighlights();
-      if (heldNotes.size > 0) {
-        const top = Math.max(...heldNotes);
-        const { note, octave } = midiToName(top);
-        noteLabel.textContent = `${note}${octave}`;
-      } else {
-        noteLabel.textContent = '';
-      }
+      // Decouple visuals from audio: rebuilding the VexFlow SVG is expensive and
+      // would otherwise stall the main thread between successive note events.
+      if (renderScheduled) return;
+      renderScheduled = true;
+      requestAnimationFrame(() => {
+        renderScheduled = false;
+        renderStaff();
+        updateKeyboardHighlights();
+        if (heldNotes.size > 0) {
+          const top = Math.max(...heldNotes);
+          const { note, octave } = midiToName(top);
+          noteLabel.textContent = `${note}${octave}`;
+        } else {
+          noteLabel.textContent = '';
+        }
+      });
     }
 
     // ── MIDI ──────────────────────────────────────────────────────────────────
