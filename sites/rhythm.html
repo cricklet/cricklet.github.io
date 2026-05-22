@@ -145,13 +145,14 @@
       display: flex;
       flex-direction: column;
       gap: 5px;
-      padding: 6px 9px;
-      border-radius: 8px;
-      border: 1px solid transparent;
+      /* No left padding/border so the first cell lines up flush with the play
+         button and everything else down the left edge. The active highlight
+         uses a box-shadow ring so it never shifts the layout. */
+      padding: 5px 8px 5px 0;
+      border-radius: 6px;
     }
     .measure.active {
-      background: rgba(122, 170, 245, 0.12);
-      border-color: rgba(122, 170, 245, 0.45);
+      background: rgba(122, 170, 245, 0.1);
     }
     /* Per-bar header: bar number + its (overridable) time signature. */
     .measure-head {
@@ -204,6 +205,24 @@
       line-height: 1;
     }
     .bar-reset:focus { outline: none; }
+    /* Enable/disable LED: filled accent dot when on, hollow grey when off. */
+    .bar-toggle {
+      background: none;
+      border: none;
+      color: var(--cell-on);
+      opacity: 0.75;
+      cursor: pointer;
+      font-size: 0.7rem;
+      line-height: 1;
+      padding: 0 2px;
+    }
+    .bar-toggle.off { color: rgba(128, 128, 128, 0.8); }
+    .bar-toggle:hover { opacity: 1; }
+    .bar-toggle:focus { outline: none; }
+    /* A disabled bar stays in place but is dimmed and not graded. */
+    .measure.disabled .beats,
+    .measure.disabled .measure-num,
+    .measure.disabled .bar-sig { opacity: 0.4; }
     .beats { display: flex; gap: 12px; }
     .beat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
     .cells { display: flex; gap: 4px; }
@@ -217,9 +236,9 @@
        start is unmistakable. */
     .beat.downbeat .beat-num { opacity: 0.7; color: var(--cell-on); font-weight: 600; }
     .step {
-      width: clamp(24px, 4vw, 44px);
-      height: clamp(34px, 5.5vw, 56px);
-      border-radius: 5px;
+      width: clamp(20px, 2.8vw, 30px);
+      height: clamp(20px, 2.8vw, 30px);
+      border-radius: 4px;
       background: var(--cell-off);
       border: 1px solid var(--section-divider);
       cursor: pointer;
@@ -234,11 +253,12 @@
       width: 100%;
       overflow-x: auto;
     }
-    #notation { width: 100%; min-height: 84px; display: flex; justify-content: center; }
+    #notation { width: 100%; min-height: 84px; display: flex; justify-content: flex-start; }
     #notation svg { height: auto; max-width: 100%; display: block; }
-    /* abcjs paints everything as filled black paths/text; recolor for theme. */
-    #notation svg path { fill: var(--text-color) !important; }
-    #notation svg text { fill: var(--text-color) !important; }
+    /* abcjs paints paths/text black by default; recolor for theme. (No
+       !important — per-note accuracy colors are applied via inline style.) */
+    #notation svg path { fill: var(--text-color); }
+    #notation svg text { fill: var(--text-color); }
 
     /* ---- History ---- */
     #history {
@@ -248,26 +268,18 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
-      padding-right: 4px;
+      padding: 0 4px 0 0;
     }
     .hist-row {
       display: flex;
       align-items: center;
-      gap: 10px;
-    }
-    .hist-label {
-      flex: 0 0 auto;
-      width: 120px;
-      font-family: 'Reddit Mono', monospace;
-      font-size: 0.68rem;
-      opacity: 0.7;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     .hist-track {
       position: relative;
-      flex: 1 1 0;
+      /* Sized per-row to match the notation staff width (set inline); shrinks
+         if the row is too narrow, but never grows to fill the whole row. */
+      flex: 0 1 auto;
+      width: 280px;
       height: 26px;
       background: rgba(128, 128, 128, 0.08);
       border-radius: 4px;
@@ -452,6 +464,7 @@
     const STORAGE_SUBDIV = 'rhythm_subdiv';
     const STORAGE_PATTERN = 'rhythm_pattern';
     const STORAGE_BARSIG = 'rhythm_barsig';
+    const STORAGE_BARDISABLED = 'rhythm_bardisabled';
     const MAX_HISTORY_ROWS = 20;
 
     function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
@@ -468,6 +481,7 @@
     let measures = 1;     // number of bars
     let subdiv = 4;       // steps per beat (default: 16th notes)
     let barSig = [];      // per-bar {num, den} override, or null = use default
+    let barDisabled = []; // per-bar disable flag (kept in the loop, but not graded)
     let pattern = [];     // flat step states across all bars: 0 rest, 1 onset, 2 held
     let stepEls = [];
     let measureEls = [];
@@ -478,6 +492,8 @@
 
     function barNum(m) { const s = barSig[m]; return s ? s.num : defNum; }
     function barDen(m) { const s = barSig[m]; return s ? s.den : defDen; }
+    function barOff(m) { return !!barDisabled[m]; }
+    function stepDisabled(i) { return barOff(barOfStep(i)); }
     function barStartSteps() { const a = []; let s = 0; for (let m = 0; m < measures; m++) { a.push(s); s += barNum(m) * subdiv; } return a; }
     function totalSteps() { let s = 0; for (let m = 0; m < measures; m++) s += barNum(m) * subdiv; return s; }
     function totalBeats() { let s = 0; for (let m = 0; m < measures; m++) s += barNum(m); return s; }
@@ -653,7 +669,6 @@
       document.getElementById('play-btn').textContent = '▶ Play';
       if (scheduleRaf != null) { cancelAnimationFrame(scheduleRaf); scheduleRaf = null; }
       for (const el of measureEls) el.classList.remove('active');
-      finalizeRow(currentRow);
       currentRow = null;
       pendingCycleStarts = [];
     }
@@ -675,7 +690,7 @@
     function targetFracs() {
       const fracs = [];
       const total = totalSteps();
-      for (let i = 0; i < total; i++) if (pattern[i] === 1) fracs.push(i / total);
+      for (let i = 0; i < total; i++) if (pattern[i] === 1 && !stepDisabled(i)) fracs.push(i / total);
       return fracs;
     }
     // Smallest circular gap between consecutive targets — defines "far off".
@@ -691,11 +706,6 @@
       return min;
     }
 
-    function rowSummary(r) {
-      if (r.taps === 0) return `#${r.cIdx + 1} · …`;
-      return `#${r.cIdx + 1} · ${r.taps} tap${r.taps > 1 ? 's' : ''} · ±${Math.round((r.errSum / r.taps) * 1000)}ms`;
-    }
-
     // Spawn a fresh row for cycle `cIdx`, drawing the target ticks up front so
     // taps can be graded and shown against them in real time.
     function beginCycleRow(cIdx, startT, dur) {
@@ -705,10 +715,9 @@
 
       const row = document.createElement('div');
       row.className = 'hist-row';
-      const label = document.createElement('div');
-      label.className = 'hist-label';
       const track = document.createElement('div');
       track.className = 'hist-track';
+      track.style.width = lastStaffWidth + 'px';
       // Beat gridlines, with stronger lines at bar (measure) boundaries.
       const tb = totalBeats();
       const barStartBeats = new Set();
@@ -725,19 +734,22 @@
         tk.style.left = (100 * f) + '%';
         track.appendChild(tk);
       }
-      row.appendChild(label);
       row.appendChild(track);
       const hist = document.getElementById('history');
       hist.insertBefore(row, hist.firstChild);
       while (hist.children.length > MAX_HISTORY_ROWS) hist.removeChild(hist.lastChild);
 
-      const r = { cIdx, startT, dur, fracs, maxErrSec, taps: 0, errSum: 0, el: row, track, label };
-      label.textContent = rowSummary(r);
-      return r;
-    }
+      // onsetSteps parallels fracs — needed to color the matching notes.
+      const onsetSteps = [];
+      { const total = totalSteps(); for (let i = 0; i < total; i++) if (pattern[i] === 1 && !stepDisabled(i)) onsetSteps.push(i); }
+      const r = { cIdx, startT, dur, fracs, onsetSteps, onsetBest: onsetSteps.map(() => Infinity), tapFracs: [], maxErrSec, taps: 0, errSum: 0, el: row, track };
 
-    function finalizeRow(r) {
-      if (r) r.label.textContent = rowSummary(r);
+      // Start the cycle with every note greyed (= not played yet); taps light
+      // them up live as they land.
+      onsetColors = {};
+      for (const s of onsetSteps) onsetColors[s] = MISS_GREY;
+      colorNotation();
+      return r;
     }
 
     // Advance rows at the scheduler's ACTUAL cycle boundaries (queued by
@@ -748,7 +760,6 @@
       let guard = 0;
       while (pendingCycleStarts.length && now >= pendingCycleStarts[0] && guard++ < 64) {
         const startT = pendingCycleStarts.shift();
-        finalizeRow(currentRow);
         currentRow = beginCycleRow(currentRow.cIdx + 1, startT, cycleDur());
       }
     }
@@ -761,15 +772,24 @@
       // scheduled, so shift the tap back by that amount before judging it.
       let frac = ((t - outputLatency()) - r.startT) / r.dur;
       frac = ((frac % 1) + 1) % 1;
-      let best = 1;
-      for (const f of r.fracs) {
-        const raw = Math.abs(frac - f);
+      r.tapFracs.push(frac);
+      let best = 1, bestOi = -1;
+      for (let oi = 0; oi < r.fracs.length; oi++) {
+        const raw = Math.abs(frac - r.fracs[oi]);
         const circ = Math.min(raw, 1 - raw);
-        if (circ < best) best = circ;
+        if (circ < best) { best = circ; bestOi = oi; }
       }
       const errSec = best * r.dur;
       r.errSum += errSec;
       r.taps += 1;
+      // Live-color the nearest note if this tap landed within its window and is
+      // the closest tap to it so far this cycle. Misses stay grey.
+      if (bestOi >= 0 && errSec <= r.maxErrSec && errSec < r.onsetBest[bestOi]) {
+        r.onsetBest[bestOi] = errSec;
+        const nn = Math.pow(clamp(errSec / r.maxErrSec, 0, 1), 0.7);
+        onsetColors[r.onsetSteps[bestOi]] = `hsl(${120 * (1 - nn)}, 75%, 50%)`;
+        colorNotation();
+      }
       // Curve with exponent < 1 shifts small errors toward yellow sooner than
       // linear (0.7 splits the difference — firm, but not punishing).
       const norm = Math.pow(clamp(errSec / r.maxErrSec, 0, 1), 0.7);
@@ -780,7 +800,6 @@
       dot.style.background = `hsl(${hue}, 75%, 50%)`;
       dot.style.color = `hsl(${hue}, 75%, 50%)`;
       r.track.appendChild(dot);
-      r.label.textContent = rowSummary(r);
     }
 
     // ---- Step model: 0 = rest, 1 = note onset, 2 = held (sustain) ----
@@ -829,7 +848,7 @@
       for (let m = 0; m < measures; m++) {
         const bn = barNum(m), bd = barDen(m), start = starts[m];
         const mEl = document.createElement('div');
-        mEl.className = 'measure';
+        mEl.className = 'measure' + (barOff(m) ? ' disabled' : '');
         measureEls[m] = mEl;
         mEl.appendChild(buildMeasureHeader(m, bn, bd));
 
@@ -899,7 +918,27 @@
         sig.appendChild(rs);
       }
       head.appendChild(sig);
+
+      // Enable/disable toggle (a small LED dot): a disabled bar stays in the
+      // loop and keeps clicking, but it isn't graded and shows dimmed.
+      const tg = document.createElement('button');
+      tg.type = 'button';
+      tg.className = 'bar-toggle' + (barOff(m) ? ' off' : '');
+      tg.textContent = barOff(m) ? '○' : '●';
+      tg.title = barOff(m) ? 'Enable this measure' : 'Disable this measure';
+      tg.addEventListener('click', () => toggleMeasureDisabled(m));
+      head.appendChild(tg);
       return head;
+    }
+
+    // Toggle a bar's disabled state. Takes effect on the next cycle for grading;
+    // the grid/notation update immediately. Playback keeps running.
+    function toggleMeasureDisabled(m) {
+      barDisabled[m] = !barOff(m);
+      buildGrid();
+      buildNotation();
+      persistSettings();
+      scheduleUrlSync();
     }
 
     // Cheap class refresh during a drag (cells already exist).
@@ -1010,7 +1049,11 @@
       { let s = 0; for (let m = 0; m < measures; m++) { oldStarts.push(s); const sz = barNum(m) * subdiv; oldSizes.push(sz); s += sz; } }
       mutate();
       barSig.length = measures;
-      for (let m = 0; m < measures; m++) if (barSig[m] === undefined) barSig[m] = null;
+      barDisabled.length = measures;
+      for (let m = 0; m < measures; m++) {
+        if (barSig[m] === undefined) barSig[m] = null;
+        if (barDisabled[m] === undefined) barDisabled[m] = false;
+      }
       reshape(oldSizes, oldStarts);
       syncControls();
       buildGrid();
@@ -1036,6 +1079,14 @@
     // Convert the step model into an ABC tune string and let abcjs draw it
     // (beaming, ties, dotted notes, rests, time signature). Pitch is irrelevant
     // for rhythm, so every note sits on the same line with the clef hidden.
+
+    // For accuracy coloring: the onset step each rendered notehead belongs to
+    // (in document order), and the color to paint each onset's notes.
+    let lastNoteheadOnsets = [];
+    let onsetColors = {};
+    const MISS_GREY = '#5a5a5a';   // note you didn't play near
+    const DISABLED_GREY = '#3f3f3f';   // note in a disabled measure
+    let lastStaffWidth = 280;      // notation width; history tracks match it
 
     // Group the step model into note/rest events:
     //   note event = an onset (1) plus its trailing held (2) steps
@@ -1099,7 +1150,7 @@
           const stepUnit = maxDen / barDen(barOfStep(pos));
           let p = pos;
           for (const st of abcDurTokens(take)) {
-            evAtoms.push({ note: ev.note, pos: p, units: st * stepUnit, tie: false });
+            evAtoms.push({ note: ev.note, pos: p, units: st * stepUnit, tie: false, onset: ev.start });
             p += st;
           }
           pos += take; rem -= take;
@@ -1126,6 +1177,8 @@
       }
       body += ' |]';
 
+      // Onset step for each notehead, in render order (rests excluded).
+      lastNoteheadOnsets = atoms.filter(a => a.note).map(a => a.onset);
       return `X:1\nM:${barNum(0)}/${barDen(0)}\nL:1/${Lden}\nK:C clef=none\n${body}\n`;
     }
 
@@ -1140,6 +1193,8 @@
       const glyphs = (abc.match(/[Bz]/g) || []).length;
       const want = 96 + glyphs * 34;
       const w = clamp(want, 200, Math.max(220, contW - 6));
+      lastStaffWidth = w;   // history tracks size themselves to match the staff
+      onsetColors = {};   // re-rendering (edit/resize) clears any accuracy tint
       // Explicit staffwidth (+ a single resize listener) instead of abcjs's
       // 'responsive' mode, so re-rendering on every drag move stays cheap.
       ABCJS.renderAbc('notation', abc, {
@@ -1147,7 +1202,25 @@
         staffwidth: w,
         paddingtop: 6, paddingbottom: 6, paddingleft: 0, paddingright: 0,
       });
+      colorNotation();
     }
+
+    // Paint each notehead by the last graded cycle (or default when uncolored).
+    function colorNotation() {
+      const svg = document.querySelector('#notation svg');
+      if (!svg) return;
+      const notes = svg.querySelectorAll('.abcjs-note');
+      if (notes.length !== lastNoteheadOnsets.length) return;   // mapping mismatch: skip
+      notes.forEach((noteEl, k) => {
+        const onset = lastNoteheadOnsets[k];
+        // Notes in a disabled bar render dimmed unless they got a live color.
+        let color = onsetColors[onset] || '';
+        if (!color && stepDisabled(onset)) color = DISABLED_GREY;
+        const paths = noteEl.tagName.toLowerCase() === 'path' ? [noteEl] : noteEl.querySelectorAll('path');
+        paths.forEach(p => { p.style.fill = color; });
+      });
+    }
+
 
     // ---- BPM / Volume vertical strips ----
     const bpmSection = document.getElementById('bpm-section');
@@ -1234,6 +1307,7 @@
         localStorage.setItem(STORAGE_MEASURES, String(measures));
         localStorage.setItem(STORAGE_SUBDIV, String(subdiv));
         localStorage.setItem(STORAGE_BARSIG, serializeBarSig());
+        localStorage.setItem(STORAGE_BARDISABLED, barDisabled.map(b => b ? 1 : 0).join(''));
       } catch (_) {}
       scheduleUrlSync();
     }
@@ -1269,6 +1343,7 @@
       return 'rhythm:' + JSON.stringify({
         v: 1, num: defNum, den: defDen, measures, subdiv,
         bars: barSig.map(s => s ? [s.num, s.den] : 0),
+        off: barDisabled.map(b => b ? 1 : 0),
         bpm: Math.round(bpm), volume: Math.round(volumePct),
         pattern: pattern.join(''),
       });
@@ -1296,6 +1371,9 @@
         : [];
       barSig.length = measures;
       for (let m = 0; m < measures; m++) if (barSig[m] === undefined) barSig[m] = null;
+      barDisabled = Array.isArray(obj.off) ? obj.off.map(x => !!x) : [];
+      barDisabled.length = measures;
+      for (let m = 0; m < measures; m++) if (barDisabled[m] === undefined) barDisabled[m] = false;
       const T = totalSteps();
       pattern = (typeof obj.pattern === 'string' && /^[012]+$/.test(obj.pattern) && obj.pattern.length === T)
         ? obj.pattern.split('').map(c => parseInt(c, 10))
@@ -1374,11 +1452,11 @@
       }
       if (e.key === 'Escape') { if (running) stopPlay(); return; }
       if (typing) return;
-      // BPM nudges: [ ] = ∓1, - = = ∓5 (repeat on hold)
-      if (e.key === '[') { e.preventDefault(); setBpm(bpm - 1); persistBpm(); return; }
-      if (e.key === ']') { e.preventDefault(); setBpm(bpm + 1); persistBpm(); return; }
-      if (e.key === '-') { e.preventDefault(); setBpm(bpm - 5); persistBpm(); return; }
-      if (e.key === '=') { e.preventDefault(); setBpm(bpm + 5); persistBpm(); return; }
+      // BPM nudges: - = = ∓1, [ ] = ∓5 (repeat on hold)
+      if (e.key === '-') { e.preventDefault(); setBpm(bpm - 1); persistBpm(); return; }
+      if (e.key === '=') { e.preventDefault(); setBpm(bpm + 1); persistBpm(); return; }
+      if (e.key === '[') { e.preventDefault(); setBpm(bpm - 5); persistBpm(); return; }
+      if (e.key === ']') { e.preventDefault(); setBpm(bpm + 5); persistBpm(); return; }
       if (e.repeat) return;
       // any other printable key = a tap along with the beat
       // (length 1 excludes Tab, arrows, F-keys, etc.)
@@ -1404,6 +1482,8 @@
         const m = parseInt(localStorage.getItem(STORAGE_MEASURES), 10); if (Number.isFinite(m)) measures = clamp(m, 1, 8);
         const sd = parseInt(localStorage.getItem(STORAGE_SUBDIV), 10); if ([1,2,4].includes(sd)) subdiv = sd;
         barSig = parseBarSig(localStorage.getItem(STORAGE_BARSIG), measures);
+        const bd = localStorage.getItem(STORAGE_BARDISABLED);
+        barDisabled = (bd && /^[01]+$/.test(bd)) ? bd.split('').map(c => c === '1') : [];
         const pat = localStorage.getItem(STORAGE_PATTERN);
         if (pat && /^[012]+$/.test(pat) && pat.length === totalSteps()) {
           pattern = pat.split('').map(c => parseInt(c, 10));
@@ -1421,7 +1501,11 @@
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
       loadState();
       barSig.length = measures;
-      for (let m = 0; m < measures; m++) if (barSig[m] === undefined) barSig[m] = null;
+      barDisabled.length = measures;
+      for (let m = 0; m < measures; m++) {
+        if (barSig[m] === undefined) barSig[m] = null;
+        if (barDisabled[m] === undefined) barDisabled[m] = false;
+      }
       syncControls();
       setBpm(bpm);
       setVolumePct(volumePct);
