@@ -1192,7 +1192,56 @@
       return beat / subdivCount;
     }
 
+    // Clicks play through Web Audio (the same context as the count voice) so
+    // they're scheduled sample-accurately on the audio clock — HTMLAudio.play()
+    // + setTimeout has large, variable latency. The <audio> path below is kept
+    // only as a fallback when Web Audio / fetch is unavailable (e.g. file://).
+    let clickBuf = null, softBuf = null, clickOffset = 0, softOffset = 0;
+    let clickBuffersPromise = null;
+
+    // Skip any MP3 encoder leading silence so the transient lands on the beat.
+    function clickLeadingSilence(buf) {
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < ch.length; i++) {
+        if (Math.abs(ch[i]) > 0.01) return Math.max(0, i / buf.sampleRate - 0.0005);
+      }
+      return 0;
+    }
+
+    function ensureClickBuffers() {
+      ensureCountAudioCtx();
+      if (countAudioCtx && countAudioCtx.state === 'suspended') countAudioCtx.resume();
+      if (!countAudioCtx) return Promise.resolve();   // -> HTMLAudio fallback
+      if (!clickBuffersPromise) {
+        const dec = async (url) => {
+          const r = await fetch(url);
+          const arr = await r.arrayBuffer();
+          return await countAudioCtx.decodeAudioData(arr);
+        };
+        clickBuffersPromise = Promise.all([dec('click.mp3'), dec('click-soft.mp3')])
+          .then(([c, s]) => {
+            clickBuf = c; softBuf = s;
+            clickOffset = clickLeadingSilence(c); softOffset = clickLeadingSilence(s);
+          })
+          .catch(() => { clickBuf = null; softBuf = null; });
+      }
+      return clickBuffersPromise;
+    }
+
     function playClick(when, soft, volScale = 1) {
+      const buf = soft ? softBuf : clickBuf;
+      if (countAudioCtx && buf) {
+        const at = countAudioCtx.currentTime + Math.max(0, when - clickNowSec());
+        const src = countAudioCtx.createBufferSource();
+        src.buffer = buf;
+        const g = countAudioCtx.createGain();
+        g.gain.value = clamp((volumePct / 100) * volScale, 0, 1);
+        src.connect(g);
+        g.connect(countAudioCtx.destination);
+        src.start(at, soft ? softOffset : clickOffset);
+        return;
+      }
+      // Fallback: HTMLAudio + setTimeout.
       const delayMs = Math.max(0, (when - clickNowSec()) * 1000);
       window.setTimeout(() => {
         if (volScale !== 1 && subClickPool.length) {
@@ -1266,7 +1315,14 @@
         document.body.classList.remove('beat-dim');
         scheduleLoop();
       };
-      void waitClickReady().then(begin, begin);
+      ensureCountAudioCtx();
+      // Prefer the low-latency Web Audio path; fall back to waiting on the
+      // <audio> element only when Web Audio isn't available.
+      if (countAudioCtx) {
+        void ensureClickBuffers().then(begin, begin);
+      } else {
+        void waitClickReady().then(begin, begin);
+      }
     }
 
     function stopMetronome() {

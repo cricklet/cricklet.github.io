@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rhythm Trainer</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reddit+Mono&display=swap">
+
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: rgba(255, 255, 255, 0.87);
+      --border-color: rgba(255, 255, 255, 0.35);
+      --section-fill: rgba(255, 255, 255, 0.07);
+      --section-divider: rgba(255, 255, 255, 0.1);
+      --cell-off: rgba(255, 255, 255, 0.06);
+      --cell-on: rgba(122, 170, 245, 0.95);
+      --cell-held: rgba(122, 170, 245, 0.4);
+      --control-bg: rgba(128, 128, 128, 0.18);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f0f0f0;
+      --text-color: #000000;
+      --border-color: rgba(0, 0, 0, 0.28);
+      --section-fill: rgba(0, 0, 0, 0.045);
+      --section-divider: rgba(0, 0, 0, 0.08);
+      --cell-off: rgba(0, 0, 0, 0.06);
+      --cell-on: rgba(54, 110, 200, 0.85);
+      --control-bg: rgba(128, 128, 128, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; margin: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: row;
+      height: 100dvh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #main-area {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 22px;
+      gap: 14px;
+      overflow: hidden;
+    }
+
+    /* ---- Controls bar ---- */
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.8rem;
+    }
+    .ctl-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .ctl-group > label {
+      font-size: 0.65rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      opacity: 0.55;
+    }
+    #controls input[type="number"],
+    #controls select {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.8rem;
+      background: var(--control-bg);
+      color: var(--text-color);
+      border: 1px solid var(--section-divider);
+      border-radius: 4px;
+      padding: 4px 6px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+    }
+    #controls input[type="number"] {
+      width: 44px;
+      text-align: center;
+      cursor: text;
+    }
+    #controls input[type="number"]::-webkit-outer-spin-button,
+    #controls input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none; margin: 0;
+    }
+    #controls input:focus, #controls select:focus {
+      box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55);
+    }
+    .timesig { display: flex; align-items: center; gap: 3px; }
+    .timesig .slash { opacity: 0.5; }
+
+    button.btn {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.8rem;
+      background: var(--control-bg);
+      color: var(--text-color);
+      border: 1px solid var(--section-divider);
+      border-radius: 4px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: none;
+    }
+    button.btn:hover { background: rgba(128, 128, 128, 0.32); }
+    button.btn:focus { outline: none; box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55); }
+    #play-btn {
+      min-width: 92px;
+      font-weight: 600;
+    }
+    #play-btn.playing {
+      background: var(--bg-color);
+      border-color: var(--text-color);
+    }
+
+    /* ---- Step grid ---- */
+    /* A spacing hierarchy makes the structure obvious: cells sit tight inside a
+       beat, beats are spaced apart, measures more so. Note state only changes a
+       cell's COLOR — never the layout — so padding stays perfectly even no
+       matter what's placed in each step. */
+    #grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px 22px;
+      align-items: flex-start;
+    }
+    /* Constant padding + transparent border so toggling .active only swaps
+       colors — never shifts layout. */
+    .measure {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 6px 9px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+    }
+    .measure.active {
+      background: rgba(122, 170, 245, 0.12);
+      border-color: rgba(122, 170, 245, 0.45);
+    }
+    /* Per-bar header: bar number + its (overridable) time signature. */
+    .measure-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 22px;
+    }
+    .measure-num {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      opacity: 0.45;
+    }
+    .bar-sig {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.62rem;
+      opacity: 0.5;
+    }
+    .bar-sig.overridden { opacity: 0.95; color: var(--cell-on); }
+    .bar-num-input, .bar-den-select {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.66rem;
+      background: var(--control-bg);
+      color: inherit;
+      border: 1px solid var(--section-divider);
+      border-radius: 3px;
+      padding: 1px 2px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+    }
+    .bar-num-input { width: 26px; text-align: center; cursor: text; }
+    .bar-num-input::-webkit-outer-spin-button,
+    .bar-num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .bar-num-input:focus, .bar-den-select:focus { box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55); }
+    .bar-slash { opacity: 0.5; }
+    .bar-reset {
+      background: none;
+      border: none;
+      color: var(--cell-on);
+      cursor: pointer;
+      font-size: 0.72rem;
+      padding: 0 2px;
+      line-height: 1;
+    }
+    .bar-reset:focus { outline: none; }
+    .beats { display: flex; gap: 12px; }
+    .beat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .cells { display: flex; gap: 4px; }
+    .beat-num {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.6rem;
+      opacity: 0.3;
+      line-height: 1;
+    }
+    /* Beat 1 of every measure (the downbeat) is highlighted so the measure
+       start is unmistakable. */
+    .beat.downbeat .beat-num { opacity: 0.7; color: var(--cell-on); font-weight: 600; }
+    .step {
+      width: clamp(24px, 4vw, 44px);
+      height: clamp(34px, 5.5vw, 56px);
+      border-radius: 5px;
+      background: var(--cell-off);
+      border: 1px solid var(--section-divider);
+      cursor: pointer;
+      position: relative;
+      touch-action: none;
+    }
+    .step.on { background: var(--cell-on); border-color: transparent; }
+    .step.held { background: var(--cell-held); border-color: transparent; }
+
+    /* ---- Notation (rendered by abcjs) ---- */
+    #notation-wrap {
+      width: 100%;
+      overflow-x: auto;
+    }
+    #notation { width: 100%; min-height: 84px; display: flex; justify-content: center; }
+    #notation svg { height: auto; max-width: 100%; display: block; }
+    /* abcjs paints everything as filled black paths/text; recolor for theme. */
+    #notation svg path { fill: var(--text-color) !important; }
+    #notation svg text { fill: var(--text-color) !important; }
+
+    /* ---- History ---- */
+    #history {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-right: 4px;
+    }
+    .hist-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .hist-label {
+      flex: 0 0 auto;
+      width: 120px;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.68rem;
+      opacity: 0.7;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .hist-track {
+      position: relative;
+      flex: 1 1 0;
+      height: 26px;
+      background: rgba(128, 128, 128, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .hist-beat {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 1px;
+      background: rgba(128, 128, 128, 0.25);
+    }
+    .hist-measure {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 1px;
+      background: rgba(128, 128, 128, 0.6);
+    }
+    .hist-target {
+      position: absolute;
+      top: 3px; bottom: 3px;
+      width: 2px;
+      margin-left: -1px;
+      background: rgba(255, 255, 255, 0.45);
+      border-radius: 1px;
+    }
+    :root[data-theme="light"] .hist-target { background: rgba(0, 0, 0, 0.4); }
+    .hist-tap {
+      position: absolute;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      margin-left: -5px;
+      margin-top: -5px;
+      border-radius: 50%;
+      box-shadow: 0 0 4px currentColor;
+    }
+    .hist-tap::before {
+      content: '';
+      position: absolute;
+      left: 50%; top: -7px; bottom: -7px;
+      width: 2px;
+      margin-left: -1px;
+      background: currentColor;
+      opacity: 0.5;
+    }
+
+    /* ---- Right panel: BPM + volume vertical strips ---- */
+    #right-panel {
+      display: flex;
+      flex-direction: row;
+      flex-shrink: 0;
+    }
+    .control-section {
+      position: relative;
+      flex: 0 0 clamp(40px, 6vw, 72px);
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      cursor: pointer;
+      touch-action: none;
+      border-left: 1px solid var(--section-divider);
+    }
+    .fill {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      width: 100%;
+      height: 0%;
+      background: var(--section-fill);
+      z-index: 0;
+      pointer-events: none;
+    }
+    .readout {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 100%;
+      z-index: 1;
+      font-family: 'Reddit Mono', monospace;
+      font-size: clamp(0.85rem, 2.5vw, 1.4rem);
+      font-weight: 600;
+      text-align: center;
+      pointer-events: none;
+      color: rgba(128, 128, 128, 0.85);
+      line-height: 1.3;
+    }
+    .readout .unit {
+      display: block;
+      font-size: 0.6em;
+      font-weight: 400;
+      opacity: 0.7;
+    }
+
+    #toast {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-color);
+      color: var(--text-color);
+      border: 1px solid var(--section-divider);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.78rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+      z-index: 50;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+
+<body>
+  <div id="main-area">
+    <div id="controls">
+      <button type="button" id="play-btn" class="btn" onclick="togglePlay()">▶ Play</button>
+      <div class="ctl-group timesig">
+        <label>Default time</label>
+        <input type="number" id="num-input" min="1" max="16" value="4" aria-label="Beats per measure">
+        <span class="slash">/</span>
+        <select id="den-select" aria-label="Beat unit">
+          <option value="2">2</option>
+          <option value="4" selected>4</option>
+          <option value="8">8</option>
+          <option value="16">16</option>
+        </select>
+      </div>
+      <div class="ctl-group">
+        <label>Measures</label>
+        <input type="number" id="measures-input" min="1" max="8" value="1">
+      </div>
+      <div class="ctl-group">
+        <label>Subdivide</label>
+        <select id="subdiv-select" aria-label="Subdivision">
+          <option value="1">♩ 1</option>
+          <option value="2">♪ 2</option>
+          <option value="4" selected>♬ 4</option>
+        </select>
+      </div>
+      <button type="button" class="btn" onclick="fillPattern(true)">Fill</button>
+      <button type="button" class="btn" onclick="fillPattern(false)">Clear</button>
+      <button type="button" class="btn" onclick="clearHistory()">Clear log</button>
+    </div>
+
+    <div id="grid"></div>
+
+    <div id="notation-wrap">
+      <div id="notation"></div>
+    </div>
+
+    <div id="history"></div>
+  </div>
+
+  <div id="right-panel">
+    <div id="bpm-section" class="control-section" aria-label="Tempo: drag vertically">
+      <div id="bpm-fill" class="fill" aria-hidden="true"></div>
+      <div class="readout"><span id="bpm-readout">120</span><span class="unit">BPM</span></div>
+    </div>
+    <div id="volume-section" class="control-section" aria-label="Volume: drag vertically">
+      <div id="volume-fill" class="fill" aria-hidden="true"></div>
+      <div class="readout"><span id="volume-readout">100</span><span class="unit">VOL</span></div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <audio id="click-audio" src="click.mp3" preload="auto"></audio>
+  <audio id="click-soft-audio" src="click-soft.mp3" preload="auto"></audio>
+
+  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js"></script>
+  <script>
+    const BPM_MIN = 30;
+    const BPM_MAX = 300;
+    const STORAGE_BPM = 'rhythm_bpm';
+    const STORAGE_VOLUME = 'rhythm_volume';
+    const STORAGE_NUM = 'rhythm_num';      // default numerator
+    const STORAGE_DEN = 'rhythm_den';      // default denominator
+    const STORAGE_MEASURES = 'rhythm_measures';
+    const STORAGE_SUBDIV = 'rhythm_subdiv';
+    const STORAGE_PATTERN = 'rhythm_pattern';
+    const STORAGE_BARSIG = 'rhythm_barsig';
+    const MAX_HISTORY_ROWS = 20;
+
+    function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+    // Single timebase: once the audio engine exists, use its clock so scheduling
+    // and tap timestamps share the same reference.
+    function nowSec() { return audioCtx ? audioCtx.currentTime : performance.now() / 1000; }
+
+    // ---- Sequence state ----
+    // A default time signature applies to every bar; any bar may override it
+    // (barSig[m] = {num, den} or null). Subdivision (steps per beat) is global.
+    // A "beat" is always 60/bpm; the denominator only affects how it's written.
+    let defNum = 4;       // default numerator (beats per bar)
+    let defDen = 4;       // default denominator (beat unit; notation only)
+    let measures = 1;     // number of bars
+    let subdiv = 4;       // steps per beat (default: 16th notes)
+    let barSig = [];      // per-bar {num, den} override, or null = use default
+    let pattern = [];     // flat step states across all bars: 0 rest, 1 onset, 2 held
+    let stepEls = [];
+    let measureEls = [];
+
+    let bpm = 120;
+    let volumePct = 100;
+    let running = false;
+
+    function barNum(m) { const s = barSig[m]; return s ? s.num : defNum; }
+    function barDen(m) { const s = barSig[m]; return s ? s.den : defDen; }
+    function barStartSteps() { const a = []; let s = 0; for (let m = 0; m < measures; m++) { a.push(s); s += barNum(m) * subdiv; } return a; }
+    function totalSteps() { let s = 0; for (let m = 0; m < measures; m++) s += barNum(m) * subdiv; return s; }
+    function totalBeats() { let s = 0; for (let m = 0; m < measures; m++) s += barNum(m); return s; }
+    function barOfStep(idx) { let s = 0; for (let m = 0; m < measures; m++) { s += barNum(m) * subdiv; if (idx < s) return m; } return Math.max(0, measures - 1); }
+    function beatSec() { return 60 / bpm; }
+    function stepSec() { return beatSec() / subdiv; }
+    function cycleDur() { return totalBeats() * beatSec(); }
+
+    // ---- Playback scheduler ----
+    let scheduleRaf = null;
+    let nextStepTime = 0;
+    let stepIndex = 0;
+    let currentRow = null;        // the live accuracy row for the cycle in progress
+    let pendingCycleStarts = [];  // audio-clock times of upcoming cycle downbeats
+
+    // ---- Audio: Web Audio API for low-latency, sample-accurate clicks. ----
+    // HTMLAudioElement.play() + setTimeout has large, variable output latency;
+    // scheduling AudioBufferSourceNodes on the audio clock is tight and stable.
+    let audioCtx = null;
+    let clickBuf = null, softBuf = null;
+    let clickOffset = 0, softOffset = 0;   // leading silence to skip (seconds)
+    let audioLoadPromise = null;
+    let startPending = false;
+    // Fallback HTMLAudio pools, used only if Web Audio / fetch is unavailable.
+    const clickPool = [], softPool = [];
+    const POOL_SIZE = 8;
+    let clickIdx = 0, softIdx = 0, useFallback = false;
+
+    function initFallbackPools() {
+      if (clickPool.length) return;
+      const c = document.getElementById('click-audio');
+      const s = document.getElementById('click-soft-audio');
+      for (let i = 0; i < POOL_SIZE; i++) {
+        const cn = c.cloneNode(); cn.preload = 'auto'; cn.load(); clickPool.push(cn);
+        const sn = s.cloneNode(); sn.preload = 'auto'; sn.load(); softPool.push(sn);
+      }
+    }
+
+    // The mp3s carry a little MP3 encoder leading silence; skip it so the click
+    // transient lands exactly on the scheduled beat.
+    function leadingSilence(buf) {
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < ch.length; i++) {
+        if (Math.abs(ch[i]) > 0.01) return Math.max(0, i / buf.sampleRate - 0.0005);
+      }
+      return 0;
+    }
+
+    async function decodeUrl(url) {
+      const resp = await fetch(url);
+      const arr = await resp.arrayBuffer();
+      return await audioCtx.decodeAudioData(arr);
+    }
+
+    // Init/resume on a user gesture; resolves once clicks are ready to schedule.
+    function ensureAudio() {
+      if (!audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) {
+          try { audioCtx = new AC({ latencyHint: 'interactive' }); }
+          catch (_) { audioCtx = new AC(); }
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      if (!audioLoadPromise) {
+        if (audioCtx) {
+          audioLoadPromise = Promise.all([decodeUrl('click.mp3'), decodeUrl('click-soft.mp3')])
+            .then(([cb, sb]) => {
+              clickBuf = cb; softBuf = sb;
+              clickOffset = leadingSilence(cb); softOffset = leadingSilence(sb);
+            })
+            .catch(() => { useFallback = true; initFallbackPools(); });
+        } else {
+          useFallback = true; initFallbackPools();
+          audioLoadPromise = Promise.resolve();
+        }
+      }
+      return audioLoadPromise;
+    }
+
+    // Delay between audioCtx.currentTime and sound reaching the speakers — used
+    // to align grading with what the player actually hears.
+    function outputLatency() {
+      if (!audioCtx) return 0;
+      return audioCtx.outputLatency || audioCtx.baseLatency || 0;
+    }
+
+    function playClick(when, accent) {
+      if (audioCtx && !useFallback) {
+        const buf = accent ? clickBuf : softBuf;
+        if (!buf) return;
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        const g = audioCtx.createGain();
+        g.gain.value = clamp(volumePct / 100, 0, 1);
+        src.connect(g).connect(audioCtx.destination);
+        src.start(Math.max(when, audioCtx.currentTime), accent ? clickOffset : softOffset);
+        return;
+      }
+      // Fallback: HTMLAudio + setTimeout (higher latency, but always plays).
+      const delayMs = Math.max(0, (when - nowSec()) * 1000);
+      window.setTimeout(() => {
+        const pool = accent ? clickPool : softPool;
+        if (!pool.length) return;
+        const node = pool[accent ? clickIdx : softIdx];
+        if (accent) clickIdx = (clickIdx + 1) % pool.length;
+        else softIdx = (softIdx + 1) % pool.length;
+        node.volume = clamp(volumePct / 100, 0, 1);
+        node.currentTime = 0;
+        void node.play().catch(() => {});
+      }, delayMs);
+    }
+    // Highlight the whole measure currently playing (not the individual step).
+    function flashStep(when, idx) {
+      const delayMs = Math.max(0, (when - nowSec()) * 1000);
+      const m = barOfStep(idx);
+      window.setTimeout(() => {
+        for (const el of measureEls) el.classList.remove('active');
+        const el = measureEls[m];
+        if (el && running) el.classList.add('active');
+      }, delayMs);
+    }
+
+    function scheduleLoop() {
+      if (!running) return;
+      const lookahead = 0.1;
+      const now = nowSec();
+      const total = totalSteps();
+      // Bar downbeats (for the accented click); every barStart is a multiple of
+      // subdiv, so a beat is still just stepIndex % subdiv === 0.
+      const downbeats = new Set(barStartSteps());
+      while (nextStepTime < now + lookahead) {
+        // Metronome pulse on each beat, accented on each bar's downbeat.
+        // We do NOT sonify the rhythm pattern — you read it and tap it.
+        if (stepIndex % subdiv === 0) {
+          playClick(nextStepTime, downbeats.has(stepIndex));
+        }
+        flashStep(nextStepTime, stepIndex);
+        nextStepTime += stepSec();
+        stepIndex += 1;
+        // On wrap, nextStepTime is now the next cycle's downbeat — record it as
+        // the real cycle boundary for row advancement.
+        if (stepIndex >= total) { stepIndex = 0; pendingCycleStarts.push(nextStepTime); }
+      }
+      ensureCycleRow(now);
+      scheduleRaf = requestAnimationFrame(scheduleLoop);
+    }
+
+    const COUNT_IN_BEATS = 2;
+
+    async function startPlay() {
+      if (running || startPending) return;
+      startPending = true;
+      await ensureAudio();          // decode clicks + resume context first
+      startPending = false;
+      if (running) return;          // toggled off while we were waiting
+      running = true;
+      document.getElementById('play-btn').classList.add('playing');
+      document.getElementById('play-btn').textContent = '⏸ Pause';
+      stepIndex = 0;
+      pendingCycleStarts = [];
+      const startAt = nowSec() + 0.12;
+      const beat = beatSec();
+      // Two-beat count-in on the quiet click, then the pattern's first downbeat.
+      for (let i = 0; i < COUNT_IN_BEATS; i++) playClick(startAt + i * beat, false);
+      nextStepTime = startAt + COUNT_IN_BEATS * beat;
+      currentRow = beginCycleRow(0, nextStepTime, cycleDur());
+      scheduleLoop();
+    }
+    function stopPlay() {
+      running = false;
+      document.getElementById('play-btn').classList.remove('playing');
+      document.getElementById('play-btn').textContent = '▶ Play';
+      if (scheduleRaf != null) { cancelAnimationFrame(scheduleRaf); scheduleRaf = null; }
+      for (const el of measureEls) el.classList.remove('active');
+      finalizeRow(currentRow);
+      currentRow = null;
+      pendingCycleStarts = [];
+    }
+    function togglePlay() { running ? stopPlay() : startPlay(); }
+
+    // ---- Tapping ----
+    function registerTap() {
+      if (!running || !currentRow) return;
+      const t = nowSec();
+      if (t < currentRow.startT) return;   // ignore taps during the count-in
+      ensureCycleRow(t);
+      gradeTap(t);
+    }
+
+    // ---- Scoring + live history rows ----
+    // Targets are the note ONSETS (state 1) only. Held/rest steps aren't graded:
+    // we judge whether you struck each new note at the right moment, not how
+    // long you held it.
+    function targetFracs() {
+      const fracs = [];
+      const total = totalSteps();
+      for (let i = 0; i < total; i++) if (pattern[i] === 1) fracs.push(i / total);
+      return fracs;
+    }
+    // Smallest circular gap between consecutive targets — defines "far off".
+    function tightestGap(fracs) {
+      if (fracs.length < 2) return 1;
+      let min = 1;
+      for (let i = 0; i < fracs.length; i++) {
+        const a = fracs[i];
+        const b = fracs[(i + 1) % fracs.length];
+        let d = (b - a + 1) % 1;
+        if (d > 0 && d < min) min = d;
+      }
+      return min;
+    }
+
+    function rowSummary(r) {
+      if (r.taps === 0) return `#${r.cIdx + 1} · …`;
+      return `#${r.cIdx + 1} · ${r.taps} tap${r.taps > 1 ? 's' : ''} · ±${Math.round((r.errSum / r.taps) * 1000)}ms`;
+    }
+
+    // Spawn a fresh row for cycle `cIdx`, drawing the target ticks up front so
+    // taps can be graded and shown against them in real time.
+    function beginCycleRow(cIdx, startT, dur) {
+      const fracs = targetFracs();
+      const gap = fracs.length ? tightestGap(fracs) : 1 / totalSteps();
+      const maxErrSec = Math.max(0.04, gap * dur * 0.5);
+
+      const row = document.createElement('div');
+      row.className = 'hist-row';
+      const label = document.createElement('div');
+      label.className = 'hist-label';
+      const track = document.createElement('div');
+      track.className = 'hist-track';
+      // Beat gridlines, with stronger lines at bar (measure) boundaries.
+      const tb = totalBeats();
+      const barStartBeats = new Set();
+      { let acc = 0; for (let m = 0; m < measures; m++) { barStartBeats.add(acc); acc += barNum(m); } }
+      for (let gb = 1; gb < tb; gb++) {
+        const line = document.createElement('div');
+        line.className = barStartBeats.has(gb) ? 'hist-measure' : 'hist-beat';
+        line.style.left = (100 * gb / tb) + '%';
+        track.appendChild(line);
+      }
+      for (const f of fracs) {
+        const tk = document.createElement('div');
+        tk.className = 'hist-target';
+        tk.style.left = (100 * f) + '%';
+        track.appendChild(tk);
+      }
+      row.appendChild(label);
+      row.appendChild(track);
+      const hist = document.getElementById('history');
+      hist.insertBefore(row, hist.firstChild);
+      while (hist.children.length > MAX_HISTORY_ROWS) hist.removeChild(hist.lastChild);
+
+      const r = { cIdx, startT, dur, fracs, maxErrSec, taps: 0, errSum: 0, el: row, track, label };
+      label.textContent = rowSummary(r);
+      return r;
+    }
+
+    function finalizeRow(r) {
+      if (r) r.label.textContent = rowSummary(r);
+    }
+
+    // Advance rows at the scheduler's ACTUAL cycle boundaries (queued by
+    // scheduleLoop). Anchoring to real downbeat times keeps grading in sync even
+    // when the tempo changes — a fixed duration snapshot would drift.
+    function ensureCycleRow(now) {
+      if (!currentRow) return;
+      let guard = 0;
+      while (pendingCycleStarts.length && now >= pendingCycleStarts[0] && guard++ < 64) {
+        const startT = pendingCycleStarts.shift();
+        finalizeRow(currentRow);
+        currentRow = beginCycleRow(currentRow.cIdx + 1, startT, cycleDur());
+      }
+    }
+
+    // Grade one tap against the current row immediately (live feedback).
+    function gradeTap(t) {
+      const r = currentRow;
+      if (!r) return;
+      // Compensate for output latency: the click was heard a bit after it was
+      // scheduled, so shift the tap back by that amount before judging it.
+      let frac = ((t - outputLatency()) - r.startT) / r.dur;
+      frac = ((frac % 1) + 1) % 1;
+      let best = 1;
+      for (const f of r.fracs) {
+        const raw = Math.abs(frac - f);
+        const circ = Math.min(raw, 1 - raw);
+        if (circ < best) best = circ;
+      }
+      const errSec = best * r.dur;
+      r.errSum += errSec;
+      r.taps += 1;
+      // Curve with exponent < 1 shifts small errors toward yellow sooner than
+      // linear (0.7 splits the difference — firm, but not punishing).
+      const norm = Math.pow(clamp(errSec / r.maxErrSec, 0, 1), 0.7);
+      const hue = 120 * (1 - norm);   // 120 green -> 0 red
+      const dot = document.createElement('div');
+      dot.className = 'hist-tap';
+      dot.style.left = (100 * frac) + '%';
+      dot.style.background = `hsl(${hue}, 75%, 50%)`;
+      dot.style.color = `hsl(${hue}, 75%, 50%)`;
+      r.track.appendChild(dot);
+      r.label.textContent = rowSummary(r);
+    }
+
+    // ---- Step model: 0 = rest, 1 = note onset, 2 = held (sustain) ----
+    function defaultNoteSteps(idx) { const d = barDen(barOfStep(idx)); return Math.max(1, Math.round((d * subdiv) / 8)); }
+
+    // A held step is only meaningful if preceded by a note/held; otherwise it's
+    // an orphan and we treat it as a rest.
+    function normalizeSteps() {
+      for (let i = 0; i < pattern.length; i++) {
+        if (pattern[i] === 2 && (i === 0 || pattern[i - 1] === 0)) pattern[i] = 0;
+      }
+    }
+
+    // Make [start, start+len) one note: onset at start, held after, and trim any
+    // held tail that used to belong to this note beyond the new end.
+    function setNoteSpan(start, len) {
+      const T = totalSteps();
+      const end = Math.min(T, start + Math.max(1, len));
+      pattern[start] = 1;
+      for (let k = start + 1; k < end; k++) pattern[k] = 2;
+      for (let k = end; k < T && pattern[k] === 2; k++) pattern[k] = 0;
+    }
+
+    function deleteNoteAt(start) {
+      const T = totalSteps();
+      pattern[start] = 0;
+      for (let k = start + 1; k < T && pattern[k] === 2; k++) pattern[k] = 0;
+    }
+
+    // ---- Step grid rendering ----
+    function stepClass(idx) {
+      return 'step'
+        + (pattern[idx] === 1 ? ' on' : '')
+        + (pattern[idx] === 2 ? ' held' : '');
+    }
+
+    // Nested layout: measure -> beats -> cells, so each level can carry its own
+    // even spacing and its own label. Each measure header has a per-bar time
+    // signature that overrides the default when changed.
+    function buildGrid() {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+      stepEls = [];
+      measureEls = [];
+      const starts = barStartSteps();
+      for (let m = 0; m < measures; m++) {
+        const bn = barNum(m), bd = barDen(m), start = starts[m];
+        const mEl = document.createElement('div');
+        mEl.className = 'measure';
+        measureEls[m] = mEl;
+        mEl.appendChild(buildMeasureHeader(m, bn, bd));
+
+        const beatsEl = document.createElement('div');
+        beatsEl.className = 'beats';
+        for (let bt = 0; bt < bn; bt++) {
+          const beatEl = document.createElement('div');
+          beatEl.className = 'beat' + (bt === 0 ? ' downbeat' : '');
+          const cellsEl = document.createElement('div');
+          cellsEl.className = 'cells';
+          for (let sub = 0; sub < subdiv; sub++) {
+            const idx = start + bt * subdiv + sub;
+            const cell = document.createElement('div');
+            cell.className = stepClass(idx);
+            cell.dataset.idx = idx;
+            cellsEl.appendChild(cell);
+            stepEls[idx] = cell;
+          }
+          beatEl.appendChild(cellsEl);
+          const bnum = document.createElement('div');
+          bnum.className = 'beat-num';
+          bnum.textContent = bt + 1;
+          beatEl.appendChild(bnum);
+          beatsEl.appendChild(beatEl);
+        }
+        mEl.appendChild(beatsEl);
+        grid.appendChild(mEl);
+      }
+    }
+
+    // Per-bar time-signature editor: "M{n}  [num]/[den]  (↺ if overridden)".
+    function buildMeasureHeader(m, bn, bd) {
+      const head = document.createElement('div');
+      head.className = 'measure-head';
+
+      const tag = document.createElement('span');
+      tag.className = 'measure-num';
+      tag.textContent = 'M' + (m + 1);
+      head.appendChild(tag);
+
+      const sig = document.createElement('span');
+      sig.className = 'bar-sig' + (barSig[m] ? ' overridden' : '');
+
+      const ni = document.createElement('input');
+      ni.type = 'number'; ni.min = 1; ni.max = 16; ni.value = bn;
+      ni.className = 'bar-num-input';
+      ni.addEventListener('change', () => setBarSig(m, parseInt(ni.value, 10), bd));
+
+      const slash = document.createElement('span');
+      slash.className = 'bar-slash'; slash.textContent = '/';
+
+      const ds = document.createElement('select');
+      ds.className = 'bar-den-select';
+      for (const d of [2, 4, 8, 16]) {
+        const o = document.createElement('option');
+        o.value = d; o.textContent = d; if (d === bd) o.selected = true;
+        ds.appendChild(o);
+      }
+      ds.addEventListener('change', () => setBarSig(m, bn, parseInt(ds.value, 10)));
+
+      sig.append(ni, slash, ds);
+      if (barSig[m]) {
+        const rs = document.createElement('button');
+        rs.type = 'button'; rs.className = 'bar-reset'; rs.textContent = '↺';
+        rs.title = 'Use default time signature';
+        rs.addEventListener('click', () => clearBarSig(m));
+        sig.appendChild(rs);
+      }
+      head.appendChild(sig);
+      return head;
+    }
+
+    // Cheap class refresh during a drag (cells already exist).
+    function refreshGrid() {
+      for (let i = 0; i < stepEls.length; i++) {
+        const el = stepEls[i];
+        if (!el) continue;
+        el.classList.toggle('on', pattern[i] === 1);
+        el.classList.toggle('held', pattern[i] === 2);
+      }
+    }
+
+    // ---- Step editing interactions ----
+    //   click empty step -> new note of the default length (an eighth)
+    //   click a note onset -> delete the note
+    //   click a held step  -> split there (it becomes a new onset)
+    //   drag from a step    -> set the note's length to the dragged span
+    let gridDrag = { active: false, anchor: 0, moved: false, downState: 0 };
+
+    function stepIdxFromPoint(x, y) {
+      const el = document.elementFromPoint(x, y);
+      const cell = el && el.closest ? el.closest('.step') : null;
+      if (!cell) return -1;
+      const idx = parseInt(cell.dataset.idx, 10);
+      return Number.isInteger(idx) ? idx : -1;
+    }
+
+    function onGridDown(e) {
+      const idx = stepIdxFromPoint(e.clientX, e.clientY);
+      if (idx < 0) return;
+      e.preventDefault();
+      gridDrag = { active: true, anchor: idx, moved: false, downState: pattern[idx] };
+      if (pattern[idx] !== 1) setNoteSpan(idx, 1);   // rest/held -> onset
+      refreshGrid();
+      buildNotation();
+    }
+    function onGridMove(e) {
+      if (!gridDrag.active) return;
+      const idx = stepIdxFromPoint(e.clientX, e.clientY);
+      if (idx < 0 || idx < gridDrag.anchor) return;
+      if (idx !== gridDrag.anchor) gridDrag.moved = true;
+      setNoteSpan(gridDrag.anchor, idx - gridDrag.anchor + 1);
+      refreshGrid();
+      buildNotation();
+    }
+    function onGridUp() {
+      if (!gridDrag.active) return;
+      gridDrag.active = false;
+      if (!gridDrag.moved) {
+        if (gridDrag.downState === 1) {
+          deleteNoteAt(gridDrag.anchor);
+        } else if (gridDrag.downState === 0) {
+          // Place a default-length note, but never clobber a following note —
+          // if one starts sooner, shorten this note to butt up against it
+          // (e.g. a sixteenth right before the next onset).
+          const T = totalSteps();
+          let len = defaultNoteSteps(gridDrag.anchor);
+          for (let k = gridDrag.anchor + 1; k < gridDrag.anchor + len && k < T; k++) {
+            if (pattern[k] === 1) { len = k - gridDrag.anchor; break; }
+          }
+          setNoteSpan(gridDrag.anchor, len);
+        }
+        // held -> already turned into a length-1 onset (the split)
+      }
+      normalizeSteps();
+      refreshGrid();
+      buildNotation();
+      persistPattern();
+    }
+
+    function fillPattern(on) {
+      pattern = new Array(totalSteps()).fill(on ? 1 : 0);
+      normalizeSteps();
+      buildGrid();
+      buildNotation();
+      persistPattern();
+      scheduleUrlSync();
+    }
+
+    // Recompute the flat pattern to match the current bar structure, preserving
+    // each retained bar's overlapping steps (per-bar, so resizing or overriding
+    // one bar leaves the others intact).
+    function reshape(oldSizes, oldStarts) {
+      const newSizes = [], newStarts = [];
+      { let s = 0; for (let m = 0; m < measures; m++) { newStarts.push(s); const sz = barNum(m) * subdiv; newSizes.push(sz); s += sz; } }
+      const T = newSizes.reduce((a, b) => a + b, 0);
+      const np = new Array(T).fill(0);
+      for (let m = 0; m < newSizes.length && m < oldSizes.length; m++) {
+        const c = Math.min(oldSizes[m], newSizes[m]);
+        for (let k = 0; k < c; k++) np[newStarts[m] + k] = pattern[oldStarts[m] + k] || 0;
+      }
+      pattern = np;
+      normalizeSteps();
+    }
+
+    function syncControls() {
+      document.getElementById('num-input').value = defNum;
+      document.getElementById('den-select').value = String(defDen);
+      document.getElementById('measures-input').value = measures;
+      document.getElementById('subdiv-select').value = String(subdiv);
+    }
+
+    // Apply a structural mutation (default sig / measures / subdivision / a bar
+    // override) while keeping the bar-aligned pattern as intact as possible.
+    function applyStructureChange(mutate) {
+      if (running) stopPlay();
+      const oldSizes = [], oldStarts = [];
+      { let s = 0; for (let m = 0; m < measures; m++) { oldStarts.push(s); const sz = barNum(m) * subdiv; oldSizes.push(sz); s += sz; } }
+      mutate();
+      barSig.length = measures;
+      for (let m = 0; m < measures; m++) if (barSig[m] === undefined) barSig[m] = null;
+      reshape(oldSizes, oldStarts);
+      syncControls();
+      buildGrid();
+      buildNotation();
+      persistSettings();
+      persistPattern();
+      scheduleUrlSync();
+    }
+
+    function setBarSig(m, n, d) {
+      applyStructureChange(() => {
+        barSig[m] = {
+          num: clamp(parseInt(n, 10) || barNum(m), 1, 16),
+          den: [2, 4, 8, 16].includes(d) ? d : defDen,
+        };
+      });
+    }
+    function clearBarSig(m) {
+      applyStructureChange(() => { barSig[m] = null; });
+    }
+
+    // ---- Music notation (engraved by abcjs) ----
+    // Convert the step model into an ABC tune string and let abcjs draw it
+    // (beaming, ties, dotted notes, rests, time signature). Pitch is irrelevant
+    // for rhythm, so every note sits on the same line with the clef hidden.
+
+    // Group the step model into note/rest events:
+    //   note event = an onset (1) plus its trailing held (2) steps
+    //   rest event = a maximal run of non-onset steps
+    function parseEvents() {
+      const T = totalSteps();
+      const evs = [];
+      let i = 0;
+      while (i < T) {
+        if (pattern[i] === 1) {
+          let len = 1;
+          while (i + len < T && pattern[i + len] === 2) len++;
+          evs.push({ note: true, start: i, len });
+          i += len;
+        } else {
+          let len = 1;
+          while (i + len < T && pattern[i + len] !== 1) len++;
+          evs.push({ note: false, start: i, len });
+          i += len;
+        }
+      }
+      return evs;
+    }
+
+    // Break a step-length into clean note values (each a power of two, or a
+    // dotted value), largest first, so every ABC token maps to one notehead.
+    function abcDurTokens(stepsLen) {
+      const out = [];
+      let L = stepsLen, guard = 0;
+      while (L > 0 && guard++ < 64) {
+        let p = 1;
+        while (p * 2 <= L) p *= 2;
+        if (p >= 2 && L >= p + p / 2) { out.push(p + p / 2); L -= p + p / 2; }  // dotted
+        else { out.push(p); L -= p; }
+      }
+      return out;
+    }
+
+    function buildAbc() {
+      const starts = barStartSteps();
+      const startSet = new Set(starts);
+      // One global default note length covers every bar; finer denominators just
+      // use larger multiples of it. L = 1/(maxDen * subdiv).
+      let maxDen = defDen;
+      for (let m = 0; m < measures; m++) maxDen = Math.max(maxDen, barDen(m));
+      const Lden = maxDen * subdiv;
+      const PITCH = 'B';
+
+      // Flatten into atoms that never cross a BEAT line (so a note straddling a
+      // beat is split and tied — e.g. a dotted-eighth over the line becomes a
+      // sixteenth tied to an eighth). Beats divide bars evenly, so this also
+      // keeps notes inside barlines. Each step's note value scales by the bar's
+      // denominator: a step contributes (maxDen / barDen) units of L.
+      const atoms = [];
+      for (const ev of parseEvents()) {
+        const evAtoms = [];
+        let pos = ev.start, rem = ev.len;
+        while (rem > 0) {
+          const toBeat = subdiv - (pos % subdiv);
+          const take = Math.min(rem, toBeat);
+          const stepUnit = maxDen / barDen(barOfStep(pos));
+          let p = pos;
+          for (const st of abcDurTokens(take)) {
+            evAtoms.push({ note: ev.note, pos: p, units: st * stepUnit, tie: false });
+            p += st;
+          }
+          pos += take; rem -= take;
+        }
+        if (ev.note) for (let k = 0; k + 1 < evAtoms.length; k++) evAtoms[k].tie = true;
+        for (const a of evAtoms) atoms.push(a);
+      }
+
+      let body = '';
+      for (const a of atoms) {
+        const isBarStart = startSet.has(a.pos);
+        if (isBarStart && a.pos > 0) {
+          body += ' |';
+          const m = barOfStep(a.pos);
+          // Inline meter change only when this bar's signature actually differs.
+          if (m > 0 && (barNum(m) !== barNum(m - 1) || barDen(m) !== barDen(m - 1))) {
+            body += `[M:${barNum(m)}/${barDen(m)}]`;
+          }
+        }
+        // Break beams at beat boundaries with a space — except a bar's downbeat,
+        // which the barline already separates.
+        if (a.pos % subdiv === 0 && !isBarStart) body += ' ';
+        body += (a.note ? PITCH : 'z') + (a.units === 1 ? '' : a.units) + (a.tie ? '-' : '');
+      }
+      body += ' |]';
+
+      return `X:1\nM:${barNum(0)}/${barDen(0)}\nL:1/${Lden}\nK:C clef=none\n${body}\n`;
+    }
+
+    function buildNotation() {
+      if (!window.ABCJS) return;
+      const el = document.getElementById('notation');
+      const contW = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 700;
+      const abc = buildAbc();
+      // Size the staff to its content so short patterns stay compact and get
+      // centered (flex) rather than stretched edge-to-edge; long ones fill /
+      // wrap. Each note/rest token is one 'B' or 'z' in the body.
+      const glyphs = (abc.match(/[Bz]/g) || []).length;
+      const want = 96 + glyphs * 34;
+      const w = clamp(want, 200, Math.max(220, contW - 6));
+      // Explicit staffwidth (+ a single resize listener) instead of abcjs's
+      // 'responsive' mode, so re-rendering on every drag move stays cheap.
+      ABCJS.renderAbc('notation', abc, {
+        add_classes: true,
+        staffwidth: w,
+        paddingtop: 6, paddingbottom: 6, paddingleft: 0, paddingright: 0,
+      });
+    }
+
+    // ---- BPM / Volume vertical strips ----
+    const bpmSection = document.getElementById('bpm-section');
+    const volumeSection = document.getElementById('volume-section');
+    const bpmFill = document.getElementById('bpm-fill');
+    const volumeFill = document.getElementById('volume-fill');
+    const bpmReadout = document.getElementById('bpm-readout');
+    const volumeReadout = document.getElementById('volume-readout');
+    let dragTarget = null;
+
+    function setBpm(next) {
+      bpm = clamp(next, BPM_MIN, BPM_MAX);
+      bpmReadout.textContent = `${Math.round(bpm)}`;
+      const frac = (bpm - BPM_MIN) / (BPM_MAX - BPM_MIN);
+      bpmFill.style.height = `${clamp(frac, 0, 1) * 100}%`;
+    }
+    function setVolumePct(next) {
+      volumePct = clamp(next, 0, 100);
+      volumeReadout.textContent = `${Math.round(volumePct)}`;
+      volumeFill.style.height = `${volumePct}%`;
+    }
+    function bpmFromY(clientY) {
+      const r = bpmSection.getBoundingClientRect();
+      const t = r.height <= 0 ? 0.5 : (r.bottom - clientY) / r.height;
+      return BPM_MIN + clamp(t, 0, 1) * (BPM_MAX - BPM_MIN);
+    }
+    function volumeFromY(clientY) {
+      const r = volumeSection.getBoundingClientRect();
+      const t = r.height <= 0 ? 1 : (r.bottom - clientY) / r.height;
+      return clamp(t, 0, 1) * 100;
+    }
+    function persistBpm() { try { localStorage.setItem(STORAGE_BPM, String(bpm)); } catch (_) {} scheduleUrlSync(); }
+    function persistVolume() { try { localStorage.setItem(STORAGE_VOLUME, String(volumePct)); } catch (_) {} scheduleUrlSync(); }
+
+    bpmSection.addEventListener('pointerdown', e => {
+      bpmSection.setPointerCapture(e.pointerId); dragTarget = 'bpm'; setBpm(bpmFromY(e.clientY));
+    });
+    bpmSection.addEventListener('pointermove', e => { if (dragTarget === 'bpm') setBpm(bpmFromY(e.clientY)); });
+    volumeSection.addEventListener('pointerdown', e => {
+      volumeSection.setPointerCapture(e.pointerId); dragTarget = 'volume'; setVolumePct(volumeFromY(e.clientY));
+    });
+    volumeSection.addEventListener('pointermove', e => { if (dragTarget === 'volume') setVolumePct(volumeFromY(e.clientY)); });
+    function endDrag() {
+      if (dragTarget === 'bpm') persistBpm();
+      else if (dragTarget === 'volume') persistVolume();
+      dragTarget = null;
+    }
+    for (const sec of [bpmSection, volumeSection]) {
+      sec.addEventListener('pointerup', endDrag);
+      sec.addEventListener('pointercancel', endDrag);
+    }
+
+    // ---- Controls wiring (the top control sets the DEFAULT time signature) ----
+    function readControls() {
+      applyStructureChange(() => {
+        defNum = clamp(parseInt(document.getElementById('num-input').value, 10) || defNum, 1, 16);
+        const d = parseInt(document.getElementById('den-select').value, 10);
+        defDen = [2, 4, 8, 16].includes(d) ? d : defDen;
+        measures = clamp(parseInt(document.getElementById('measures-input').value, 10) || measures, 1, 8);
+        const sd = parseInt(document.getElementById('subdiv-select').value, 10);
+        subdiv = [1, 2, 4].includes(sd) ? sd : subdiv;
+      });
+    }
+
+    function serializeBarSig() { return JSON.stringify(barSig.map(s => s ? [s.num, s.den] : 0)); }
+    function parseBarSig(str, count) {
+      let arr = [];
+      try {
+        const a = JSON.parse(str);
+        if (Array.isArray(a)) arr = a.map(e =>
+          (Array.isArray(e) && e.length === 2)
+            ? { num: clamp(parseInt(e[0], 10) || defNum, 1, 16), den: [2, 4, 8, 16].includes(e[1]) ? e[1] : defDen }
+            : null);
+      } catch (_) {}
+      arr.length = count;
+      for (let i = 0; i < count; i++) if (arr[i] === undefined) arr[i] = null;
+      return arr;
+    }
+
+    function persistSettings() {
+      try {
+        localStorage.setItem(STORAGE_NUM, String(defNum));
+        localStorage.setItem(STORAGE_DEN, String(defDen));
+        localStorage.setItem(STORAGE_MEASURES, String(measures));
+        localStorage.setItem(STORAGE_SUBDIV, String(subdiv));
+        localStorage.setItem(STORAGE_BARSIG, serializeBarSig());
+      } catch (_) {}
+      scheduleUrlSync();
+    }
+    function persistPattern() {
+      try { localStorage.setItem(STORAGE_PATTERN, pattern.join('')); } catch (_) {}
+      scheduleUrlSync();
+    }
+    function clearHistory() { document.getElementById('history').innerHTML = ''; }
+
+    // ---- URL state: keep the location hash in sync (debounced) so the page is
+    // bookmarkable and reopens in the same state. ----
+    let urlTimer = null;
+    function scheduleUrlSync() {
+      if (urlTimer) clearTimeout(urlTimer);
+      urlTimer = setTimeout(() => {
+        try { history.replaceState(null, '', '#' + encodeURIComponent(serializeState())); } catch (_) {}
+      }, 500);
+    }
+    function stateFromUrl() {
+      try {
+        const h = location.hash;
+        if (!h || h.length < 2) return null;
+        return parseState(decodeURIComponent(h.slice(1)));
+      } catch (_) { return null; }
+    }
+
+    // ---- Clipboard: Cmd/Ctrl+C copies the full state, Cmd/Ctrl+V applies it ----
+    function isTypingTarget(el) {
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    }
+
+    function serializeState() {
+      return 'rhythm:' + JSON.stringify({
+        v: 1, num: defNum, den: defDen, measures, subdiv,
+        bars: barSig.map(s => s ? [s.num, s.den] : 0),
+        bpm: Math.round(bpm), volume: Math.round(volumePct),
+        pattern: pattern.join(''),
+      });
+    }
+
+    function parseState(text) {
+      try {
+        const s = (text || '').trim();
+        const obj = JSON.parse(s.startsWith('rhythm:') ? s.slice(7) : s);
+        if (obj && typeof obj === 'object' && typeof obj.pattern === 'string') return obj;
+      } catch (_) {}
+      return null;
+    }
+
+    // Load a state object into the variables (no DOM/persist side effects).
+    function stateToVars(obj) {
+      defNum = clamp(parseInt(obj.num, 10) || defNum, 1, 16);
+      defDen = [2, 4, 8, 16].includes(obj.den) ? obj.den : defDen;
+      measures = clamp(parseInt(obj.measures, 10) || measures, 1, 8);
+      subdiv = [1, 2, 4].includes(obj.subdiv) ? obj.subdiv : subdiv;
+      barSig = Array.isArray(obj.bars)
+        ? obj.bars.map(e => (Array.isArray(e) && e.length === 2)
+            ? { num: clamp(parseInt(e[0], 10) || defNum, 1, 16), den: [2, 4, 8, 16].includes(e[1]) ? e[1] : defDen }
+            : null)
+        : [];
+      barSig.length = measures;
+      for (let m = 0; m < measures; m++) if (barSig[m] === undefined) barSig[m] = null;
+      const T = totalSteps();
+      pattern = (typeof obj.pattern === 'string' && /^[012]+$/.test(obj.pattern) && obj.pattern.length === T)
+        ? obj.pattern.split('').map(c => parseInt(c, 10))
+        : new Array(T).fill(0);
+      if (Number.isFinite(obj.bpm)) bpm = clamp(obj.bpm, BPM_MIN, BPM_MAX);
+      if (Number.isFinite(obj.volume)) volumePct = clamp(obj.volume, 0, 100);
+    }
+
+    function applyState(obj) {
+      if (running) stopPlay();
+      stateToVars(obj);
+      setBpm(bpm);
+      setVolumePct(volumePct);
+      normalizeSteps();
+      syncControls();
+      buildGrid();
+      buildNotation();
+      persistSettings(); persistPattern(); persistBpm(); persistVolume();
+    }
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      if (!t) return;
+      t.textContent = msg;
+      t.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 1200);
+    }
+
+    // The shareable link: current page URL with the state encoded in the hash.
+    function stateUrl() {
+      return location.href.split('#')[0] + '#' + encodeURIComponent(serializeState());
+    }
+    // Accept a pasted full URL (take the hash) or a bare state string.
+    function parseClipboard(text) {
+      let s = (text || '').trim();
+      if (!s) return null;
+      const hashIdx = s.indexOf('#');
+      if (hashIdx >= 0) s = s.slice(hashIdx + 1);
+      try { s = decodeURIComponent(s); } catch (_) {}
+      return parseState(s);
+    }
+
+    document.addEventListener('copy', (e) => {
+      if (isTypingTarget(document.activeElement)) return;
+      const sel = window.getSelection && window.getSelection().toString();
+      if (sel) return;   // let the user copy a real text selection instead
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', stateUrl());
+      showToast('Link copied');
+    });
+    document.addEventListener('paste', (e) => {
+      if (isTypingTarget(document.activeElement)) return;
+      const obj = parseClipboard(e.clipboardData.getData('text/plain'));
+      if (!obj) return;
+      e.preventDefault();
+      applyState(obj);
+      showToast('Pattern pasted');
+    });
+
+    document.getElementById('num-input').addEventListener('change', readControls);
+    document.getElementById('den-select').addEventListener('change', readControls);
+    document.getElementById('measures-input').addEventListener('change', readControls);
+    document.getElementById('subdiv-select').addEventListener('change', readControls);
+
+    document.addEventListener('keydown', e => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = e.target && e.target.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable);
+      if (e.code === 'Space') {
+        if (typing) return;
+        e.preventDefault();
+        togglePlay();
+        return;
+      }
+      if (e.key === 'Escape') { if (running) stopPlay(); return; }
+      if (typing) return;
+      // BPM nudges: [ ] = ∓1, - = = ∓5 (repeat on hold)
+      if (e.key === '[') { e.preventDefault(); setBpm(bpm - 1); persistBpm(); return; }
+      if (e.key === ']') { e.preventDefault(); setBpm(bpm + 1); persistBpm(); return; }
+      if (e.key === '-') { e.preventDefault(); setBpm(bpm - 5); persistBpm(); return; }
+      if (e.key === '=') { e.preventDefault(); setBpm(bpm + 5); persistBpm(); return; }
+      if (e.repeat) return;
+      // any other printable key = a tap along with the beat
+      // (length 1 excludes Tab, arrows, F-keys, etc.)
+      if (e.key.length !== 1) return;
+      e.preventDefault();
+      registerTap();
+    });
+
+    // Allow clicking anywhere in the history area (or its empty space) to tap too.
+    document.getElementById('history').addEventListener('pointerdown', () => registerTap());
+
+    // ---- Load persisted state (URL hash wins, else localStorage) ----
+    function loadState() {
+      const urlObj = stateFromUrl();
+      if (urlObj) { stateToVars(urlObj); return; }
+      try {
+        const b = parseFloat(localStorage.getItem(STORAGE_BPM));
+        if (Number.isFinite(b)) bpm = clamp(b, BPM_MIN, BPM_MAX);
+        const v = parseFloat(localStorage.getItem(STORAGE_VOLUME));
+        if (Number.isFinite(v)) volumePct = clamp(v, 0, 100);
+        const n = parseInt(localStorage.getItem(STORAGE_NUM), 10); if (Number.isFinite(n)) defNum = clamp(n, 1, 16);
+        const d = parseInt(localStorage.getItem(STORAGE_DEN), 10); if ([2,4,8,16].includes(d)) defDen = d;
+        const m = parseInt(localStorage.getItem(STORAGE_MEASURES), 10); if (Number.isFinite(m)) measures = clamp(m, 1, 8);
+        const sd = parseInt(localStorage.getItem(STORAGE_SUBDIV), 10); if ([1,2,4].includes(sd)) subdiv = sd;
+        barSig = parseBarSig(localStorage.getItem(STORAGE_BARSIG), measures);
+        const pat = localStorage.getItem(STORAGE_PATTERN);
+        if (pat && /^[012]+$/.test(pat) && pat.length === totalSteps()) {
+          pattern = pat.split('').map(c => parseInt(c, 10));
+        }
+      } catch (_) {}
+    }
+
+    function applySystemTheme() {
+      document.documentElement.setAttribute('data-theme',
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    }
+
+    function init() {
+      applySystemTheme();
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
+      loadState();
+      barSig.length = measures;
+      for (let m = 0; m < measures; m++) if (barSig[m] === undefined) barSig[m] = null;
+      syncControls();
+      setBpm(bpm);
+      setVolumePct(volumePct);
+      if (pattern.length !== totalSteps()) pattern = new Array(totalSteps()).fill(0);
+      normalizeSteps();
+      buildGrid();
+      buildNotation();
+      // Audio initializes lazily on the first Play (needs a user gesture anyway).
+      // Step editing: pointer down on the grid, drag/release tracked on document
+      // so a drag that leaves a cell still resizes the note.
+      document.getElementById('grid').addEventListener('pointerdown', onGridDown);
+      document.addEventListener('pointermove', onGridMove);
+      document.addEventListener('pointerup', onGridUp);
+      document.addEventListener('pointercancel', onGridUp);
+      let resizeRaf = null;
+      window.addEventListener('resize', () => {
+        if (resizeRaf) cancelAnimationFrame(resizeRaf);
+        resizeRaf = requestAnimationFrame(buildNotation);
+      });
+    }
+
+    init();
+  </script>
+</body>
+
+</html>
