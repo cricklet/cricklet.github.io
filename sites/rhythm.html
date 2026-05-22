@@ -50,6 +50,7 @@
     #main-area {
       flex: 1 1 0;
       min-width: 0;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       padding: 18px 22px;
@@ -77,22 +78,24 @@
       text-transform: uppercase;
       opacity: 0.55;
     }
-    #controls input[type="number"],
+    #controls input,
     #controls select {
       font-family: 'Reddit Mono', monospace;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
+      height: 30px;            /* match the buttons so the row lines up */
+      line-height: 1;
       background: var(--control-bg);
       color: var(--text-color);
-      border: 1px solid var(--section-divider);
-      border-radius: 4px;
-      padding: 4px 6px;
+      border: none;
+      border-radius: 6px;
+      padding: 0 8px;
       outline: none;
       -webkit-appearance: none;
       appearance: none;
       cursor: pointer;
     }
-    #controls input[type="number"] {
-      width: 44px;
+    #controls input {
+      width: 40px;
       text-align: center;
       cursor: text;
     }
@@ -103,29 +106,46 @@
     #controls input:focus, #controls select:focus {
       box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55);
     }
+    /* appearance:none selects don't auto-center their text — do it explicitly. */
+    #controls select { text-align: center; line-height: 30px; }
+    #den-select { width: 40px; }   /* match the numerator input */
     .timesig { display: flex; align-items: center; gap: 3px; }
     .timesig .slash { opacity: 0.5; }
 
+    /* Matches the toggle look used across the apps: dim grey fill + muted text,
+       and an outlined ring (border = text color) when active/on. */
     button.btn {
       font-family: 'Reddit Mono', monospace;
-      font-size: 0.8rem;
-      background: var(--control-bg);
-      color: var(--text-color);
-      border: 1px solid var(--section-divider);
-      border-radius: 4px;
-      padding: 5px 12px;
+      font-size: 0.78rem;
+      line-height: 1;
+      height: 30px;            /* fixed so the ▶/⏸ glyph swap can't change height */
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      color: rgba(128, 128, 128, 0.85);
+      background: rgba(128, 128, 128, 0.18);
+      border: none;
+      border-radius: 6px;
+      padding: 0 12px;
       cursor: pointer;
-      transition: none;
+      transition: background 0.12s ease, color 0.12s ease;
     }
-    button.btn:hover { background: rgba(128, 128, 128, 0.32); }
-    button.btn:focus { outline: none; box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55); }
-    #play-btn {
-      min-width: 92px;
-      font-weight: 600;
-    }
-    #play-btn.playing {
+    button.btn:hover { background: rgba(128, 128, 128, 0.3); }
+    button.btn:focus { outline: none; }
+
+    /* Text buttons share a min-width so similar ones (Play/Clear/Save) match. */
+    button.btn { min-width: 64px; }
+    #play-btn { font-weight: 600; }
+    /* Icon-only buttons are identical squares. */
+    #shuffle-btn, #playlist-btn { min-width: 0; width: 30px; padding: 0; }
+
+    /* Playing / toggled-on: outlined ring via inset shadow (no size change). */
+    #play-btn.playing,
+    button.btn.active {
       background: var(--bg-color);
-      border-color: var(--text-color);
+      color: var(--text-color);
+      box-shadow: inset 0 0 0 1.5px var(--text-color);
     }
 
     /* ---- Step grid ---- */
@@ -138,17 +158,16 @@
       flex-wrap: wrap;
       gap: 16px 22px;
       align-items: flex-start;
+      /* Shift left by the measure's left padding so the first step still lines
+         up with the play button while the active highlight gets left breathing
+         room (the highlight extends into this padding without moving steps). */
+      margin-left: -12px;
     }
-    /* Constant padding + transparent border so toggling .active only swaps
-       colors — never shifts layout. */
     .measure {
       display: flex;
       flex-direction: column;
       gap: 5px;
-      /* No left padding/border so the first cell lines up flush with the play
-         button and everything else down the left edge. The active highlight
-         uses a box-shadow ring so it never shifts the layout. */
-      padding: 5px 8px 5px 0;
+      padding: 5px 12px;
       border-radius: 6px;
     }
     .measure.active {
@@ -180,17 +199,20 @@
     .bar-num-input, .bar-den-select {
       font-family: 'Reddit Mono', monospace;
       font-size: 0.66rem;
+      height: 20px;
+      line-height: 1;
       background: var(--control-bg);
       color: inherit;
-      border: 1px solid var(--section-divider);
-      border-radius: 3px;
-      padding: 1px 2px;
+      border: none;
+      border-radius: 4px;
+      padding: 0 3px;
       outline: none;
       -webkit-appearance: none;
       appearance: none;
       cursor: pointer;
     }
     .bar-num-input { width: 26px; text-align: center; cursor: text; }
+    .bar-den-select { width: 26px; text-align: center; line-height: 20px; }
     .bar-num-input::-webkit-outer-spin-button,
     .bar-num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     .bar-num-input:focus, .bar-den-select:focus { box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55); }
@@ -280,7 +302,7 @@
          if the row is too narrow, but never grows to fill the whole row. */
       flex: 0 1 auto;
       width: 280px;
-      height: 26px;
+      height: 40px;
       background: rgba(128, 128, 128, 0.08);
       border-radius: 4px;
       overflow: hidden;
@@ -299,27 +321,29 @@
     }
     .hist-target {
       position: absolute;
-      top: 3px; bottom: 3px;
+      top: 10px; bottom: 10px;
       width: 2px;
       margin-left: -1px;
       background: rgba(255, 255, 255, 0.45);
       border-radius: 1px;
     }
     :root[data-theme="light"] .hist-target { background: rgba(0, 0, 0, 0.4); }
+    /* Your tap: a dot (slightly smaller than before) on a faint vertical line.
+       Color is set inline by accuracy. */
     .hist-tap {
       position: absolute;
       top: 50%;
-      width: 10px;
-      height: 10px;
-      margin-left: -5px;
-      margin-top: -5px;
+      width: 8px;
+      height: 8px;
+      margin-left: -4px;
+      margin-top: -4px;
       border-radius: 50%;
       box-shadow: 0 0 4px currentColor;
     }
     .hist-tap::before {
       content: '';
       position: absolute;
-      left: 50%; top: -7px; bottom: -7px;
+      left: 50%; top: -12px; bottom: -12px;
       width: 2px;
       margin-left: -1px;
       background: currentColor;
@@ -392,15 +416,230 @@
       z-index: 50;
     }
     #toast.show { opacity: 1; }
+
+    /* ---- Top bar ---- */
+    #main-col {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+    #top-bar {
+      flex-shrink: 0;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 6px;
+      border-bottom: 1px solid var(--section-divider);
+    }
+    #file-picker-btn {
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.82rem;
+      background: transparent;
+      color: var(--text-color);
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      flex: 1 1 0;
+      min-width: 0;
+      outline: none;
+      text-align: left;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    #file-picker-btn:hover { background: var(--section-fill); }
+    #file-picker-btn .fp-btn-caret { opacity: 0.5; margin-right: 6px; }
+    .fp-rename-input {
+      flex: 1 1 0; min-width: 0;
+      font-family: 'Reddit Mono', monospace; font-size: 0.82rem;
+      height: 26px; line-height: 1;
+      background: var(--control-bg); color: var(--text-color);
+      border: none; border-radius: 6px;
+      padding: 0 8px; outline: none;
+    }
+    .fp-rename-input:focus { box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55); }
+
+    /* ---- File browser: overlay (narrow) / left sidebar (wide) ---- */
+    #file-picker-panel {
+      position: fixed;
+      top: 44px; left: 0; right: 0; bottom: 0;
+      background: var(--bg-color);
+      border-top: 1px solid var(--section-divider);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 60;
+    }
+    #file-picker-panel[hidden] { display: none; }
+    /* Narrow: while the browser overlay is open, hide the bpm/volume bars so the
+       full-width header covers that area instead of leaving them peeking out. */
+    @media (max-width: 999px) {
+      body.fp-open #right-panel,
+      body.fp-open #top-bar .btn { display: none; }
+    }
+    @media (min-width: 1000px) {
+      #file-picker-panel {
+        display: flex !important;
+        position: static;
+        width: 380px;
+        min-width: 340px;
+        flex-shrink: 0;
+        height: 100%;
+        border-top: none;
+        border-right: 1px solid var(--section-divider);
+        z-index: auto;
+      }
+      #file-picker-btn { cursor: text; }
+      #file-picker-btn:hover { background: transparent; }
+      #file-picker-btn .fp-btn-caret { display: none; }
+      /* Sidebar: the top (up / root) row matches the header height so the file
+         list lines up with the main content below the header. */
+      #file-picker-panel .fp-top { height: 44px; }
+    }
+
+    /* ---- Save dialog (modal) ---- */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .overlay[hidden] { display: none; }
+    #save-dialog {
+      width: min(440px, 92vw);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-color);
+      border: 1px solid var(--section-divider);
+      border-radius: 8px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+    }
+    #fp-header {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--section-divider);
+    }
+    /* The save dialog keeps its titled header. */
+    #save-dialog #fp-header { justify-content: space-between; padding: 10px 14px; font-family: 'Reddit Mono', monospace; font-size: 0.8rem; font-weight: 600; }
+    .fp-close {
+      background: none; border: none; color: var(--text-color);
+      opacity: 0.5; cursor: pointer; font-size: 0.9rem; padding: 2px 4px; line-height: 1;
+    }
+    .fp-close:hover { opacity: 1; }
+    .fp-close:focus { outline: none; }
+    #fp-list { overflow-y: auto; flex: 1 1 auto; }
+    .fp-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 34px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--section-divider);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .fp-row:hover { background: var(--section-fill); }
+    .fp-row.fp-dragging { opacity: 0.4; }
+    .fp-row.fp-current { background: var(--section-fill); }
+    .fp-row.fp-current .fp-name { color: var(--cell-on); font-weight: 600; }
+    .fp-row .fp-icon { flex: 0 0 1.1rem; opacity: 0.7; }
+    .fp-row .fp-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fp-row .fp-date { flex: 0 0 auto; font-size: 0.66rem; opacity: 0.45; }
+    .fp-row.fp-up, .fp-row.fp-folder { opacity: 0.92; }
+    /* Root hint: not clickable. */
+    .fp-row.fp-root { cursor: default; opacity: 0.5; }
+    .fp-row.fp-root:hover { background: none; }
+    .fp-row .fp-del {
+      flex: 0 0 auto;
+      width: 20px; height: 20px;
+      background: none; border: none;
+      color: rgba(128, 128, 128, 0.4);
+      cursor: pointer; font-size: 0.95rem; line-height: 1;
+      border-radius: 3px;
+    }
+    .fp-row .fp-del:hover { background: rgba(128, 128, 128, 0.2); color: #e06b6b; }
+    .fp-row .fp-del:focus { outline: none; }
+    .fp-empty { padding: 18px 14px; font-family: 'Reddit Mono', monospace; font-size: 0.74rem; opacity: 0.45; }
+    #file-picker-footer {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 8px 14px;
+      border-top: 1px solid var(--section-divider);
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.72rem;
+    }
+    #fp-path { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.7; }
+    #fp-footer-actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+    #add-folder-btn, #add-file-btn, #export-btn {
+      font-family: 'Reddit Mono', monospace; font-size: 0.72rem;
+      color: rgba(128, 128, 128, 0.6); background: none; border: none; cursor: pointer; padding: 0;
+      white-space: nowrap;
+    }
+    #add-folder-btn:hover, #add-file-btn:hover, #export-btn:hover { color: var(--text-color); }
+    .save-field {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 12px 14px 0;
+      font-family: 'Reddit Mono', monospace; font-size: 0.72rem;
+    }
+    .save-field > span { opacity: 0.55; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.66rem; }
+    .save-field input {
+      font-family: 'Reddit Mono', monospace; font-size: 0.82rem;
+      height: 32px; line-height: 1;
+      background: var(--control-bg); color: var(--text-color);
+      border: none; border-radius: 6px;
+      padding: 0 10px; outline: none;
+    }
+    .save-field input:focus { box-shadow: 0 0 0 1.5px rgba(128, 128, 128, 0.55); }
+    .save-hint {
+      padding: 8px 14px 0;
+      font-family: 'Reddit Mono', monospace;
+      font-size: 0.66rem;
+      opacity: 0.45;
+      line-height: 1.4;
+    }
+    .save-actions {
+      display: flex; justify-content: flex-end; gap: 8px;
+      padding: 14px;
+    }
   </style>
 </head>
 
 <body>
-  <div id="main-area">
+  <!-- Saved patterns: full overlay when narrow, left sidebar when wide -->
+  <div id="file-picker-panel" hidden>
+    <div id="fp-list"></div>
+    <div id="file-picker-footer">
+      <div id="fp-path" title="Current folder">/</div>
+      <div id="fp-footer-actions">
+        <button id="add-file-btn" type="button" title="New blank pattern" onclick="newFile()">+ file</button>
+        <button id="add-folder-btn" type="button" title="New folder" onclick="addFolderPrompt()">+ folder</button>
+        <button id="export-btn" type="button" title="Download this folder's patterns as JSON (drag the file back in to import)" onclick="exportFolder()">↓ json</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="main-col">
+    <div id="top-bar">
+      <button type="button" id="file-picker-btn" onclick="toggleFileBrowser()" title="Saved patterns"><span class="fp-btn-caret">▾</span><span id="fp-btn-name">Untitled</span></button>
+      <button type="button" class="btn" id="play-btn" onclick="togglePlay()">Play</button>
+      <button type="button" class="btn" id="shuffle-btn" onclick="toggleShuffle()" title="Practice mode: repeat each saved clip until you nail it green twice, then jump to a random one">🔀</button>
+      <button type="button" class="btn" id="playlist-btn" onclick="togglePlaylist()" title="Practice mode: like shuffle, but goes through saved clips in order">📋</button>
+    </div>
+    <div id="main-area">
     <div id="controls">
-      <button type="button" id="play-btn" class="btn" onclick="togglePlay()">▶ Play</button>
       <div class="ctl-group timesig">
-        <label>Default time</label>
         <input type="number" id="num-input" min="1" max="16" value="4" aria-label="Beats per measure">
         <span class="slash">/</span>
         <select id="den-select" aria-label="Beat unit">
@@ -411,20 +650,17 @@
         </select>
       </div>
       <div class="ctl-group">
-        <label>Measures</label>
-        <input type="number" id="measures-input" min="1" max="8" value="1">
+        <input type="text" id="measures-input" inputmode="numeric" value="x1" aria-label="Number of measures">
       </div>
       <div class="ctl-group">
-        <label>Subdivide</label>
         <select id="subdiv-select" aria-label="Subdivision">
           <option value="1">♩ 1</option>
           <option value="2">♪ 2</option>
           <option value="4" selected>♬ 4</option>
         </select>
       </div>
-      <button type="button" class="btn" onclick="fillPattern(true)">Fill</button>
       <button type="button" class="btn" onclick="fillPattern(false)">Clear</button>
-      <button type="button" class="btn" onclick="clearHistory()">Clear log</button>
+      <button type="button" class="btn" onclick="openSaveDialog()">Save</button>
     </div>
 
     <div id="grid"></div>
@@ -434,6 +670,7 @@
     </div>
 
     <div id="history"></div>
+    </div>
   </div>
 
   <div id="right-panel">
@@ -448,6 +685,30 @@
   </div>
 
   <div id="toast"></div>
+
+  <!-- Save dialog -->
+  <div id="save-overlay" class="overlay" hidden>
+    <div id="save-dialog">
+      <div id="fp-header">
+        <span id="fp-title">Save pattern</span>
+        <button type="button" class="fp-close" onclick="closeSaveDialog()" aria-label="Close">✕</button>
+      </div>
+      <label class="save-field">
+        <span>Name</span>
+        <input type="text" id="save-name" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="save-field">
+        <span>Folder</span>
+        <input type="text" id="save-folder" list="save-folder-list" autocomplete="off" spellcheck="false" placeholder="(root)">
+        <datalist id="save-folder-list"></datalist>
+      </label>
+      <div class="save-hint">Tip: end the name with a number to set its tempo, e.g. "Groove 125".</div>
+      <div class="save-actions">
+        <button type="button" class="btn" onclick="closeSaveDialog()">Cancel</button>
+        <button type="button" class="btn" id="save-confirm-btn" onclick="doSave()">Save</button>
+      </div>
+    </div>
+  </div>
 
   <audio id="click-audio" src="click.mp3" preload="auto"></audio>
   <audio id="click-soft-audio" src="click-soft.mp3" preload="auto"></audio>
@@ -465,7 +726,11 @@
     const STORAGE_PATTERN = 'rhythm_pattern';
     const STORAGE_BARSIG = 'rhythm_barsig';
     const STORAGE_BARDISABLED = 'rhythm_bardisabled';
+    const STORAGE_SAVES = 'rhythm_saves';
     const MAX_HISTORY_ROWS = 20;
+    const CUTTIME_BPM = 140;   // at/above this, 4/4 counts in "1 2" (cut time)
+    const COUNT_VOLUME = 0.2;  // count-in plays at 20% of the metronome volume
+    const GREEN_FRAC = 0.25;   // a note counts as "green" within this fraction of the window
 
     function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
     // Single timebase: once the audio engine exists, use its clock so scheduling
@@ -494,13 +759,35 @@
     function barDen(m) { const s = barSig[m]; return s ? s.den : defDen; }
     function barOff(m) { return !!barDisabled[m]; }
     function stepDisabled(i) { return barOff(barOfStep(i)); }
-    function barStartSteps() { const a = []; let s = 0; for (let m = 0; m < measures; m++) { a.push(s); s += barNum(m) * subdiv; } return a; }
-    function totalSteps() { let s = 0; for (let m = 0; m < measures; m++) s += barNum(m) * subdiv; return s; }
+    // subdiv = steps per QUARTER note (the grid resolution), so a step is always
+    // a 1/(4*subdiv) note regardless of the time-sig denominator. A bar's beat is
+    // a 1/den note, so it spans (4*subdiv)/den steps — e.g. in x/8 a beat (eighth)
+    // is 2 steps with subdiv=4, letting you draw eighths + sixteenths, and it
+    // clicks twice as often as a quarter beat (BPM counts quarter notes).
+    function stepsPerBeat(m) { return Math.max(1, Math.round((4 * subdiv) / barDen(m))); }
+    function barSteps(m) { return barNum(m) * stepsPerBeat(m); }
+    function barStartSteps() { const a = []; let s = 0; for (let m = 0; m < measures; m++) { a.push(s); s += barSteps(m); } return a; }
+    function totalSteps() { let s = 0; for (let m = 0; m < measures; m++) s += barSteps(m); return s; }
     function totalBeats() { let s = 0; for (let m = 0; m < measures; m++) s += barNum(m); return s; }
-    function barOfStep(idx) { let s = 0; for (let m = 0; m < measures; m++) { s += barNum(m) * subdiv; if (idx < s) return m; } return Math.max(0, measures - 1); }
-    function beatSec() { return 60 / bpm; }
-    function stepSec() { return beatSec() / subdiv; }
-    function cycleDur() { return totalBeats() * beatSec(); }
+    function barOfStep(idx) { let s = 0; for (let m = 0; m < measures; m++) { s += barSteps(m); if (idx < s) return m; } return Math.max(0, measures - 1); }
+    function stepSec() { return (60 / bpm) / subdiv; }   // step = quarter / subdiv
+    function beatSecOf(m) { return stepsPerBeat(m) * stepSec(); }
+    function barSecOf(m) { return barSteps(m) * stepSec(); }
+    // The "active" sequence is the enabled bars only, concatenated — disabled
+    // bars are temporarily skipped from playback, grading, and notation.
+    function activeSeq() {
+      const seq = [];
+      const starts = barStartSteps();
+      for (let m = 0; m < measures; m++) {
+        if (barOff(m)) continue;
+        const sz = barSteps(m);
+        for (let k = 0; k < sz; k++) seq.push(starts[m] + k);
+      }
+      return seq;
+    }
+    function activeBeats() { let s = 0; for (let m = 0; m < measures; m++) if (!barOff(m)) s += barNum(m); return s; }
+    function activeStepCount() { let s = 0; for (let m = 0; m < measures; m++) if (!barOff(m)) s += barSteps(m); return s; }
+    function cycleDur() { return activeStepCount() * stepSec(); }
 
     // ---- Playback scheduler ----
     let scheduleRaf = null;
@@ -521,6 +808,56 @@
     const clickPool = [], softPool = [];
     const POOL_SIZE = 8;
     let clickIdx = 0, softIdx = 0, useFallback = false;
+
+    // Spoken count-in (reuses the metronome's counts_final/ voice clips).
+    let countVoice = null;
+    let countVoiceLoading = null;
+    const countOffsets = {};            // 'count-N' -> lead-in ms (align attack to beat)
+    const countNumBuffers = new Map();  // N -> AudioBuffer
+
+    function ensureCountVoice() {
+      if (countVoice) return Promise.resolve();
+      if (!countVoiceLoading) {
+        countVoiceLoading = (async () => {
+          try {
+            const r = await fetch('counts_final/index.json');
+            const data = await r.json();
+            countVoice = (data.voices && data.voices[0]) || null;
+            if (countVoice) {
+              try {
+                const or = await fetch(`counts_final/${countVoice}/offsets.json`);
+                Object.assign(countOffsets, await or.json());
+              } catch (_) {}
+            }
+          } catch (_) { countVoice = null; }
+        })();
+      }
+      return countVoiceLoading;
+    }
+
+    async function ensureCountNum(n) {
+      if (!audioCtx || !countVoice || countNumBuffers.has(n)) return;
+      try {
+        const r = await fetch(`counts_final/${countVoice}/count-${n}.mp3`);
+        const buf = await audioCtx.decodeAudioData(await r.arrayBuffer());
+        countNumBuffers.set(n, buf);
+      } catch (_) {}
+    }
+
+    // Schedule a spoken number to land on `beatTime` (audio clock). Returns
+    // false if its clip isn't available (so the caller can fall back to a click).
+    function playCountNum(beatTime, n) {
+      const buf = countNumBuffers.get(n);
+      if (!audioCtx || !buf) return false;
+      const lead = (countOffsets['count-' + n] || 0) / 1000;
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const g = audioCtx.createGain();
+      g.gain.value = clamp((volumePct / 100) * COUNT_VOLUME, 0, 1);
+      src.connect(g).connect(audioCtx.destination);
+      src.start(Math.max(audioCtx.currentTime, beatTime - lead));
+      return true;
+    }
 
     function initFallbackPools() {
       if (clickPool.length) return;
@@ -621,56 +958,100 @@
       if (!running) return;
       const lookahead = 0.1;
       const now = nowSec();
-      const total = totalSteps();
-      // Bar downbeats (for the accented click); every barStart is a multiple of
-      // subdiv, so a beat is still just stepIndex % subdiv === 0.
-      const downbeats = new Set(barStartSteps());
-      while (nextStepTime < now + lookahead) {
-        // Metronome pulse on each beat, accented on each bar's downbeat.
-        // We do NOT sonify the rhythm pattern — you read it and tap it.
-        if (stepIndex % subdiv === 0) {
-          playClick(nextStepTime, downbeats.has(stepIndex));
+      // Play through the enabled bars only (disabled ones are skipped).
+      const seq = activeSeq();
+      if (seq.length === 0) { scheduleRaf = requestAnimationFrame(scheduleLoop); return; }
+      // Click positions and bar downbeats (accented) within the active sequence.
+      // Quarter meters click every beat; eighth-denominated meters click on each
+      // metric group start (e.g. 6/8 → 3+3, 7/8 → 3+2+2).
+      const beatSet = new Set(), downSet = new Set();
+      {
+        let acc = 0;
+        for (let m = 0; m < measures; m++) {
+          if (barOff(m)) continue;
+          const spb = stepsPerBeat(m);
+          downSet.add(acc);
+          if (barDen(m) >= 8) {
+            let bs = acc;
+            for (const g of beatGroups(barNum(m), barDen(m))) { beatSet.add(bs); bs += g * spb; }
+          } else {
+            for (let b = 0; b < barNum(m); b++) beatSet.add(acc + b * spb);
+          }
+          acc += barSteps(m);
         }
-        flashStep(nextStepTime, stepIndex);
+      }
+      while (nextStepTime < now + lookahead) {
+        if (stepIndex >= seq.length) stepIndex = 0;   // safety if the sequence shrank
+        const gstep = seq[stepIndex];
+        // Metronome pulse on each beat, accented on each bar's downbeat.
+        if (beatSet.has(stepIndex)) {
+          playClick(nextStepTime, downSet.has(stepIndex));
+        }
+        flashStep(nextStepTime, gstep);
         nextStepTime += stepSec();
         stepIndex += 1;
         // On wrap, nextStepTime is now the next cycle's downbeat — record it as
         // the real cycle boundary for row advancement.
-        if (stepIndex >= total) { stepIndex = 0; pendingCycleStarts.push(nextStepTime); }
+        if (stepIndex >= seq.length) { stepIndex = 0; pendingCycleStarts.push(nextStepTime); }
       }
       ensureCycleRow(now);
+      if (practiceTriggered) { practiceTriggered = false; scheduleRaf = null; advanceClip(); return; }
       scheduleRaf = requestAnimationFrame(scheduleLoop);
     }
 
-    const COUNT_IN_BEATS = 2;
+    // Decide what the count-in says, based on the first enabled bar + tempo:
+    //   normal: the last two beats, e.g. 4/4 -> "3 4", 3/4 -> "2 3"
+    //   fast 4/4 (>= CUTTIME_BPM): cut-time feel -> "1 2" at the half-note pulse
+    function countInPlan() {
+      let fe = 0;
+      for (let m = 0; m < measures; m++) { if (!barOff(m)) { fe = m; break; } }
+      const fnum = barNum(fe), fden = barDen(fe), beat = beatSecOf(fe);
+      if (fnum === 4 && fden === 4 && bpm >= CUTTIME_BPM) {
+        return { nums: [1, 2], spacing: 2 * beat };
+      }
+      if (fnum >= 2) return { nums: [fnum - 1, fnum], spacing: beat };
+      return { nums: [1], spacing: beat };
+    }
 
-    async function startPlay() {
+    async function startPlay(extraDelay = 0) {
       if (running || startPending) return;
       startPending = true;
       await ensureAudio();          // decode clicks + resume context first
+      const plan = countInPlan();
+      await ensureCountVoice();
+      await Promise.all(plan.nums.map(n => ensureCountNum(n)));
       startPending = false;
       if (running) return;          // toggled off while we were waiting
       running = true;
       document.getElementById('play-btn').classList.add('playing');
-      document.getElementById('play-btn').textContent = '⏸ Pause';
+      document.getElementById('play-btn').textContent = 'Pause';
       stepIndex = 0;
       pendingCycleStarts = [];
-      const startAt = nowSec() + 0.12;
-      const beat = beatSec();
-      // Two-beat count-in on the quiet click, then the pattern's first downbeat.
-      for (let i = 0; i < COUNT_IN_BEATS; i++) playClick(startAt + i * beat, false);
-      nextStepTime = startAt + COUNT_IN_BEATS * beat;
+      // Extra lead so the first spoken clip (which starts early by its offset)
+      // isn't clipped against the context's current time. `extraDelay` adds the
+      // shuffle silence before the count-in.
+      const startAt = nowSec() + 0.35 + Math.max(0, extraDelay);
+      let spoke = true;
+      for (let i = 0; i < plan.nums.length; i++) {
+        if (!playCountNum(startAt + i * plan.spacing, plan.nums[i])) spoke = false;
+      }
+      if (!spoke) {   // no spoken clips available — fall back to quiet clicks
+        for (let i = 0; i < plan.nums.length; i++) playClick(startAt + i * plan.spacing, false);
+      }
+      nextStepTime = startAt + plan.nums.length * plan.spacing;
       currentRow = beginCycleRow(0, nextStepTime, cycleDur());
       scheduleLoop();
     }
     function stopPlay() {
       running = false;
       document.getElementById('play-btn').classList.remove('playing');
-      document.getElementById('play-btn').textContent = '▶ Play';
+      document.getElementById('play-btn').textContent = 'Play';
       if (scheduleRaf != null) { cancelAnimationFrame(scheduleRaf); scheduleRaf = null; }
       for (const el of measureEls) el.classList.remove('active');
       currentRow = null;
       pendingCycleStarts = [];
+      greenStreak = 0;
+      practiceTriggered = false;
     }
     function togglePlay() { running ? stopPlay() : startPlay(); }
 
@@ -687,10 +1068,11 @@
     // Targets are the note ONSETS (state 1) only. Held/rest steps aren't graded:
     // we judge whether you struck each new note at the right moment, not how
     // long you held it.
+    // Onsets as fractions of the ACTIVE cycle (enabled bars only).
     function targetFracs() {
+      const seq = activeSeq();
       const fracs = [];
-      const total = totalSteps();
-      for (let i = 0; i < total; i++) if (pattern[i] === 1 && !stepDisabled(i)) fracs.push(i / total);
+      for (let j = 0; j < seq.length; j++) if (pattern[seq[j]] === 1) fracs.push(j / seq.length);
       return fracs;
     }
     // Smallest circular gap between consecutive targets — defines "far off".
@@ -709,8 +1091,11 @@
     // Spawn a fresh row for cycle `cIdx`, drawing the target ticks up front so
     // taps can be graded and shown against them in real time.
     function beginCycleRow(cIdx, startT, dur) {
-      const fracs = targetFracs();
-      const gap = fracs.length ? tightestGap(fracs) : 1 / totalSteps();
+      // Onsets and their fractions within the ACTIVE cycle (enabled bars only).
+      const seq = activeSeq();
+      const fracs = [], onsetSteps = [];
+      for (let j = 0; j < seq.length; j++) if (pattern[seq[j]] === 1) { fracs.push(j / seq.length); onsetSteps.push(seq[j]); }
+      const gap = fracs.length ? tightestGap(fracs) : 1 / Math.max(1, seq.length);
       const maxErrSec = Math.max(0.04, gap * dur * 0.5);
 
       const row = document.createElement('div');
@@ -718,20 +1103,12 @@
       const track = document.createElement('div');
       track.className = 'hist-track';
       track.style.width = lastStaffWidth + 'px';
-      // Beat gridlines, with stronger lines at bar (measure) boundaries.
-      const tb = totalBeats();
-      const barStartBeats = new Set();
-      { let acc = 0; for (let m = 0; m < measures; m++) { barStartBeats.add(acc); acc += barNum(m); } }
-      for (let gb = 1; gb < tb; gb++) {
-        const line = document.createElement('div');
-        line.className = barStartBeats.has(gb) ? 'hist-measure' : 'hist-beat';
-        line.style.left = (100 * gb / tb) + '%';
-        track.appendChild(line);
-      }
-      for (const f of fracs) {
+      // Targets sit exactly on their noteheads' measured x.
+      for (let k = 0; k < onsetSteps.length; k++) {
         const tk = document.createElement('div');
         tk.className = 'hist-target';
-        tk.style.left = (100 * f) + '%';
+        const xf = onsetXFrac[onsetSteps[k]];
+        tk.style.left = (100 * (xf != null ? xf : fracs[k])) + '%';
         track.appendChild(tk);
       }
       row.appendChild(track);
@@ -739,9 +1116,6 @@
       hist.insertBefore(row, hist.firstChild);
       while (hist.children.length > MAX_HISTORY_ROWS) hist.removeChild(hist.lastChild);
 
-      // onsetSteps parallels fracs — needed to color the matching notes.
-      const onsetSteps = [];
-      { const total = totalSteps(); for (let i = 0; i < total; i++) if (pattern[i] === 1 && !stepDisabled(i)) onsetSteps.push(i); }
       const r = { cIdx, startT, dur, fracs, onsetSteps, onsetBest: onsetSteps.map(() => Infinity), tapFracs: [], maxErrSec, taps: 0, errSum: 0, el: row, track };
 
       // Start the cycle with every note greyed (= not played yet); taps light
@@ -760,6 +1134,12 @@
       let guard = 0;
       while (pendingCycleStarts.length && now >= pendingCycleStarts[0] && guard++ < 64) {
         const startT = pendingCycleStarts.shift();
+        // Shuffle: track consecutive green cycles; on the 2nd, hand off to the
+        // shuffler (leave the finished row in place and let scheduleLoop switch).
+        if (practiceMode) {
+          greenStreak = isGreenCycle(currentRow) ? greenStreak + 1 : 0;
+          if (greenStreak >= 2 && loadSaves().items.length > 0) { practiceTriggered = true; return; }
+        }
         currentRow = beginCycleRow(currentRow.cIdx + 1, startT, cycleDur());
       }
     }
@@ -796,14 +1176,15 @@
       const hue = 120 * (1 - norm);   // 120 green -> 0 red
       const dot = document.createElement('div');
       dot.className = 'hist-tap';
-      dot.style.left = (100 * frac) + '%';
+      dot.style.left = (100 * timeToX(frac)) + '%';
       dot.style.background = `hsl(${hue}, 75%, 50%)`;
       dot.style.color = `hsl(${hue}, 75%, 50%)`;
       r.track.appendChild(dot);
     }
 
     // ---- Step model: 0 = rest, 1 = note onset, 2 = held (sustain) ----
-    function defaultNoteSteps(idx) { const d = barDen(barOfStep(idx)); return Math.max(1, Math.round((d * subdiv) / 8)); }
+    // An eighth note is (4*subdiv)/8 = subdiv/2 steps, regardless of meter.
+    function defaultNoteSteps() { return Math.max(1, Math.round(subdiv / 2)); }
 
     // A held step is only meaningful if preceded by a note/held; otherwise it's
     // an orphan and we treat it as a rest.
@@ -852,6 +1233,7 @@
         measureEls[m] = mEl;
         mEl.appendChild(buildMeasureHeader(m, bn, bd));
 
+        const spb = stepsPerBeat(m);
         const beatsEl = document.createElement('div');
         beatsEl.className = 'beats';
         for (let bt = 0; bt < bn; bt++) {
@@ -859,8 +1241,8 @@
           beatEl.className = 'beat' + (bt === 0 ? ' downbeat' : '');
           const cellsEl = document.createElement('div');
           cellsEl.className = 'cells';
-          for (let sub = 0; sub < subdiv; sub++) {
-            const idx = start + bt * subdiv + sub;
+          for (let sub = 0; sub < spb; sub++) {
+            const idx = start + bt * spb + sub;
             const cell = document.createElement('div');
             cell.className = stepClass(idx);
             cell.dataset.idx = idx;
@@ -934,6 +1316,12 @@
     // Toggle a bar's disabled state. Takes effect on the next cycle for grading;
     // the grid/notation update immediately. Playback keeps running.
     function toggleMeasureDisabled(m) {
+      if (!barOff(m)) {
+        // About to disable — keep at least one bar enabled.
+        let enabled = 0;
+        for (let i = 0; i < measures; i++) if (!barOff(i)) enabled++;
+        if (enabled <= 1) return;
+      }
       barDisabled[m] = !barOff(m);
       buildGrid();
       buildNotation();
@@ -995,7 +1383,7 @@
           // if one starts sooner, shorten this note to butt up against it
           // (e.g. a sixteenth right before the next onset).
           const T = totalSteps();
-          let len = defaultNoteSteps(gridDrag.anchor);
+          let len = defaultNoteSteps();
           for (let k = gridDrag.anchor + 1; k < gridDrag.anchor + len && k < T; k++) {
             if (pattern[k] === 1) { len = k - gridDrag.anchor; break; }
           }
@@ -1023,7 +1411,7 @@
     // one bar leaves the others intact).
     function reshape(oldSizes, oldStarts) {
       const newSizes = [], newStarts = [];
-      { let s = 0; for (let m = 0; m < measures; m++) { newStarts.push(s); const sz = barNum(m) * subdiv; newSizes.push(sz); s += sz; } }
+      { let s = 0; for (let m = 0; m < measures; m++) { newStarts.push(s); const sz = barSteps(m); newSizes.push(sz); s += sz; } }
       const T = newSizes.reduce((a, b) => a + b, 0);
       const np = new Array(T).fill(0);
       for (let m = 0; m < newSizes.length && m < oldSizes.length; m++) {
@@ -1037,7 +1425,7 @@
     function syncControls() {
       document.getElementById('num-input').value = defNum;
       document.getElementById('den-select').value = String(defDen);
-      document.getElementById('measures-input').value = measures;
+      document.getElementById('measures-input').value = 'x' + measures;
       document.getElementById('subdiv-select').value = String(subdiv);
     }
 
@@ -1046,7 +1434,7 @@
     function applyStructureChange(mutate) {
       if (running) stopPlay();
       const oldSizes = [], oldStarts = [];
-      { let s = 0; for (let m = 0; m < measures; m++) { oldStarts.push(s); const sz = barNum(m) * subdiv; oldSizes.push(sz); s += sz; } }
+      { let s = 0; for (let m = 0; m < measures; m++) { oldStarts.push(s); const sz = barSteps(m); oldSizes.push(sz); s += sz; } }
       mutate();
       barSig.length = measures;
       barDisabled.length = measures;
@@ -1083,6 +1471,7 @@
     // For accuracy coloring: the onset step each rendered notehead belongs to
     // (in document order), and the color to paint each onset's notes.
     let lastNoteheadOnsets = [];
+    let onsetXFrac = {};   // onset step -> notehead x as a fraction of staff width
     let onsetColors = {};
     const MISS_GREY = '#5a5a5a';   // note you didn't play near
     const DISABLED_GREY = '#3f3f3f';   // note in a disabled measure
@@ -1125,33 +1514,105 @@
       return out;
     }
 
+    // Beat groupings per meter (group sizes in beats): 4/4 -> [2,2] (strong
+    // mid-bar), 6/8 -> [3,3] (compound), 7/8 -> [2,2,3], 3/4 -> [1,1,1], etc.
+    function beatGroups(bn, den) {
+      if (den >= 8) {
+        if (bn % 3 === 0) return Array(bn / 3).fill(3);
+        // Irregular (5/8, 7/8, …): lead with a group of 3 eighths so a dotted
+        // quarter is one note at the start of the bar, then groups of 2.
+        const out = []; let r = bn;
+        if (r % 2 === 1) { out.push(3); r -= 3; }
+        while (r > 0) { out.push(2); r -= 2; }
+        return out;
+      }
+      if (bn === 4) return [2, 2];
+      if (bn === 6) return [3, 3];
+      if (bn % 2 === 0 && bn > 4) return [bn / 2, bn / 2];
+      return Array(bn).fill(1);
+    }
+
+    // Recursively split [a,b) within a metric node spanning `beats` beats
+    // (compound = a ternary group). A note is one notehead if it fills a node,
+    // or is a dotted value (node + half its sibling); otherwise it's split at
+    // the strongest boundary it crosses (the caller ties the pieces).
+    function metricPieces(a, b, lo, hi, beats, compound) {
+      if (b <= a) return [];
+      if (a === lo && b === hi) return [[a, b]];
+      let kids;
+      if (compound) {
+        kids = []; const w = (hi - lo) / beats;
+        for (let i = 0; i < beats; i++) kids.push([lo + i * w, lo + (i + 1) * w, 1, false]);
+      } else if (beats >= 2) {
+        if (beats % 2 === 0) { const h = (lo + hi) / 2; kids = [[lo, h, beats / 2, false], [h, hi, beats / 2, false]]; }
+        else { kids = []; const w = (hi - lo) / beats; for (let i = 0; i < beats; i++) kids.push([lo + i * w, lo + (i + 1) * w, 1, false]); }
+      } else {
+        if (hi - lo <= 1) return [[a, b]];
+        const h = (lo + hi) / 2; kids = [[lo, h, 1, false], [h, hi, 1, false]];
+      }
+      for (const [cl, ch, cb, cc] of kids) if (a >= cl && b <= ch) return metricPieces(a, b, cl, ch, cb, cc);
+      // Dotted-note exceptions across one child boundary:
+      //   forward  (any level): child start .. midpoint of next child  (dotted on the beat)
+      //   backward (within a beat only): midpoint of a child .. end of next child
+      //     (e.g. a sixteenth + dotted-eighth inside a 4/4 beat)
+      if (!compound) {
+        const subBeat = beats < 2;
+        for (let i = 0; i + 1 < kids.length; i++) {
+          const cl = kids[i][0], ch = kids[i][1], nl = kids[i + 1][0], nh = kids[i + 1][1];
+          if (a === cl && b === (nl + nh) / 2) return [[a, b]];
+          if (subBeat && a === (cl + ch) / 2 && b === nh) return [[a, b]];
+        }
+      }
+      let res = [];
+      for (const [cl, ch, cb, cc] of kids) { const s = Math.max(a, cl), e = Math.min(b, ch); if (e > s) res = res.concat(metricPieces(s, e, cl, ch, cb, cc)); }
+      return res;
+    }
+
+    // Split a note/rest [a,b) (bar-local steps) into single-notehead pieces by
+    // the bar's metric tree.
+    function splitInBar(a, b, bn, den, spb) {
+      const groups = beatGroups(bn, den);
+      const kids = []; let p = 0;
+      for (const g of groups) { kids.push([p * spb, (p + g) * spb, g, (den >= 8 && g === 3)]); p += g; }
+      const barHi = bn * spb;
+      if (a === 0 && b === barHi) return [[a, b]];
+      for (const [cl, ch, cb, cc] of kids) if (a >= cl && b <= ch) return metricPieces(a, b, cl, ch, cb, cc);
+      let res = [];
+      for (const [cl, ch, cb, cc] of kids) { const s = Math.max(a, cl), e = Math.min(b, ch); if (e > s) res = res.concat(metricPieces(s, e, cl, ch, cb, cc)); }
+      return res;
+    }
+
     function buildAbc() {
       const starts = barStartSteps();
       const startSet = new Set(starts);
       // One global default note length covers every bar; finer denominators just
-      // use larger multiples of it. L = 1/(maxDen * subdiv).
-      let maxDen = defDen;
-      for (let m = 0; m < measures; m++) maxDen = Math.max(maxDen, barDen(m));
-      const Lden = maxDen * subdiv;
+      // use larger multiples of it. L = 1/(maxDen * subdiv). Disabled bars are
+      // omitted from the notation, so only enabled bars affect maxDen.
+      let firstEnabled = 0;
+      for (let m = 0; m < measures; m++) { if (!barOff(m)) { firstEnabled = m; break; } }
+      // Every step is a 1/(4*subdiv) note regardless of meter, so one default
+      // note length covers all bars and each step is exactly one L-unit; the
+      // denominator only changes how many steps a beat spans.
+      const Lden = 4 * subdiv;
       const PITCH = 'B';
 
-      // Flatten into atoms that never cross a BEAT line (so a note straddling a
-      // beat is split and tied — e.g. a dotted-eighth over the line becomes a
-      // sixteenth tied to an eighth). Beats divide bars evenly, so this also
-      // keeps notes inside barlines. Each step's note value scales by the bar's
-      // denominator: a step contributes (maxDen / barDen) units of L.
+      // Flatten into atoms following standard metric notation: a note is one
+      // notehead only if it spans a node of the bar's metric tree (or a dotted
+      // node); otherwise it's split at the strongest boundary it crosses and the
+      // pieces are tied. Notes never cross a barline.
       const atoms = [];
       for (const ev of parseEvents()) {
         const evAtoms = [];
         let pos = ev.start, rem = ev.len;
         while (rem > 0) {
-          const toBeat = subdiv - (pos % subdiv);
-          const take = Math.min(rem, toBeat);
-          const stepUnit = maxDen / barDen(barOfStep(pos));
-          let p = pos;
-          for (const st of abcDurTokens(take)) {
-            evAtoms.push({ note: ev.note, pos: p, units: st * stepUnit, tie: false, onset: ev.start });
-            p += st;
+          const bm = barOfStep(pos), barLo = starts[bm], barHi = barLo + barSteps(bm);
+          const take = Math.min(rem, barHi - pos);
+          for (const [s, e] of splitInBar(pos - barLo, pos - barLo + take, barNum(bm), barDen(bm), stepsPerBeat(bm))) {
+            let p = barLo + s;
+            for (const st of abcDurTokens(e - s)) {
+              evAtoms.push({ note: ev.note, pos: p, units: st, tie: false, onset: ev.start });
+              p += st;
+            }
           }
           pos += take; rem -= take;
         }
@@ -1160,26 +1621,37 @@
       }
 
       let body = '';
-      for (const a of atoms) {
+      let prevBar = -1;          // bar of the previous EMITTED atom
+      const noteOnsets = [];     // onset step per emitted notehead (render order)
+      for (let ai = 0; ai < atoms.length; ai++) {
+        const a = atoms[ai];
+        const m = barOfStep(a.pos);
+        if (barOff(m)) continue;   // disabled bar: omit from the notation entirely
         const isBarStart = startSet.has(a.pos);
-        if (isBarStart && a.pos > 0) {
+        // Barline + (only-if-changed) meter whenever we enter a new emitted bar.
+        if (prevBar !== -1 && m !== prevBar) {
           body += ' |';
-          const m = barOfStep(a.pos);
-          // Inline meter change only when this bar's signature actually differs.
-          if (m > 0 && (barNum(m) !== barNum(m - 1) || barDen(m) !== barDen(m - 1))) {
+          if (barNum(m) !== barNum(prevBar) || barDen(m) !== barDen(prevBar)) {
             body += `[M:${barNum(m)}/${barDen(m)}]`;
           }
         }
         // Break beams at beat boundaries with a space — except a bar's downbeat,
         // which the barline already separates.
-        if (a.pos % subdiv === 0 && !isBarStart) body += ' ';
-        body += (a.note ? PITCH : 'z') + (a.units === 1 ? '' : a.units) + (a.tie ? '-' : '');
+        const lbm = barOfStep(a.pos);
+        const isBeatStart = ((a.pos - starts[lbm]) % stepsPerBeat(lbm)) === 0;
+        if (isBeatStart && !isBarStart) body += ' ';
+        // A tie only survives if the next atom is also emitted (same event, and
+        // not in a disabled bar).
+        const next = atoms[ai + 1];
+        const tie = a.tie && next && !barOff(barOfStep(next.pos));
+        body += (a.note ? PITCH : 'z') + (a.units === 1 ? '' : a.units) + (tie ? '-' : '');
+        if (a.note) noteOnsets.push(a.onset);
+        prevBar = m;
       }
       body += ' |]';
 
-      // Onset step for each notehead, in render order (rests excluded).
-      lastNoteheadOnsets = atoms.filter(a => a.note).map(a => a.onset);
-      return `X:1\nM:${barNum(0)}/${barDen(0)}\nL:1/${Lden}\nK:C clef=none\n${body}\n`;
+      lastNoteheadOnsets = noteOnsets;
+      return `X:1\nM:${barNum(firstEnabled)}/${barDen(firstEnabled)}\nL:1/${Lden}\nK:C clef=none\n${body}\n`;
     }
 
     function buildNotation() {
@@ -1203,6 +1675,56 @@
         paddingtop: 6, paddingbottom: 6, paddingleft: 0, paddingright: 0,
       });
       colorNotation();
+      measureNoteX();
+    }
+
+    // Record each onset's notehead x as a fraction of the staff width, so the
+    // history track can line its targets/taps up with the engraved notes (abcjs
+    // spaces notes non-linearly, not by time).
+    // x-center of a note's stem (a tall, thin path); falls back to the whole
+    // note's center for stemless notes (e.g. whole notes).
+    function noteStemX(noteEl) {
+      const paths = noteEl.tagName.toLowerCase() === 'path' ? [noteEl] : noteEl.querySelectorAll('path');
+      let stem = null;
+      for (const p of paths) {
+        const b = p.getBoundingClientRect();
+        if (b.height > b.width * 2.5 && b.height > 12 && (!stem || b.height > stem.height)) stem = b;
+      }
+      const ref = stem || noteEl.getBoundingClientRect();
+      return (ref.left + ref.right) / 2;
+    }
+    function measureNoteX() {
+      onsetXFrac = {};
+      const svg = document.querySelector('#notation svg');
+      if (!svg) return;
+      const notes = svg.querySelectorAll('.abcjs-note');
+      if (notes.length !== lastNoteheadOnsets.length) return;
+      const sr = svg.getBoundingClientRect();
+      if (sr.width <= 0) return;
+      for (let k = 0; k < notes.length; k++) {
+        const onset = lastNoteheadOnsets[k];
+        if (onset in onsetXFrac) continue;   // first (attack) notehead wins
+        onsetXFrac[onset] = (noteStemX(notes[k]) - sr.left) / sr.width;
+      }
+    }
+
+    // Map a cycle time-fraction to an x-fraction on the staff, piecewise-linear
+    // through the onset (time -> notehead-x) anchor points. Identity fallback.
+    function timeToX(frac) {
+      const seq = activeSeq(); const N = seq.length;
+      if (!N) return frac;
+      const A = [];
+      for (let j = 0; j < N; j++) if (pattern[seq[j]] === 1 && onsetXFrac[seq[j]] != null) A.push([j / N, onsetXFrac[seq[j]]]);
+      if (!A.length) return frac;
+      if (A[0][0] > 0) A.unshift([0, A[0][1]]);
+      if (A[A.length - 1][0] < 1) A.push([1, A[A.length - 1][1]]);
+      for (let i = 0; i + 1 < A.length; i++) {
+        if (frac >= A[i][0] && frac <= A[i + 1][0]) {
+          const [t0, x0] = A[i], [t1, x1] = A[i + 1];
+          return t1 > t0 ? x0 + (x1 - x0) * (frac - t0) / (t1 - t0) : x0;
+        }
+      }
+      return frac;
     }
 
     // Paint each notehead by the last graded cycle (or default when uncolored).
@@ -1279,7 +1801,7 @@
         defNum = clamp(parseInt(document.getElementById('num-input').value, 10) || defNum, 1, 16);
         const d = parseInt(document.getElementById('den-select').value, 10);
         defDen = [2, 4, 8, 16].includes(d) ? d : defDen;
-        measures = clamp(parseInt(document.getElementById('measures-input').value, 10) || measures, 1, 8);
+        measures = clamp(parseInt((document.getElementById('measures-input').value || '').replace(/\D/g, ''), 10) || measures, 1, 8);
         const sd = parseInt(document.getElementById('subdiv-select').value, 10);
         subdiv = [1, 2, 4].includes(sd) ? sd : subdiv;
       });
@@ -1317,6 +1839,401 @@
     }
     function clearHistory() { document.getElementById('history').innerHTML = ''; }
 
+    // ---- Saved patterns: localStorage library with one level of folders ----
+    // Shape: { items: [{id, name, folder, addedAt, state}], folders: [name] }
+    let fpFolder = '';   // folder currently shown in the browser ('' = root)
+    let currentClipName = '';   // name shown in the top bar
+    let currentClipId = null;   // saved-item id the title renames, if any
+    let fpDragId = null;        // file being dragged to reorder
+
+    // Inline-rename a saved clip from its sidebar row.
+    function renameSavedItem(id, row) {
+      const nameEl = row.querySelector('.fp-name');
+      if (!nameEl || row.querySelector('.fp-rename-input')) return;
+      const cur = loadSaves().items.find(x => x.id === id);
+      if (!cur) return;
+      const input = document.createElement('input');
+      input.type = 'text'; input.className = 'fp-rename-input'; input.value = cur.name;
+      row.draggable = false;
+      nameEl.replaceWith(input);
+      input.focus(); input.select();
+      let done = false;
+      const commit = (save) => {
+        if (done) return; done = true;
+        const v = input.value.trim();
+        if (save && v) {
+          const s = loadSaves();
+          const it = s.items.find(x => x.id === id);
+          if (it) { it.name = v; persistSaves(s); if (id === currentClipId) { currentClipName = v; updateTopBar(); } }
+        }
+        renderFiles();
+      };
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+      });
+      input.addEventListener('blur', () => commit(true));
+    }
+
+    // Move the dragged clip to just before the drop target in the saved order.
+    function reorderSave(dragId, targetId) {
+      if (!dragId || dragId === targetId) return;
+      const s = loadSaves();
+      const from = s.items.findIndex(x => x.id === dragId);
+      if (from < 0) return;
+      const [moved] = s.items.splice(from, 1);
+      const to = s.items.findIndex(x => x.id === targetId);
+      s.items.splice(to < 0 ? s.items.length : to, 0, moved);
+      persistSaves(s);
+      renderFiles();
+    }
+
+    function updateTopBar() {
+      const el = document.getElementById('fp-btn-name');
+      if (el) el.textContent = currentClipName || 'Untitled';
+    }
+
+    // Double-click the title to rename the loaded clip in place.
+    function renameClip() {
+      const nameEl = document.getElementById('fp-btn-name');
+      if (!nameEl || document.getElementById('fp-rename-input')) return;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.id = 'fp-rename-input';
+      input.className = 'fp-rename-input';
+      input.value = currentClipName || '';
+      nameEl.replaceWith(input);
+      input.focus(); input.select();
+      let done = false;
+      const commit = (save) => {
+        if (done) return; done = true;
+        const v = input.value.trim();
+        const span = document.createElement('span');
+        span.id = 'fp-btn-name';
+        input.replaceWith(span);
+        if (save && v) applyRename(v);
+        updateTopBar();
+      };
+      input.addEventListener('keydown', e => {
+        e.stopPropagation();   // don't let the global handler grab Enter/Esc/keys
+        if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+      });
+      input.addEventListener('blur', () => commit(true));
+    }
+    function applyRename(newName) {
+      currentClipName = newName;
+      if (currentClipId != null) {
+        const s = loadSaves();
+        const it = s.items.find(x => x.id === currentClipId);
+        if (it) { it.name = newName; persistSaves(s); renderFiles(); }
+      }
+    }
+
+    function loadSaves() {
+      try {
+        const o = JSON.parse(localStorage.getItem(STORAGE_SAVES) || '{}');
+        return { items: Array.isArray(o.items) ? o.items : [], folders: Array.isArray(o.folders) ? o.folders : [] };
+      } catch (_) { return { items: [], folders: [] }; }
+    }
+    function persistSaves(s) { try { localStorage.setItem(STORAGE_SAVES, JSON.stringify(s)); } catch (_) {} }
+
+    function allFolders(s) {
+      const set = new Set(s.folders);
+      for (const it of s.items) if (it.folder) set.add(it.folder);
+      return [...set].sort((a, b) => a.localeCompare(b));
+    }
+
+    // Identify a clip by its musical content (ignoring live tempo/volume, so a
+    // name-derived-BPM clip still matches its saved entry).
+    function contentKey(obj) {
+      return JSON.stringify({
+        num: obj.num, den: obj.den, measures: obj.measures, subdiv: obj.subdiv,
+        bars: obj.bars || [], off: obj.off || [], pattern: obj.pattern || '',
+      });
+    }
+    function findMatchingSave() {
+      const cur = JSON.parse(serializeState().slice('rhythm:'.length));
+      const ck = contentKey(cur);
+      return loadSaves().items.find(it => contentKey(it.state) === ck) || null;
+    }
+
+    function isWideLayout() { return window.matchMedia('(min-width: 1000px)').matches; }
+    // "Open" means the narrow overlay is covering the app. On wide screens the
+    // panel is a permanent sidebar, so it never blocks keyboard play/tapping.
+    function fileBrowserOpen() {
+      return !isWideLayout() && !document.getElementById('file-picker-panel').hidden;
+    }
+    function saveDialogOpen() { return !document.getElementById('save-overlay').hidden; }
+    function toggleFileBrowser() {
+      if (isWideLayout()) return;   // sidebar is always visible
+      const el = document.getElementById('file-picker-panel');
+      if (el.hidden) openFileBrowser(); else closeFileBrowser();
+    }
+    function openFileBrowser() { document.getElementById('file-picker-panel').hidden = false; document.body.classList.add('fp-open'); renderFiles(); }
+    function closeFileBrowser() { document.getElementById('file-picker-panel').hidden = true; document.body.classList.remove('fp-open'); }
+
+    function fmtSaveDate(ts) {
+      try { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; } catch (_) { return ''; }
+    }
+
+    function fpRow(cls, icon, name, right) {
+      const row = document.createElement('div');
+      row.className = 'fp-row ' + cls;
+      row.innerHTML = `<span class="fp-icon">${icon}</span><span class="fp-name"></span><span class="fp-date">${right || ''}</span>`;
+      row.querySelector('.fp-name').textContent = name;
+      return row;
+    }
+
+    function renderFiles() {
+      const s = loadSaves();
+      const list = document.getElementById('fp-list');
+      list.innerHTML = '';
+      document.getElementById('fp-path').textContent = fpFolder ? '/' + fpFolder : '/';
+
+      if (fpFolder) {
+        const up = fpRow('fp-up fp-top', '↩', '..', '');
+        up.addEventListener('click', () => { fpFolder = ''; renderFiles(); scheduleUrlSync(); });
+        list.appendChild(up);
+      } else {
+        // Root: an unclickable hint that we're at the top level.
+        list.appendChild(fpRow('fp-root fp-top', '/', 'root', ''));
+        for (const f of allFolders(s)) {
+          const count = s.items.filter(it => (it.folder || '') === f).length;
+          const row = fpRow('fp-folder', '📁', f, String(count));
+          row.addEventListener('click', () => { fpFolder = f; renderFiles(); scheduleUrlSync(); });
+          const del = document.createElement('button');
+          del.type = 'button'; del.className = 'fp-del'; del.title = 'Delete folder'; del.textContent = '✕';
+          del.addEventListener('click', (e) => { e.stopPropagation(); deleteFolder(f); });
+          row.appendChild(del);
+          list.appendChild(row);
+        }
+      }
+
+      // Files in their stored order (drag a row to reorder).
+      const items = s.items.filter(it => (it.folder || '') === fpFolder);
+      for (const it of items) {
+        const row = fpRow('fp-file' + (it.id === currentClipId ? ' fp-current' : ''), '♪', it.name, fmtSaveDate(it.addedAt));
+        row.draggable = true;
+        row.dataset.id = it.id;
+        // Single click loads (delayed so a double-click can cancel it and rename).
+        let ct = null;
+        row.addEventListener('click', () => {
+          if (ct) return;
+          ct = setTimeout(() => { ct = null; loadSavedItem(it.id); }, 220);
+        });
+        row.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          if (ct) { clearTimeout(ct); ct = null; }
+          renameSavedItem(it.id, row);
+        });
+        row.addEventListener('dragstart', (e) => { fpDragId = it.id; e.dataTransfer.effectAllowed = 'move'; row.classList.add('fp-dragging'); });
+        row.addEventListener('dragend', () => { fpDragId = null; row.classList.remove('fp-dragging'); });
+        row.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+        row.addEventListener('drop', (e) => { e.preventDefault(); reorderSave(fpDragId, it.id); });
+        const del = document.createElement('button');
+        del.type = 'button'; del.className = 'fp-del'; del.title = 'Delete'; del.textContent = '✕';
+        del.addEventListener('click', (e) => { e.stopPropagation(); deleteSavedItem(it.id); });
+        row.appendChild(del);
+        list.appendChild(row);
+      }
+
+      if (!list.children.length) {
+        const empty = document.createElement('div');
+        empty.className = 'fp-empty';
+        empty.textContent = 'No saved patterns here yet.';
+        list.appendChild(empty);
+      }
+    }
+
+    // A trailing number in the clip name sets its tempo, e.g. "Groove 125".
+    function bpmFromName(name) {
+      const m = String(name || '').trim().match(/(\d{2,3})\s*(?:bpm)?\s*$/i);
+      if (!m) return null;
+      const n = parseInt(m[1], 10);
+      return (n >= BPM_MIN && n <= BPM_MAX) ? n : null;
+    }
+
+    function loadSavedItem(id) {
+      const s = loadSaves();
+      const it = s.items.find(x => x.id === id);
+      if (!it) return;
+      applyState(it.state);
+      const nb = bpmFromName(it.name);
+      if (nb != null) { setBpm(nb); persistBpm(); }
+      currentClipId = it.id;
+      currentClipName = it.name;
+      updateTopBar();
+      renderFiles();
+      closeFileBrowser();
+      showToast('Loaded "' + it.name + '"');
+    }
+    function deleteSavedItem(id) {
+      const s = loadSaves();
+      s.items = s.items.filter(x => x.id !== id);
+      persistSaves(s);
+      renderFiles();
+    }
+    function deleteFolder(name) {
+      const s = loadSaves();
+      const n = s.items.filter(it => (it.folder || '') === name).length;
+      if (!confirm(`Delete folder "${name}"${n ? ` and its ${n} pattern(s)` : ''}?`)) return;
+      s.items = s.items.filter(it => (it.folder || '') !== name);
+      s.folders = (s.folders || []).filter(f => f !== name);
+      persistSaves(s);
+      renderFiles();
+    }
+    function addFolderPrompt() {
+      const name = (prompt('New folder name:') || '').trim();
+      if (!name) return;
+      const s = loadSaves();
+      if (!s.folders.includes(name)) s.folders.push(name);
+      persistSaves(s);
+      fpFolder = name;
+      renderFiles();
+      scheduleUrlSync();
+    }
+
+    // Download the current folder's clips as JSON (root = everything). Drag the
+    // file back onto the app to import.
+    function exportFolder() {
+      const s = loadSaves();
+      const items = (fpFolder ? s.items.filter(it => (it.folder || '') === fpFolder) : s.items)
+        .map(it => ({ name: it.name, folder: it.folder || '', state: it.state }));
+      const folders = fpFolder ? [] : allFolders(s);
+      const data = { type: 'rhythm-clips', version: 1, items, folders };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (fpFolder || 'patterns') + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    function importClips(obj) {
+      if (!obj || obj.type !== 'rhythm-clips' || !Array.isArray(obj.items)) return false;
+      const s = loadSaves();
+      let n = 0;
+      for (const it of obj.items) {
+        if (!it || typeof it.state !== 'object') continue;
+        s.items.push({
+          id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + (n++),
+          name: String(it.name || 'Untitled'),
+          folder: typeof it.folder === 'string' ? it.folder : '',
+          addedAt: Date.now(),
+          state: it.state,
+        });
+      }
+      if (Array.isArray(obj.folders)) for (const f of obj.folders) if (f && !s.folders.includes(f)) s.folders.push(f);
+      persistSaves(s);
+      renderFiles();
+      showToast('Imported ' + n + ' pattern' + (n === 1 ? '' : 's'));
+      return true;
+    }
+
+    // Start a fresh, unsaved blank pattern (in the current folder).
+    function newFile() {
+      if (running) stopPlay();
+      pattern = new Array(totalSteps()).fill(0);
+      normalizeSteps();
+      buildGrid();
+      buildNotation();
+      currentClipId = null;
+      currentClipName = '';
+      updateTopBar();
+      renderFiles();
+      persistPattern();
+      scheduleUrlSync();
+      if (!isWideLayout()) closeFileBrowser();
+    }
+
+    // ---- Save dialog ----
+    function openSaveDialog() {
+      const s = loadSaves();
+      const dl = document.getElementById('save-folder-list');
+      dl.innerHTML = '';
+      for (const f of allFolders(s)) { const o = document.createElement('option'); o.value = f; dl.appendChild(o); }
+      document.getElementById('save-name').value = currentClipName || 'Pattern ' + (s.items.length + 1);
+      document.getElementById('save-folder').value = fpFolder;   // default: current folder
+      document.getElementById('save-overlay').hidden = false;
+      const ni = document.getElementById('save-name');
+      ni.focus(); ni.select();
+    }
+    function closeSaveDialog() { document.getElementById('save-overlay').hidden = true; }
+    function doSave() {
+      const name = (document.getElementById('save-name').value || '').trim() || 'Untitled';
+      const folder = (document.getElementById('save-folder').value || '').trim();
+      const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const st = JSON.parse(serializeState().slice('rhythm:'.length));
+      delete st.folder;   // folder is browser context, not part of the clip
+      const s = loadSaves();
+      s.items.push({ id, name, folder, addedAt: Date.now(), state: st });
+      if (folder && !s.folders.includes(folder)) s.folders.push(folder);
+      persistSaves(s);
+      currentClipId = id;
+      currentClipName = name;
+      updateTopBar();
+      closeSaveDialog();
+      showToast('Saved "' + name + '"');
+      renderFiles();
+    }
+
+    // ---- Practice modes: shuffle (random) / playlist (in order) ----
+    // Repeat the current clip until two consecutive "green" cycles, then advance
+    // to another saved clip after a short random silence + count-in.
+    let practiceMode = '';   // '' | 'shuffle' | 'playlist'
+    let greenStreak = 0;
+    let practiceTriggered = false;
+
+    // A cycle is "green" if every note was hit within the green window.
+    function isGreenCycle(r) {
+      if (!r || r.onsetSteps.length === 0) return false;
+      const thresh = r.maxErrSec * GREEN_FRAC;
+      for (const e of r.onsetBest) if (!(e <= thresh)) return false;
+      return true;
+    }
+
+    function setPractice(mode) {
+      practiceMode = (practiceMode === mode) ? '' : mode;
+      document.getElementById('shuffle-btn').classList.toggle('active', practiceMode === 'shuffle');
+      document.getElementById('playlist-btn').classList.toggle('active', practiceMode === 'playlist');
+      greenStreak = 0;
+      practiceTriggered = false;
+      if (practiceMode && !running) startPlay();
+    }
+    function toggleShuffle() { setPractice('shuffle'); }
+    function togglePlaylist() { setPractice('playlist'); }
+
+    // Move to the next clip (random for shuffle, in-order for playlist), then
+    // start it after a random silent gap (0.5–1.5 bars) + count-in.
+    function advanceClip() {
+      const s = loadSaves();
+      if (!s.items.length) { greenStreak = 0; if (!running) startPlay(); else scheduleRaf = requestAnimationFrame(scheduleLoop); return; }
+      let it;
+      if (practiceMode === 'playlist') {
+        const idx = s.items.findIndex(x => x.id === currentClipId);
+        it = idx < 0 ? s.items[0] : s.items[(idx + 1) % s.items.length];
+      } else {
+        let pool = s.items;
+        if (pool.length > 1 && currentClipId) pool = pool.filter(x => x.id !== currentClipId);
+        it = pool[Math.floor(Math.random() * pool.length)];
+      }
+      greenStreak = 0;
+      applyState(it.state);   // stops play + rebuilds to the new clip
+      const nb = bpmFromName(it.name);   // a trailing number in the name sets tempo
+      if (nb != null) { setBpm(nb); persistBpm(); }
+      currentClipId = it.id;
+      currentClipName = it.name;
+      updateTopBar();
+      renderFiles();
+      let fe = 0; for (let m = 0; m < measures; m++) { if (!barOff(m)) { fe = m; break; } }
+      const silence = barSecOf(fe) * (0.5 + Math.random());   // 0.5 .. 1.5 bars
+      showToast((practiceMode === 'playlist' ? 'Next: "' : 'Shuffled to "') + it.name + '"');
+      startPlay(silence);
+    }
+
     // ---- URL state: keep the location hash in sync (debounced) so the page is
     // bookmarkable and reopens in the same state. ----
     let urlTimer = null;
@@ -1346,6 +2263,7 @@
         off: barDisabled.map(b => b ? 1 : 0),
         bpm: Math.round(bpm), volume: Math.round(volumePct),
         pattern: pattern.join(''),
+        folder: fpFolder,
       });
     }
 
@@ -1380,6 +2298,7 @@
         : new Array(T).fill(0);
       if (Number.isFinite(obj.bpm)) bpm = clamp(obj.bpm, BPM_MIN, BPM_MAX);
       if (Number.isFinite(obj.volume)) volumePct = clamp(obj.volume, 0, 100);
+      if (typeof obj.folder === 'string') fpFolder = obj.folder;
     }
 
     function applyState(obj) {
@@ -1392,6 +2311,12 @@
       buildGrid();
       buildNotation();
       persistSettings(); persistPattern(); persistBpm(); persistVolume();
+      // Reflect a matching saved clip in the title (e.g. after a paste).
+      const m = findMatchingSave();
+      currentClipId = m ? m.id : null;
+      currentClipName = m ? m.name : '';
+      updateTopBar();
+      renderFiles();
     }
 
     let toastTimer = null;
@@ -1439,18 +2364,27 @@
     document.getElementById('den-select').addEventListener('change', readControls);
     document.getElementById('measures-input').addEventListener('change', readControls);
     document.getElementById('subdiv-select').addEventListener('change', readControls);
+    // Select the measures value on focus so you can just type a number over the "x5".
+    document.getElementById('measures-input').addEventListener('focus', (e) => e.target.select());
 
     document.addEventListener('keydown', e => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = e.target && e.target.tagName;
-      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable);
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable);
+      if (e.key === 'Escape') {
+        if (fileBrowserOpen()) { closeFileBrowser(); return; }
+        if (saveDialogOpen()) { closeSaveDialog(); return; }
+        clearHistory();
+        return;
+      }
+      // While an overlay is open it owns the keyboard (inputs still type).
+      if (fileBrowserOpen() || saveDialogOpen()) return;
       if (e.code === 'Space') {
         if (typing) return;
         e.preventDefault();
         togglePlay();
         return;
       }
-      if (e.key === 'Escape') { if (running) stopPlay(); return; }
       if (typing) return;
       // BPM nudges: - = = ∓1, [ ] = ∓5 (repeat on hold)
       if (e.key === '-') { e.preventDefault(); setBpm(bpm - 1); persistBpm(); return; }
@@ -1506,6 +2440,11 @@
         if (barSig[m] === undefined) barSig[m] = null;
         if (barDisabled[m] === undefined) barDisabled[m] = false;
       }
+      if (!barDisabled.some(b => !b)) barDisabled[0] = false;   // never all-disabled
+      // If the loaded (URL/localStorage) state exactly matches a saved clip,
+      // adopt its name + folder so the top bar and browser reflect it.
+      const match = findMatchingSave();
+      if (match) { currentClipId = match.id; currentClipName = match.name; }
       syncControls();
       setBpm(bpm);
       setVolumePct(volumePct);
@@ -1520,6 +2459,27 @@
       document.addEventListener('pointermove', onGridMove);
       document.addEventListener('pointerup', onGridUp);
       document.addEventListener('pointercancel', onGridUp);
+      for (const id of ['save-name', 'save-folder']) {
+        document.getElementById(id).addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+        });
+      }
+      document.getElementById('save-overlay').addEventListener('click', e => { if (e.target.id === 'save-overlay') closeSaveDialog(); });
+      document.getElementById('file-picker-btn').addEventListener('dblclick', renameClip);
+      // Drag a JSON export file anywhere onto the page to import its clips.
+      window.addEventListener('dragover', (e) => {
+        if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault();
+      });
+      window.addEventListener('drop', (e) => {
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!f || !(/\.json$/i.test(f.name) || f.type === 'application/json')) return;
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => { try { importClips(JSON.parse(reader.result)); } catch (_) { showToast('Could not import file'); } };
+        reader.readAsText(f);
+      });
+      renderFiles();    // populate the sidebar (wide) / overlay contents
+      updateTopBar();
       let resizeRaf = null;
       window.addEventListener('resize', () => {
         if (resizeRaf) cancelAnimationFrame(resizeRaf);
