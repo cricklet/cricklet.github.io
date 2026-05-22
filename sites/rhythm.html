@@ -161,13 +161,13 @@
       /* Shift left by the measure's left padding so the first step still lines
          up with the play button while the active highlight gets left breathing
          room (the highlight extends into this padding without moving steps). */
-      margin-left: -12px;
+      margin-left: -8px;
     }
     .measure {
       display: flex;
       flex-direction: column;
       gap: 5px;
-      padding: 5px 12px;
+      padding: 8px;
       border-radius: 6px;
     }
     .measure.active {
@@ -248,15 +248,6 @@
     .beats { display: flex; gap: 12px; }
     .beat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
     .cells { display: flex; gap: 4px; }
-    .beat-num {
-      font-family: 'Reddit Mono', monospace;
-      font-size: 0.6rem;
-      opacity: 0.3;
-      line-height: 1;
-    }
-    /* Beat 1 of every measure (the downbeat) is highlighted so the measure
-       start is unmistakable. */
-    .beat.downbeat .beat-num { opacity: 0.7; color: var(--cell-on); font-weight: 600; }
     .step {
       width: clamp(20px, 2.8vw, 30px);
       height: clamp(20px, 2.8vw, 30px);
@@ -273,7 +264,10 @@
     /* ---- Notation (rendered by abcjs) ---- */
     #notation-wrap {
       width: 100%;
-      overflow-x: auto;
+      /* positioning context for the measure-highlight overlay; visible so the
+         overlay can spill into the surrounding gaps (the staff fits the width). */
+      position: relative;
+      overflow: visible;
     }
     #notation { width: 100%; min-height: 84px; display: flex; justify-content: flex-start; }
     #notation svg { height: auto; max-width: 100%; display: block; }
@@ -281,6 +275,15 @@
        !important — per-note accuracy colors are applied via inline style.) */
     #notation svg path { fill: var(--text-color); }
     #notation svg text { fill: var(--text-color); }
+    /* Current-measure highlight: a plain HTML overlay (not an svg rect, which the
+       svg viewport would clip). Matches the grid's .measure.active fill exactly. */
+    .measure-hl {
+      position: absolute;
+      background: rgba(122, 170, 245, 0.1);
+      border-radius: 6px;
+      pointer-events: none;
+      display: none;
+    }
 
     /* ---- History ---- */
     #history {
@@ -1003,6 +1006,7 @@
         for (const el of measureEls) el.classList.remove('active');
         const el = measureEls[m];
         if (el && running) el.classList.add('active');
+        highlightNotationMeasure(running ? m : -1);
       }, delayMs);
     }
 
@@ -1082,6 +1086,13 @@
       document.getElementById('play-btn').textContent = 'Pause';
       stepIndex = 0;
       pendingCycleStarts = [];
+      // Highlight the first bar (grid + notation) through the count-in; flashStep
+      // takes over once the first beat plays.
+      let firstEnabled = 0;
+      for (let m = 0; m < measures; m++) { if (!barOff(m)) { firstEnabled = m; break; } }
+      for (const el of measureEls) el.classList.remove('active');
+      if (measureEls[firstEnabled]) measureEls[firstEnabled].classList.add('active');
+      highlightNotationMeasure(firstEnabled);
       // Extra lead so the first spoken clip (which starts early by its offset)
       // isn't clipped against the context's current time. `extraDelay` adds the
       // shuffle silence before the count-in.
@@ -1106,6 +1117,7 @@
       document.getElementById('play-btn').textContent = 'Play';
       if (scheduleRaf != null) { cancelAnimationFrame(scheduleRaf); scheduleRaf = null; }
       for (const el of measureEls) el.classList.remove('active');
+      highlightNotationMeasure(-1);
       currentRow = null;
       pendingCycleStarts = [];
       greenStreak = 0;
@@ -1388,10 +1400,6 @@
             stepEls[idx] = cell;
           }
           beatEl.appendChild(cellsEl);
-          const bnum = document.createElement('div');
-          bnum.className = 'beat-num';
-          bnum.textContent = bt + 1;
-          beatEl.appendChild(bnum);
           beatsEl.appendChild(beatEl);
         }
         mEl.appendChild(beatsEl);
@@ -1614,6 +1622,10 @@
     const MISS_GREY = '#5a5a5a';   // note you didn't play near
     const DISABLED_GREY = '#3f3f3f';   // note in a disabled measure
     let lastStaffWidth = 280;      // notation width; history tracks match it
+    // Per-measure boxes (px, relative to #notation-wrap), keyed by global measure
+    // index (enabled measures only), + the HTML overlay we move to highlight one.
+    let measureSpans = {};
+    let measureHlEl = null;
 
     // Group the step model into note/rest events:
     //   note event = an onset (1) plus its trailing held (2) steps
@@ -1732,7 +1744,7 @@
       // note length covers all bars and each step is exactly one L-unit; the
       // denominator only changes how many steps a beat spans.
       const Lden = 4 * subdiv;
-      const PITCH = 'B';
+      const PITCH = 'B';   // B4 — the middle line of the treble staff
 
       // Flatten into atoms following standard metric notation: a note is one
       // notehead only if it spans a node of the bar's metric tree (or a dotted
@@ -1814,6 +1826,75 @@
       });
       colorNotation();
       measureNoteX();
+      computeMeasureSpans();
+    }
+
+    // Measure the staff's barlines so we can highlight whichever measure is
+    // playing. abcjs has no per-measure container, so each enabled measure spans
+    // from the previous barline (or the staff's left edge) to its own barline.
+    // We work in screen pixels (getBoundingClientRect) relative to #notation-wrap,
+    // because the highlight is an HTML overlay there — drawing it inside the svg
+    // gets clipped by the svg viewport no matter what overflow we set.
+    function computeMeasureSpans() {
+      measureSpans = {};
+      const wrap = document.getElementById('notation-wrap');
+      const svg = document.querySelector('#notation svg');
+      if (!wrap || !svg) { highlightNotationMeasure(-1); return; }
+      ensureMeasureHl(wrap);
+      const staff = svg.querySelector('.abcjs-staff');
+      const bars = Array.from(svg.querySelectorAll('.abcjs-bar'));
+      if (!staff || !bars.length) { highlightNotationMeasure(-1); return; }
+      const wr = wrap.getBoundingClientRect();
+      const stf = staff.getBoundingClientRect();
+      // Vertical span hugs the staff + every note (so stems and flags are
+      // included), but the above/below-staff overhang is symmetric: stems all
+      // point one way, so otherwise the highlight looks lopsided.
+      let cTop = stf.top, cBot = stf.bottom;
+      for (const n of svg.querySelectorAll('.abcjs-note')) {
+        const r = n.getBoundingClientRect();
+        if (r.height <= 0) continue;
+        if (r.top < cTop) cTop = r.top;
+        if (r.bottom > cBot) cBot = r.bottom;
+      }
+      const overhang = Math.max(stf.top - cTop, cBot - stf.bottom, 0);
+      cTop = stf.top - overhang;
+      cBot = stf.bottom + overhang;
+      // Barline center x's (screen px), sorted and deduped (a final |] is 2 lines).
+      const xs = bars.map(b => { const r = b.getBoundingClientRect(); return r.left + r.width / 2; }).sort((a, b) => a - b);
+      const bnd = [];
+      for (const x of xs) if (!bnd.length || x - bnd[bnd.length - 1] > 6) bnd.push(x);
+      const enabled = [];
+      for (let m = 0; m < measures; m++) if (!barOff(m)) enabled.push(m);
+      // Pad past the bounds exactly like the grid's .measure (padding: 8px),
+      // so the highlight spills equally on x and y, matching the steps.
+      const padX = 8, padY = 8;
+      const top = (cTop - wr.top) - padY, height = (cBot - cTop) + 2 * padY;
+      for (let j = 0; j < enabled.length && j < bnd.length; j++) {
+        const left = (j === 0 ? stf.left : bnd[j - 1]) - padX;
+        const right = bnd[j] + padX;
+        measureSpans[enabled[j]] = { left: left - wr.left, top, width: Math.max(2, right - left), height };
+      }
+    }
+
+    // The overlay div lives in #notation-wrap (which abcjs never clears), so we
+    // create it once and reuse it across re-renders.
+    function ensureMeasureHl(wrap) {
+      if (measureHlEl && measureHlEl.parentElement === wrap) return;
+      measureHlEl = document.createElement('div');
+      measureHlEl.className = 'measure-hl';
+      wrap.insertBefore(measureHlEl, wrap.firstChild);
+    }
+
+    // Show the highlight over global measure m (or hide it when m < 0 / unknown).
+    function highlightNotationMeasure(m) {
+      if (!measureHlEl) return;
+      const s = measureSpans[m];
+      if (m < 0 || !s) { measureHlEl.style.display = 'none'; return; }
+      measureHlEl.style.left = s.left + 'px';
+      measureHlEl.style.top = s.top + 'px';
+      measureHlEl.style.width = s.width + 'px';
+      measureHlEl.style.height = s.height + 'px';
+      measureHlEl.style.display = 'block';
     }
 
     // Record each onset's notehead x as a fraction of the staff width, so the
@@ -2445,6 +2526,7 @@
 
     function applyState(obj) {
       if (running) stopPlay();
+      clearHistory();   // a different pattern's accuracy log doesn't belong on this one
       stateToVars(obj);
       setBpm(bpm);
       setVolumePct(volumePct);
