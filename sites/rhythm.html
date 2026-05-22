@@ -295,7 +295,28 @@
     .hist-row {
       display: flex;
       align-items: center;
+      gap: 6px;
     }
+    .hist-play {
+      flex: 0 0 auto;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      line-height: 1;
+      color: rgba(128, 128, 128, 0.85);
+      background: rgba(128, 128, 128, 0.18);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+    .hist-play:hover { background: rgba(128, 128, 128, 0.3); color: var(--text-color); }
+    .hist-play:focus { outline: none; }
+    .hist-play:active { background: rgba(128, 128, 128, 0.38); }
     .hist-track {
       position: relative;
       /* Sized per-row to match the notation staff width (set inline); shrinks
@@ -662,6 +683,7 @@
       <button type="button" class="btn" onclick="fillPattern(false)">Clear</button>
       <button type="button" class="btn" onclick="openSaveDialog()">Save</button>
       <button type="button" class="btn" id="tapsound-btn" onclick="toggleTapSound()" title="Play a little sound on every tap">Tap ♪</button>
+      <button type="button" class="btn" id="countin-btn" onclick="toggleCountIn()" title="Count-in: spoken voice when on, two soft clicks when off">Voice</button>
     </div>
 
     <div id="grid"></div>
@@ -729,6 +751,7 @@
     const STORAGE_BARDISABLED = 'rhythm_bardisabled';
     const STORAGE_SAVES = 'rhythm_saves';
     const STORAGE_TAPSOUND = 'rhythm_tapsound';
+    const STORAGE_COUNTIN = 'rhythm_countin';   // '1' = spoken voice, '0' = soft clicks
     const MAX_HISTORY_ROWS = 20;
     const CUTTIME_BPM = 140;   // at/above this, 4/4 counts in "1 2" (cut time)
     const COUNT_VOLUME = 0.2;  // count-in plays at 20% of the metronome volume
@@ -757,6 +780,7 @@
     let volumePct = 100;
     let running = false;
     let tapSoundOn = false;   // play a short blip on each tap
+    let countInSpoken = false;   // true = spoken "3 4" count-in; false = two soft clicks
 
     function barNum(m) { const s = barSig[m]; return s ? s.num : defNum; }
     function barDen(m) { const s = barSig[m]; return s ? s.den : defDen; }
@@ -921,7 +945,9 @@
       return audioCtx.outputLatency || audioCtx.baseLatency || 0;
     }
 
-    function playClick(when, accent) {
+    // `sink`, if given, receives the created source node so callers (e.g. row
+    // playback) can stop it early.
+    function playClick(when, accent, sink) {
       if (audioCtx && !useFallback) {
         const buf = accent ? clickBuf : softBuf;
         if (!buf) return;
@@ -931,6 +957,7 @@
         g.gain.value = clamp(volumePct / 100, 0, 1);
         src.connect(g).connect(audioCtx.destination);
         src.start(Math.max(when, audioCtx.currentTime), accent ? clickOffset : softOffset);
+        if (sink) sink.push(src);
         return;
       }
       // Fallback: HTMLAudio + setTimeout (higher latency, but always plays).
@@ -948,10 +975,12 @@
     }
     // A short synthesized blip on each tap (distinct from the metronome click,
     // and needs no audio asset). Scales with the volume control.
-    function playTapSound() {
+    // `when` lets callers schedule it on the audio clock (used by row playback);
+    // omit it for an immediate blip on a live tap.
+    function playTapSound(when, sink) {
       ensureAudio();
       if (!audioCtx || useFallback) return;
-      const t = Math.max(audioCtx.currentTime, nowSec());
+      const t = Math.max(audioCtx.currentTime, when != null ? when : nowSec());
       const osc = audioCtx.createOscillator();
       const g = audioCtx.createGain();
       const peak = clamp(volumePct / 100, 0, 1) * 0.1;
@@ -963,6 +992,7 @@
       osc.connect(g).connect(audioCtx.destination);
       osc.start(t);
       osc.stop(t + 0.09);
+      if (sink) sink.push(osc);
     }
 
     // Highlight the whole measure currently playing (not the individual step).
@@ -1037,11 +1067,14 @@
 
     async function startPlay(extraDelay = 0) {
       if (running || startPending) return;
+      stopPlayback();   // a play/pause toggle cuts off any row playback
       startPending = true;
       await ensureAudio();          // decode clicks + resume context first
       const plan = countInPlan();
-      await ensureCountVoice();
-      await Promise.all(plan.nums.map(n => ensureCountNum(n)));
+      if (countInSpoken) {
+        await ensureCountVoice();
+        await Promise.all(plan.nums.map(n => ensureCountNum(n)));
+      }
       startPending = false;
       if (running) return;          // toggled off while we were waiting
       running = true;
@@ -1053,11 +1086,13 @@
       // isn't clipped against the context's current time. `extraDelay` adds the
       // shuffle silence before the count-in.
       const startAt = nowSec() + 0.35 + Math.max(0, extraDelay);
-      let spoke = true;
-      for (let i = 0; i < plan.nums.length; i++) {
-        if (!playCountNum(startAt + i * plan.spacing, plan.nums[i])) spoke = false;
+      let spoke = countInSpoken;
+      if (countInSpoken) {
+        for (let i = 0; i < plan.nums.length; i++) {
+          if (!playCountNum(startAt + i * plan.spacing, plan.nums[i])) spoke = false;
+        }
       }
-      if (!spoke) {   // no spoken clips available — fall back to quiet clicks
+      if (!spoke) {   // soft-click count-in (or no spoken clips available)
         for (let i = 0; i < plan.nums.length; i++) playClick(startAt + i * plan.spacing, false);
       }
       nextStepTime = startAt + plan.nums.length * plan.spacing;
@@ -1066,6 +1101,7 @@
     }
     function stopPlay() {
       running = false;
+      stopPlayback();   // a play/pause toggle cuts off any row playback
       document.getElementById('play-btn').classList.remove('playing');
       document.getElementById('play-btn').textContent = 'Play';
       if (scheduleRaf != null) { cancelAnimationFrame(scheduleRaf); scheduleRaf = null; }
@@ -1085,6 +1121,15 @@
       syncTapSoundBtn();
       try { localStorage.setItem(STORAGE_TAPSOUND, tapSoundOn ? '1' : '0'); } catch (_) {}
       if (tapSoundOn) playTapSound();   // preview the sound when turning it on
+    }
+
+    function syncCountInBtn() {
+      document.getElementById('countin-btn').classList.toggle('active', countInSpoken);
+    }
+    function toggleCountIn() {
+      countInSpoken = !countInSpoken;
+      syncCountInBtn();
+      try { localStorage.setItem(STORAGE_COUNTIN, countInSpoken ? '1' : '0'); } catch (_) {}
     }
 
     // ---- Tapping ----
@@ -1121,6 +1166,55 @@
       return min;
     }
 
+    // Beat onsets of the active cycle as fractions, flagged accented on each
+    // bar's downbeat — mirrors the click placement in scheduleLoop so a row can
+    // be replayed with the same metronome feel it was recorded against.
+    function cycleBeatFracs() {
+      const seqLen = activeStepCount();
+      if (!seqLen) return [];
+      const beats = [];
+      let acc = 0;
+      for (let m = 0; m < measures; m++) {
+        if (barOff(m)) continue;
+        const spb = stepsPerBeat(m);
+        beats.push({ step: acc, accent: true });   // downbeat
+        if (barDen(m) >= 8) {
+          let bs = acc;
+          const groups = beatGroups(barNum(m), barDen(m));
+          for (let gi = 0; gi < groups.length; gi++) {
+            if (gi > 0) beats.push({ step: bs, accent: false });
+            bs += groups[gi] * spb;
+          }
+        } else {
+          for (let b = 1; b < barNum(m); b++) beats.push({ step: acc + b * spb, accent: false });
+        }
+        acc += barSteps(m);
+      }
+      return beats.map(b => ({ frac: b.step / seqLen, accent: b.accent }));
+    }
+
+    // Source nodes from the in-flight row playback, so it can be cut short.
+    let playbackNodes = [];
+    function stopPlayback() {
+      for (const n of playbackNodes) {
+        try { n.stop(); } catch (_) {}
+        try { n.disconnect(); } catch (_) {}
+      }
+      playbackNodes = [];
+    }
+
+    // Replay one history row: the cycle's metronome clicks plus the taps the
+    // user actually made, at their recorded positions. No count-in.
+    function playbackRow(r) {
+      ensureAudio().then(() => {
+        if (!audioCtx || useFallback) return;
+        stopPlayback();   // only one playback at a time
+        const t0 = audioCtx.currentTime + 0.15;
+        for (const b of (r.beats || [])) playClick(t0 + b.frac * r.dur, b.accent, playbackNodes);
+        for (const f of r.tapFracs) playTapSound(t0 + f * r.dur, playbackNodes);
+      });
+    }
+
     // Spawn a fresh row for cycle `cIdx`, drawing the target ticks up front so
     // taps can be graded and shown against them in real time.
     function beginCycleRow(cIdx, startT, dur) {
@@ -1133,6 +1227,12 @@
 
       const row = document.createElement('div');
       row.className = 'hist-row';
+      const playBtn = document.createElement('button');
+      playBtn.className = 'hist-play';
+      playBtn.type = 'button';
+      playBtn.title = 'Play this back';
+      playBtn.setAttribute('aria-label', 'Play this back');
+      playBtn.textContent = '▶';   // ▶
       const track = document.createElement('div');
       track.className = 'hist-track';
       track.style.width = lastStaffWidth + 'px';
@@ -1145,11 +1245,16 @@
         track.appendChild(tk);
       }
       row.appendChild(track);
+      row.appendChild(playBtn);
       const hist = document.getElementById('history');
       hist.insertBefore(row, hist.firstChild);
       while (hist.children.length > MAX_HISTORY_ROWS) hist.removeChild(hist.lastChild);
 
-      const r = { cIdx, startT, dur, fracs, onsetSteps, onsetBest: onsetSteps.map(() => Infinity), tapFracs: [], maxErrSec, taps: 0, errSum: 0, el: row, track };
+      const r = { cIdx, startT, dur, fracs, onsetSteps, onsetBest: onsetSteps.map(() => Infinity), tapFracs: [], maxErrSec, taps: 0, errSum: 0, el: row, track, beats: cycleBeatFracs() };
+      // Stop pointerdown too: the #history container turns pointerdown into a
+      // tap, which would otherwise fire when you press the button.
+      playBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      playBtn.addEventListener('click', (e) => { e.stopPropagation(); playbackRow(r); });
 
       // Start the cycle with every note greyed (= not played yet); taps light
       // them up live as they land.
@@ -2461,6 +2566,8 @@
         }
         const ts = localStorage.getItem(STORAGE_TAPSOUND);
         if (ts === '0' || ts === '1') tapSoundOn = ts === '1';
+        const ci = localStorage.getItem(STORAGE_COUNTIN);
+        if (ci === '0' || ci === '1') countInSpoken = ci === '1';
       } catch (_) {}
     }
 
@@ -2486,6 +2593,7 @@
       if (match) { currentClipId = match.id; currentClipName = match.name; }
       syncControls();
       syncTapSoundBtn();
+      syncCountInBtn();
       setBpm(bpm);
       setVolumePct(volumePct);
       if (pattern.length !== totalSteps()) pattern = new Array(totalSteps()).fill(0);
