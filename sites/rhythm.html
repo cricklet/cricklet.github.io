@@ -661,6 +661,7 @@
       </div>
       <button type="button" class="btn" onclick="fillPattern(false)">Clear</button>
       <button type="button" class="btn" onclick="openSaveDialog()">Save</button>
+      <button type="button" class="btn" id="tapsound-btn" onclick="toggleTapSound()" title="Play a little sound on every tap">Tap ♪</button>
     </div>
 
     <div id="grid"></div>
@@ -727,6 +728,7 @@
     const STORAGE_BARSIG = 'rhythm_barsig';
     const STORAGE_BARDISABLED = 'rhythm_bardisabled';
     const STORAGE_SAVES = 'rhythm_saves';
+    const STORAGE_TAPSOUND = 'rhythm_tapsound';
     const MAX_HISTORY_ROWS = 20;
     const CUTTIME_BPM = 140;   // at/above this, 4/4 counts in "1 2" (cut time)
     const COUNT_VOLUME = 0.2;  // count-in plays at 20% of the metronome volume
@@ -754,6 +756,7 @@
     let bpm = 120;
     let volumePct = 100;
     let running = false;
+    let tapSoundOn = false;   // play a short blip on each tap
 
     function barNum(m) { const s = barSig[m]; return s ? s.num : defNum; }
     function barDen(m) { const s = barSig[m]; return s ? s.den : defDen; }
@@ -943,6 +946,25 @@
         void node.play().catch(() => {});
       }, delayMs);
     }
+    // A short synthesized blip on each tap (distinct from the metronome click,
+    // and needs no audio asset). Scales with the volume control.
+    function playTapSound() {
+      ensureAudio();
+      if (!audioCtx || useFallback) return;
+      const t = Math.max(audioCtx.currentTime, nowSec());
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      const peak = clamp(volumePct / 100, 0, 1) * 0.1;
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1100, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.09);
+    }
+
     // Highlight the whole measure currently playing (not the individual step).
     function flashStep(when, idx) {
       const delayMs = Math.max(0, (when - nowSec()) * 1000);
@@ -1055,8 +1077,19 @@
     }
     function togglePlay() { running ? stopPlay() : startPlay(); }
 
+    function syncTapSoundBtn() {
+      document.getElementById('tapsound-btn').classList.toggle('active', tapSoundOn);
+    }
+    function toggleTapSound() {
+      tapSoundOn = !tapSoundOn;
+      syncTapSoundBtn();
+      try { localStorage.setItem(STORAGE_TAPSOUND, tapSoundOn ? '1' : '0'); } catch (_) {}
+      if (tapSoundOn) playTapSound();   // preview the sound when turning it on
+    }
+
     // ---- Tapping ----
     function registerTap() {
+      if (tapSoundOn) playTapSound();
       if (!running || !currentRow) return;
       const t = nowSec();
       if (t < currentRow.startT) return;   // ignore taps during the count-in
@@ -1716,8 +1749,12 @@
       const A = [];
       for (let j = 0; j < N; j++) if (pattern[seq[j]] === 1 && onsetXFrac[seq[j]] != null) A.push([j / N, onsetXFrac[seq[j]]]);
       if (!A.length) return frac;
-      if (A[0][0] > 0) A.unshift([0, A[0][1]]);
-      if (A[A.length - 1][0] < 1) A.push([1, A[A.length - 1][1]]);
+      // Anchor the measure boundaries to the track edges (rests are engraved, so
+      // the staff spans the whole measure). Without this, taps landing before the
+      // first note or after the last clamp flat onto that notehead instead of
+      // spreading across the leading/trailing rest into the full measure width.
+      if (A[0][0] > 0) A.unshift([0, 0]);
+      if (A[A.length - 1][0] < 1) A.push([1, 1]);
       for (let i = 0; i + 1 < A.length; i++) {
         if (frac >= A[i][0] && frac <= A[i + 1][0]) {
           const [t0, x0] = A[i], [t1, x1] = A[i + 1];
@@ -2422,6 +2459,8 @@
         if (pat && /^[012]+$/.test(pat) && pat.length === totalSteps()) {
           pattern = pat.split('').map(c => parseInt(c, 10));
         }
+        const ts = localStorage.getItem(STORAGE_TAPSOUND);
+        if (ts === '0' || ts === '1') tapSoundOn = ts === '1';
       } catch (_) {}
     }
 
@@ -2446,6 +2485,7 @@
       const match = findMatchingSave();
       if (match) { currentClipId = match.id; currentClipName = match.name; }
       syncControls();
+      syncTapSoundBtn();
       setBpm(bpm);
       setVolumePct(volumePct);
       if (pattern.length !== totalSteps()) pattern = new Array(totalSteps()).fill(0);
