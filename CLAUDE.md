@@ -1,1 +1,0 @@
-make sure to read sites/package.json
